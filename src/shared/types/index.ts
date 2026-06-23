@@ -207,7 +207,32 @@ export interface UpGroup {
   color: string
   isAiGenerated: boolean
   sortOrder: number
+  parentId: number | null
   memberCount: number
+}
+
+export interface UpGroupTreeL2Node {
+  id: number
+  name: string
+  color: string
+  sortOrder: number
+  count: number
+}
+
+export interface UpGroupTreeNode {
+  id: number
+  name: string
+  color: string
+  sortOrder: number
+  count: number
+  children: UpGroupTreeL2Node[]
+}
+
+export type UpGroupSelectionLevel = 'all' | 'l1' | 'l2' | 'uncategorized'
+
+export interface UpGroupSelection {
+  level: UpGroupSelectionLevel
+  id: number | null
 }
 
 export interface AiConfig {
@@ -261,8 +286,9 @@ export interface BiliDeskApi {
     getFavTaskStatus: (taskId: number) => Promise<ClassificationTask | null>
     enrichFavoriteCovers: () => Promise<{ updated: number; remaining: number }>
     getUpGroups: () => Promise<UpGroup[]>
+    getUpGroupTree: () => Promise<UpGroupTreeNode[]>
     createUpGroup: (name: string, color?: string) => Promise<UpGroup>
-    getUpGroupMemberMids: (groupId: number) => Promise<number[]>
+    getUpGroupMemberMids: (selection: UpGroupSelection) => Promise<number[]>
   }
   ai: {
     getConfig: () => Promise<AiConfig>

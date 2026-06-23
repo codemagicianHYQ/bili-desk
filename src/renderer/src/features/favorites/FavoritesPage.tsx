@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CategoryTreeNode, FavFolder, FavResource, LocalCategorySelection } from '@shared/types'
+import type { FavResource, LocalCategorySelection } from '@shared/types'
+import { useFavoritesStore } from '@/stores/favorites-store'
 import {
   assignmentToFavResource,
   enrichTreeWithCounts,
@@ -55,12 +56,16 @@ export function FavoritesPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const folderLoadSeqRef = useRef(0)
+
+  const tree = useFavoritesStore((state) => state.tree)
+  const assignments = useFavoritesStore((state) => state.assignments)
+  const folders = useFavoritesStore((state) => state.folders)
+  const ensureTaxonomy = useFavoritesStore((state) => state.ensureTaxonomy)
+  const ensureFolders = useFavoritesStore((state) => state.ensureFolders)
+  const enrichCoversOnce = useFavoritesStore((state) => state.enrichCoversOnce)
+  const invalidateTaxonomy = useFavoritesStore((state) => state.invalidateTaxonomy)
+
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('bilibili')
-  const [tree, setTree] = useState<CategoryTreeNode[]>([])
-  const [assignments, setAssignments] = useState<Awaited<
-    ReturnType<typeof window.biliDesk.taxonomy.getFavoriteAssignments>
-  >>([])
-  const [folders, setFolders] = useState<FavFolder[]>([])
   const [resources, setResources] = useState<FavResource[]>([])
   const [folderPage, setFolderPage] = useState(1)
   const [folderHasMore, setFolderHasMore] = useState(false)
@@ -77,28 +82,17 @@ export function FavoritesPage() {
   const isLocalMode = sidebarMode === 'local'
 
   const reloadTaxonomy = useCallback(async () => {
-    const [nextTree, nextAssignments] = await Promise.all([
-      window.biliDesk.taxonomy.getTree(),
-      window.biliDesk.taxonomy.getFavoriteAssignments()
-    ])
-    setTree(nextTree)
-    setAssignments(nextAssignments)
-  }, [])
+    await ensureTaxonomy({ force: true })
+  }, [ensureTaxonomy])
 
-  const enrichCovers = useCallback(async () => {
-    let remaining = 1
-    let guard = 0
-    while (remaining > 0 && guard < 20) {
-      const result = await window.biliDesk.taxonomy.enrichFavoriteCovers()
-      remaining = result.remaining
-      guard++
-      if (result.updated > 0) {
-        const nextAssignments = await window.biliDesk.taxonomy.getFavoriteAssignments()
-        setAssignments(nextAssignments)
-      }
-      if (remaining === 0) break
-    }
-  }, [])
+  useEffect(() => {
+    void (async () => {
+      await ensureTaxonomy()
+      void enrichCoversOnce()
+      const list = await ensureFolders()
+      setSelectedFolder((prev) => prev ?? list[0]?.id ?? null)
+    })()
+  }, [ensureTaxonomy, ensureFolders, enrichCoversOnce])
 
   const loadFolderPage = useCallback(async (mediaId: number, page: number, append: boolean) => {
     const seq = ++folderLoadSeqRef.current
@@ -131,16 +125,6 @@ export function FavoritesPage() {
       }
     }
   }, [])
-
-  useEffect(() => {
-    void (async () => {
-      await reloadTaxonomy()
-      void enrichCovers()
-      const list = await window.biliDesk.bili.getFavFolders()
-      setFolders(list)
-      if (list[0]) setSelectedFolder(list[0].id)
-    })()
-  }, [reloadTaxonomy, enrichCovers])
 
   useEffect(() => {
     if (sidebarMode !== 'bilibili' || !selectedFolder) return
@@ -236,8 +220,9 @@ export function FavoritesPage() {
 
             if (task.status === 'done' || task.status === 'failed') {
               clearInterval(poll)
+              invalidateTaxonomy()
               await reloadTaxonomy()
-              void enrichCovers()
+              void enrichCoversOnce()
               if (task.status === 'failed') {
                 reject(new Error(task.message))
               } else {

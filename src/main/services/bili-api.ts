@@ -708,6 +708,21 @@ class BiliApiService {
     return list.map((u: Record<string, unknown>) => this.mapFollowingUser(u))
   }
 
+  async getAllFollowings(): Promise<FollowingUp[]> {
+    const all: FollowingUp[] = []
+    let page = 1
+
+    while (true) {
+      const batch = await this.getFollowings(page)
+      if (batch.length === 0) break
+      all.push(...batch)
+      if (batch.length < 50) break
+      page++
+    }
+
+    return all
+  }
+
   async getFollowTags(): Promise<FollowTag[]> {
     if (!isLoggedIn()) return []
 
@@ -895,6 +910,11 @@ class BiliApiService {
     if (res.data?.code !== 0) {
       throw new Error(res.data?.message || '关注操作失败')
     }
+  }
+
+  async getRecentVideoTitles(mid: number, limit = 5): Promise<string[]> {
+    const page = await this.getUpVideos(mid, 1)
+    return page.videos.slice(0, limit).map((video) => video.title)
   }
 
   async getUpVideos(mid: number, page = 1): Promise<UpVideosPage> {

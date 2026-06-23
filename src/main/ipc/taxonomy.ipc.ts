@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc-channels'
+import type { UpGroupSelection } from '@shared/types'
 import { taxonomyRepo } from '../db/repositories/taxonomy'
 import { favClassifyEngine } from '../services/fav-classify-engine'
 import { biliApi } from '../services/bili-api'
@@ -39,10 +40,11 @@ export function registerTaxonomyIpc(): void {
     return { updated, remaining: taxonomyRepo.getMissingCoverCount() }
   })
   ipcMain.handle(IPC.TAXONOMY_UP_GROUPS, () => taxonomyRepo.getUpGroups())
+  ipcMain.handle(IPC.TAXONOMY_UP_GROUP_TREE, () => taxonomyRepo.getUpGroupTree())
   ipcMain.handle(IPC.TAXONOMY_UP_GROUP_CREATE, (_e, name: string, color?: string) =>
     taxonomyRepo.createUpGroup(name, color)
   )
-  ipcMain.handle(IPC.TAXONOMY_UP_GROUP_MEMBERS, (_e, groupId: number) =>
-    taxonomyRepo.getUpGroupMemberMids(groupId)
+  ipcMain.handle(IPC.TAXONOMY_UP_GROUP_MEMBERS, (_e, selection: UpGroupSelection) =>
+    taxonomyRepo.getUpGroupMemberMids(selection)
   )
 }

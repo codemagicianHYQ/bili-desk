@@ -6,15 +6,26 @@ import type {
   CategoryTreeNode,
   ClassificationTask,
   FavoriteItemAssignment,
-  UpGroup
+  UpGroup,
+  UpGroupSelection,
+  UpGroupTreeNode
 } from '@shared/types'
+
+type DbUpGroup = {
+  id: number
+  name: string
+  color: string
+  isAiGenerated: boolean
+  sortOrder: number
+  parentId: number | null
+}
 
 interface DbSchema {
   categoryL1: CategoryL1[]
   categoryL2: CategoryL2[]
   categoryL3: CategoryL3[]
   favoriteItemMap: FavoriteItemAssignment[]
-  upGroups: Array<Omit<UpGroup, 'memberCount'> & { sortOrder: number }>
+  upGroups: DbUpGroup[]
   upMemberMap: Array<{
     id: number
     mid: number
@@ -26,6 +37,69 @@ interface DbSchema {
   classificationTasks: ClassificationTask[]
   nextIds: Record<string, number>
   favTaxonomySeeded?: boolean
+  upTaxonomyVersion?: number
+}
+
+const UP_L1_COLORS: Record<string, string> = {
+  计算机: '#3b82f6',
+  学习: '#8b5cf6',
+  娱乐: '#f59e0b',
+  生活: '#22c55e',
+  其他: '#94a3b8'
+}
+
+const UP_TAXONOMY_SEED: Array<{ name: string; children: string[] }> = [
+  {
+    name: '计算机',
+    children: ['前端', '后端', '人工智能', '嵌入式', '硬核科技', '计算机网络', '数据库', '运维', '算法']
+  },
+  { name: '学习', children: ['数学', '考研', '外语', '面试', '课程'] },
+  { name: '娱乐', children: ['游戏', '影视', '音乐', '动漫'] },
+  {
+    name: '生活',
+    children: ['美食', '旅游', '健身', '数码', '财经', '科普', '历史人文', '自行车', '运动着装']
+  },
+  { name: '其他', children: ['综合'] }
+]
+
+function buildSeedUpGroups(): DbUpGroup[] {
+  const groups: DbUpGroup[] = [
+    { id: 1, name: '未分组', color: '#94a3b8', isAiGenerated: false, sortOrder: 0, parentId: null }
+  ]
+  let nextId = 2
+  let l1Sort = 1
+
+  for (const l1 of UP_TAXONOMY_SEED) {
+    const l1Id = nextId++
+    groups.push({
+      id: l1Id,
+      name: l1.name,
+      color: UP_L1_COLORS[l1.name] ?? '#64748b',
+      isAiGenerated: true,
+      sortOrder: l1Sort++,
+      parentId: null
+    })
+
+    for (let index = 0; index < l1.children.length; index++) {
+      groups.push({
+        id: nextId++,
+        name: l1.children[index],
+        color: UP_L1_COLORS[l1.name] ?? '#64748b',
+        isAiGenerated: true,
+        sortOrder: index,
+        parentId: l1Id
+      })
+    }
+  }
+
+  return groups
+}
+
+function migrateUpTaxonomyToV2(data: DbSchema): void {
+  data.upGroups = buildSeedUpGroups()
+  data.upMemberMap = []
+  data.nextIds.upGroup = Math.max(...data.upGroups.map((group) => group.id)) + 1
+  data.upTaxonomyVersion = 2
 }
 
 const defaultDb: DbSchema = {
@@ -41,16 +115,13 @@ const defaultDb: DbSchema = {
   ],
   categoryL3: [],
   favoriteItemMap: [],
-  upGroups: [
-    { id: 1, name: '未分组', color: '#94a3b8', isAiGenerated: false, sortOrder: 0 },
-    { id: 2, name: '技术', color: '#3b82f6', isAiGenerated: true, sortOrder: 1 },
-    { id: 3, name: '生活', color: '#22c55e', isAiGenerated: true, sortOrder: 2 }
-  ],
+  upGroups: buildSeedUpGroups(),
   upMemberMap: [],
   upGroupRules: [],
   classificationTasks: [],
-  nextIds: { categoryL1: 3, categoryL2: 5, categoryL3: 1, upGroup: 4, task: 1, member: 1, favMap: 1 },
-  favTaxonomySeeded: true
+  nextIds: { categoryL1: 3, categoryL2: 5, categoryL3: 1, upGroup: 35, task: 1, member: 1, favMap: 1 },
+  favTaxonomySeeded: true,
+  upTaxonomyVersion: 2
 }
 
 function getDbData(): DbSchema {
@@ -64,6 +135,15 @@ function getDbData(): DbSchema {
   if (!stored.favoriteItemMap) stored.favoriteItemMap = []
   if (!stored.nextIds.categoryL3) stored.nextIds.categoryL3 = 1
   if (!stored.nextIds.favMap) stored.nextIds.favMap = 1
+
+  for (const group of stored.upGroups) {
+    if (group.parentId === undefined) group.parentId = null
+  }
+
+  if (!stored.upTaxonomyVersion || stored.upTaxonomyVersion < 2) {
+    migrateUpTaxonomyToV2(stored)
+  }
+
   saveDb(stored)
   return stored
 }
@@ -679,33 +759,192 @@ export class TaxonomyRepository {
   }
 
   getUpGroups(): UpGroup[] {
+    this.ensureExtendedUpTaxonomy()
     const data = getDbData()
     return data.upGroups
       .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((g) => ({
-        id: g.id,
-        name: g.name,
-        color: g.color,
-        isAiGenerated: g.isAiGenerated,
-        sortOrder: g.sortOrder,
-        memberCount: data.upMemberMap.filter((m) => m.upGroupId === g.id).length
+      .map((group) => ({
+        id: group.id,
+        name: group.name,
+        color: group.color,
+        isAiGenerated: group.isAiGenerated,
+        sortOrder: group.sortOrder,
+        parentId: group.parentId,
+        memberCount: data.upMemberMap.filter((member) => member.upGroupId === group.id).length
       }))
   }
 
-  getUpGroupMemberMids(groupId: number): number[] {
-    return getDbData()
-      .upMemberMap.filter((m) => m.upGroupId === groupId)
-      .map((m) => m.mid)
+  ensureExtendedUpTaxonomy(): void {
+    const data = getDbData()
+    let changed = false
+
+    for (const [index, seed] of UP_TAXONOMY_SEED.entries()) {
+      let l1 = data.upGroups.find((group) => group.parentId === null && group.name === seed.name)
+      if (!l1) {
+        l1 = {
+          id: nextId(data, 'upGroup'),
+          name: seed.name,
+          color: UP_L1_COLORS[seed.name] ?? '#64748b',
+          isAiGenerated: true,
+          sortOrder: index + 1,
+          parentId: null
+        }
+        data.upGroups.push(l1)
+        changed = true
+      }
+
+      for (const [childIndex, childName] of seed.children.entries()) {
+        const exists = data.upGroups.some(
+          (group) => group.parentId === l1!.id && group.name === childName
+        )
+        if (exists) continue
+
+        data.upGroups.push({
+          id: nextId(data, 'upGroup'),
+          name: childName,
+          color: l1.color,
+          isAiGenerated: true,
+          sortOrder: childIndex,
+          parentId: l1.id
+        })
+        changed = true
+      }
+    }
+
+    if (changed) saveDb(data)
+  }
+
+  getUpGroupTree(): UpGroupTreeNode[] {
+    this.ensureExtendedUpTaxonomy()
+    const data = getDbData()
+
+    return data.upGroups
+      .filter((group) => group.parentId === null && group.name !== '未分组')
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((l1) => {
+        const children = data.upGroups
+          .filter((group) => group.parentId === l1.id)
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((l2) => ({
+            id: l2.id,
+            name: l2.name,
+            color: l2.color,
+            sortOrder: l2.sortOrder,
+            count: data.upMemberMap.filter((member) => member.upGroupId === l2.id).length
+          }))
+
+        return {
+          id: l1.id,
+          name: l1.name,
+          color: l1.color,
+          sortOrder: l1.sortOrder,
+          count: children.reduce((sum, child) => sum + child.count, 0),
+          children
+        }
+      })
+  }
+
+  getUpGroupMemberMids(selection: UpGroupSelection): number[] {
+    const data = getDbData()
+    const members = data.upMemberMap
+
+    if (selection.level === 'all') {
+      return members.map((member) => member.mid)
+    }
+
+    if (selection.level === 'l2' && selection.id != null) {
+      return members.filter((member) => member.upGroupId === selection.id).map((member) => member.mid)
+    }
+
+    if (selection.level === 'l1' && selection.id != null) {
+      const childIds = new Set(
+        data.upGroups.filter((group) => group.parentId === selection.id).map((group) => group.id)
+      )
+      return members.filter((member) => childIds.has(member.upGroupId)).map((member) => member.mid)
+    }
+
+    return []
+  }
+
+  createUpClassificationWriter() {
+    this.ensureExtendedUpTaxonomy()
+    const data = getDbData()
+
+    const persist = () => saveDb(data)
+
+    return {
+      findOrCreateL1(name: string): DbUpGroup {
+        const existing = data.upGroups.find(
+          (group) => group.parentId === null && group.name === name && group.name !== '未分组'
+        )
+        if (existing) return existing
+
+        const item: DbUpGroup = {
+          id: nextId(data, 'upGroup'),
+          name,
+          color: UP_L1_COLORS[name] ?? '#64748b',
+          isAiGenerated: true,
+          sortOrder: data.upGroups.filter((group) => group.parentId === null).length,
+          parentId: null
+        }
+        data.upGroups.push(item)
+        persist()
+        return item
+      },
+      findOrCreateL2(l1Id: number, name: string): DbUpGroup {
+        const existing = data.upGroups.find((group) => group.parentId === l1Id && group.name === name)
+        if (existing) return existing
+
+        const parent = data.upGroups.find((group) => group.id === l1Id)
+        const item: DbUpGroup = {
+          id: nextId(data, 'upGroup'),
+          name,
+          color: parent?.color ?? '#64748b',
+          isAiGenerated: true,
+          sortOrder: data.upGroups.filter((group) => group.parentId === l1Id).length,
+          parentId: l1Id
+        }
+        data.upGroups.push(item)
+        persist()
+        return item
+      }
+    }
+  }
+
+  resolveUpGroupId(l1Name: string, l2Name: string): number {
+    const writer = this.createUpClassificationWriter()
+    const l1 = writer.findOrCreateL1(l1Name)
+    const l2 = writer.findOrCreateL2(l1.id, l2Name)
+    return l2.id
+  }
+
+  getUpLeafGroups(): Array<{ id: number; path: string }> {
+    this.ensureExtendedUpTaxonomy()
+    const data = getDbData()
+    const l1Map = new Map(
+      data.upGroups
+        .filter((group) => group.parentId === null && group.name !== '未分组')
+        .map((group) => [group.id, group.name])
+    )
+
+    return data.upGroups
+      .filter((group) => group.parentId != null)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((group) => ({
+        id: group.id,
+        path: `${l1Map.get(group.parentId!) ?? '其他'} / ${group.name}`
+      }))
   }
 
   createUpGroup(name: string, color = '#FB7299'): UpGroup {
     const data = getDbData()
-    const item = {
+    const item: DbUpGroup = {
       id: nextId(data, 'upGroup'),
       name,
       color,
       isAiGenerated: false,
-      sortOrder: data.upGroups.length
+      sortOrder: data.upGroups.length,
+      parentId: null
     }
     data.upGroups.push(item)
     saveDb(data)
@@ -741,15 +980,41 @@ export class TaxonomyRepository {
   }
 
   assignUp(mid: number, groupId: number, source: string, confidence: number): void {
+    this.assignUpsBatch([{ mid, groupId, source, confidence }])
+  }
+
+  assignUpsBatch(
+    entries: Array<{ mid: number; groupId: number; source: string; confidence: number }>
+  ): void {
+    if (entries.length === 0) return
     const data = getDbData()
-    data.upMemberMap = data.upMemberMap.filter((m) => m.mid !== mid)
-    data.upMemberMap.push({
+    const replaceMids = new Set(entries.map((entry) => entry.mid))
+    data.upMemberMap = data.upMemberMap.filter((member) => !replaceMids.has(member.mid))
+
+    for (const entry of entries) {
+      data.upMemberMap.push({
+        id: nextId(data, 'member'),
+        mid: entry.mid,
+        upGroupId: entry.groupId,
+        source: entry.source,
+        confidence: entry.confidence
+      })
+    }
+
+    saveDb(data)
+  }
+
+  replaceAllUpMembers(
+    entries: Array<{ mid: number; groupId: number; source: string; confidence: number }>
+  ): void {
+    const data = getDbData()
+    data.upMemberMap = entries.map((entry) => ({
       id: nextId(data, 'member'),
-      mid,
-      upGroupId: groupId,
-      source,
-      confidence
-    })
+      mid: entry.mid,
+      upGroupId: entry.groupId,
+      source: entry.source,
+      confidence: entry.confidence
+    }))
     saveDb(data)
   }
 }

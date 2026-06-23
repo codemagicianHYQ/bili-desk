@@ -65,6 +65,17 @@ const TITLE_RULES: Array<{
   { l1: '生活', keywords: /生活|日常|分享|记录|感悟|情感|心理|健康/i }
 ]
 
+export function matchTitleToCategory(title: string): { l1: string; l2?: string; l3?: string } | null {
+  const text = title.toLowerCase()
+
+  for (const rule of TITLE_RULES) {
+    if (!rule.keywords.test(text) && !rule.keywords.test(title)) continue
+    return { l1: rule.l1, l2: rule.l2, l3: rule.l3 }
+  }
+
+  return null
+}
+
 function buildAssignment(item: FavResource, match: CategoryMatch) {
   return {
     mediaId: item.id,
@@ -93,35 +104,28 @@ function classifyFavoriteTitleWithWriter(
   writer: ReturnType<typeof taxonomyRepo.createClassificationWriter>,
   title: string
 ): CategoryMatch {
-  const text = title.toLowerCase()
+  const matched = matchTitleToCategory(title)
+  if (!matched) {
+    const other = writer.findOrCreateL1('其他')
+    return { categoryL1Id: other.id, categoryL2Id: null, categoryL3Id: null }
+  }
 
-  for (const rule of TITLE_RULES) {
-    if (!rule.keywords.test(text) && !rule.keywords.test(title)) continue
+  const l1 = writer.findOrCreateL1(matched.l1)
 
-    const l1 = writer.findOrCreateL1(rule.l1)
+  let l2Id: number | null = null
+  let l3Id: number | null = null
 
-    let l2Id: number | null = null
-    let l3Id: number | null = null
-
-    if (rule.l2) {
-      const l2 = writer.findOrCreateL2(l1.id, rule.l2)
-      l2Id = l2.id
-      if (rule.l3) {
-        const l3 = writer.findOrCreateL3(l2.id, rule.l3)
-        l3Id = l3.id
-        l2Id = l3.categoryL2Id
-      }
+  if (matched.l2) {
+    const l2 = writer.findOrCreateL2(l1.id, matched.l2)
+    l2Id = l2.id
+    if (matched.l3) {
+      const l3 = writer.findOrCreateL3(l2.id, matched.l3)
+      l3Id = l3.id
+      l2Id = l3.categoryL2Id
     }
-
-    return { categoryL1Id: l1.id, categoryL2Id: l2Id, categoryL3Id: l3Id }
   }
 
-  const other = writer.findOrCreateL1('其他')
-  return {
-    categoryL1Id: other.id,
-    categoryL2Id: null,
-    categoryL3Id: null
-  }
+  return { categoryL1Id: l1.id, categoryL2Id: l2Id, categoryL3Id: l3Id }
 }
 
 export async function classifyFavoriteItemsAsync(

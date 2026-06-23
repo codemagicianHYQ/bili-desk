@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc-channels'
-import type { AiConfig, Theme } from '@shared/types'
+import type { AiConfig, Theme, UpGroupSelection, UpGroupTreeNode } from '@shared/types'
 
 const api = {
   auth: {
@@ -60,12 +60,13 @@ const api = {
     getFavTaskStatus: (taskId: number) => ipcRenderer.invoke(IPC.TAXONOMY_FAV_TASK_STATUS, taskId),
     enrichFavoriteCovers: () => ipcRenderer.invoke(IPC.TAXONOMY_FAV_ENRICH_COVERS),
     getUpGroups: () => ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUPS),
+    getUpGroupTree: () => ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_TREE),
     createUpGroup: (name: string, color?: string) =>
       color
         ? ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_CREATE, name, color)
         : ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_CREATE, name),
-    getUpGroupMemberMids: (groupId: number) =>
-      ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_MEMBERS, groupId),
+    getUpGroupMemberMids: (selection: UpGroupSelection) =>
+      ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_MEMBERS, selection),
   },
   ai: {
     getConfig: () => ipcRenderer.invoke(IPC.AI_CONFIG_GET),

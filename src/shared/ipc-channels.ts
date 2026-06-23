@@ -32,6 +32,7 @@ export const IPC = {
   TAXONOMY_FAV_ENRICH_COVERS: 'taxonomy:fav-enrich-covers',
   TAXONOMY_TREE: 'taxonomy:tree',
   TAXONOMY_UP_GROUPS: 'taxonomy:up-groups',
+  TAXONOMY_UP_GROUP_TREE: 'taxonomy:up-group-tree',
   TAXONOMY_UP_GROUP_CREATE: 'taxonomy:up-group-create',
   TAXONOMY_UP_GROUP_MEMBERS: 'taxonomy:up-group-members',
 

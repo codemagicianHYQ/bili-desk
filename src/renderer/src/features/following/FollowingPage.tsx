@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FollowTag, FollowingUp, UpGroup } from '@shared/types'
-import { UpGroupPanel } from '@/components/taxonomy/UpGroupPanel'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { FollowingUp, UpGroupSelection, UpGroupTreeNode } from '@shared/types'
+import { useFollowingStore } from '@/stores/following-store'
+import { UpGroupTree } from '@/components/taxonomy/UpGroupTree'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Folder, Loader2, Sparkles } from 'lucide-react'
@@ -17,16 +18,38 @@ function formatError(err: unknown): string {
   return message
 }
 
+function getLocalSelectionLabel(tree: UpGroupTreeNode[], selection: UpGroupSelection): string {
+  if (selection.level === 'uncategorized') return '未分组'
+  if (selection.level === 'l1' && selection.id != null) {
+    return tree.find((node) => node.id === selection.id)?.name ?? '...'
+  }
+  if (selection.level === 'l2' && selection.id != null) {
+    for (const l1 of tree) {
+      const l2 = l1.children.find((child) => child.id === selection.id)
+      if (l2) return `${l1.name} / ${l2.name}`
+    }
+  }
+  return '...'
+}
+
 export function FollowingPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const loadSeqRef = useRef(0)
 
+  const followTags = useFollowingStore((state) => state.followTags)
+  const upGroupTree = useFollowingStore((state) => state.upGroupTree)
+  const uncategorizedCount = useFollowingStore((state) => state.uncategorizedCount)
+  const allFollowings = useFollowingStore((state) => state.allFollowings)
+  const refreshSidebar = useFollowingStore((state) => state.refreshSidebar)
+  const filterLocalFollowings = useFollowingStore((state) => state.filterLocalFollowings)
+  const invalidateFollowings = useFollowingStore((state) => state.invalidateFollowings)
+  const invalidateSidebar = useFollowingStore((state) => state.invalidateSidebar)
+  const patchFollowing = useFollowingStore((state) => state.patchFollowing)
+
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('bilibili')
-  const [followTags, setFollowTags] = useState<FollowTag[]>([])
   const [selectedTagId, setSelectedTagId] = useState<number | null>(null)
-  const [localGroups, setLocalGroups] = useState<UpGroup[]>([])
-  const [selectedLocalGroupId, setSelectedLocalGroupId] = useState<number | null>(null)
+  const [localSelection, setLocalSelection] = useState<UpGroupSelection>({ level: 'l1', id: null })
   const [followings, setFollowings] = useState<FollowingUp[]>([])
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
@@ -34,42 +57,15 @@ export function FollowingPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
   const [taskMessage, setTaskMessage] = useState('')
-  const [allFollowingsCache, setAllFollowingsCache] = useState<FollowingUp[] | null>(null)
   const [tagDialogUp, setTagDialogUp] = useState<FollowingUp | null>(null)
   const [actionMessage, setActionMessage] = useState('')
 
   const isLocalMode = sidebarMode === 'local'
   const selectedTag = followTags.find((tag) => tag.tagId === selectedTagId)
-  const selectedLocalGroup = localGroups.find((group) => group.id === selectedLocalGroupId)
-
-  const refreshSidebar = useCallback(async () => {
-    const [tags, groups] = await Promise.all([
-      window.biliDesk.bili.getFollowTags(),
-      window.biliDesk.taxonomy.getUpGroups()
-    ])
-    setFollowTags(tags)
-    setLocalGroups(groups)
-    setSelectedTagId((prev) => prev ?? tags[0]?.tagId ?? null)
-    setSelectedLocalGroupId((prev) => prev ?? groups[0]?.id ?? null)
-  }, [])
-
-  const loadAllFollowings = useCallback(async (): Promise<FollowingUp[]> => {
-    if (allFollowingsCache) return allFollowingsCache
-
-    const all: FollowingUp[] = []
-    let currentPage = 1
-
-    while (true) {
-      const batch = await window.biliDesk.bili.getFollowings(currentPage)
-      if (batch.length === 0) break
-      all.push(...batch)
-      if (batch.length < 50) break
-      currentPage++
-    }
-
-    setAllFollowingsCache(all)
-    return all
-  }, [allFollowingsCache])
+  const localSelectionLabel = useMemo(
+    () => getLocalSelectionLabel(upGroupTree, localSelection),
+    [upGroupTree, localSelection]
+  )
 
   const loadBilibiliPage = useCallback(async (tagId: number, nextPage: number, append: boolean) => {
     const seq = ++loadSeqRef.current
@@ -104,22 +100,23 @@ export function FollowingPage() {
   }, [])
 
   const loadLocalGroupMembers = useCallback(
-    async (groupId: number) => {
+    async (selection: UpGroupSelection) => {
+      if (selection.level !== 'uncategorized' && selection.id == null) return
+
       const seq = ++loadSeqRef.current
-      setLoading(true)
-      setError('')
-      setFollowings([])
+      const hasCachedFollowings = useFollowingStore.getState().allFollowings != null
+
+      if (!hasCachedFollowings) {
+        setLoading(true)
+        setError('')
+        setFollowings([])
+      }
       setHasMore(false)
 
       try {
-        const [mids, all] = await Promise.all([
-          window.biliDesk.taxonomy.getUpGroupMemberMids(groupId),
-          loadAllFollowings()
-        ])
+        const result = await filterLocalFollowings(selection)
         if (seq !== loadSeqRef.current) return
-
-        const midSet = new Set(mids)
-        setFollowings(all.filter((up) => midSet.has(up.mid)))
+        setFollowings(result)
       } catch (err) {
         if (seq !== loadSeqRef.current) return
         setFollowings([])
@@ -128,11 +125,19 @@ export function FollowingPage() {
         if (seq === loadSeqRef.current) setLoading(false)
       }
     },
-    [loadAllFollowings]
+    [filterLocalFollowings]
   )
 
   useEffect(() => {
-    void refreshSidebar()
+    void (async () => {
+      await refreshSidebar()
+      const { followTags: tags, upGroupTree: tree } = useFollowingStore.getState()
+      setSelectedTagId((prev) => prev ?? tags[0]?.tagId ?? null)
+      setLocalSelection((prev) => {
+        if (prev.id != null) return prev
+        return { level: 'l1', id: tree[0]?.id ?? null }
+      })
+    })()
   }, [refreshSidebar])
 
   useEffect(() => {
@@ -141,13 +146,14 @@ export function FollowingPage() {
   }, [sidebarMode, selectedTagId, loadBilibiliPage])
 
   useEffect(() => {
-    if (sidebarMode !== 'local' || selectedLocalGroupId == null) return
-    void loadLocalGroupMembers(selectedLocalGroupId)
-  }, [sidebarMode, selectedLocalGroupId, loadLocalGroupMembers])
+    if (sidebarMode !== 'local') return
+    if (localSelection.level !== 'uncategorized' && localSelection.id == null) return
+    void loadLocalGroupMembers(localSelection)
+  }, [sidebarMode, localSelection, loadLocalGroupMembers])
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [sidebarMode, selectedTagId, selectedLocalGroupId])
+  }, [sidebarMode, selectedTagId, localSelection])
 
   const handleSidebarModeChange = (mode: SidebarMode) => {
     setSidebarMode(mode)
@@ -164,10 +170,10 @@ export function FollowingPage() {
     setSelectedTagId(tagId)
   }
 
-  const handleSelectLocalGroup = (groupId: number) => {
+  const handleSelectLocalGroup = (selection: UpGroupSelection) => {
     setError('')
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-    setSelectedLocalGroupId(groupId)
+    setLocalSelection(selection)
   }
 
   const loadMoreBilibili = useCallback(async () => {
@@ -193,7 +199,7 @@ export function FollowingPage() {
   }, [hasMore, isLocalMode, loadMoreBilibili, followings.length])
 
   const runAiClassify = async () => {
-    setTaskMessage('正在启动 AI 分类...')
+    setTaskMessage('正在启动智能分组...')
     const { taskId } = await window.biliDesk.ai.runUpClassification()
 
     const poll = setInterval(async () => {
@@ -202,11 +208,9 @@ export function FollowingPage() {
       setTaskMessage(task.message)
       if (task.status === 'done' || task.status === 'failed') {
         clearInterval(poll)
-        setAllFollowingsCache(null)
-        await refreshSidebar()
-        if (selectedLocalGroupId != null) {
-          void loadLocalGroupMembers(selectedLocalGroupId)
-        }
+        invalidateSidebar()
+        await refreshSidebar({ force: true })
+        void loadLocalGroupMembers(localSelection)
       }
     }, 1000)
   }
@@ -216,10 +220,10 @@ export function FollowingPage() {
       await loadBilibiliPage(selectedTagId, 1, false)
       return
     }
-    if (sidebarMode === 'local' && selectedLocalGroupId != null) {
-      await loadLocalGroupMembers(selectedLocalGroupId)
+    if (sidebarMode === 'local') {
+      await loadLocalGroupMembers(localSelection)
     }
-  }, [sidebarMode, selectedTagId, selectedLocalGroupId, loadBilibiliPage, loadLocalGroupMembers])
+  }, [sidebarMode, selectedTagId, localSelection, loadBilibiliPage, loadLocalGroupMembers])
 
   const handleUnfollow = async (up: FollowingUp) => {
     if (!window.confirm(`确定取消关注「${up.uname}」吗？`)) return
@@ -228,8 +232,9 @@ export function FollowingPage() {
     try {
       await window.biliDesk.bili.modifyFollow(up.mid, false)
       setFollowings((prev) => prev.filter((item) => item.mid !== up.mid))
-      setAllFollowingsCache(null)
-      await refreshSidebar()
+      patchFollowing(up.mid, null)
+      invalidateSidebar()
+      await refreshSidebar({ force: true })
       setActionMessage(`已取消关注「${up.uname}」`)
     } catch (err) {
       setActionMessage(formatError(err))
@@ -237,11 +242,14 @@ export function FollowingPage() {
   }
 
   const handleTagSaved = async () => {
-    setAllFollowingsCache(null)
-    await refreshSidebar()
+    invalidateFollowings()
+    invalidateSidebar()
+    await refreshSidebar({ force: true })
     await reloadCurrentList()
     setActionMessage('分组已更新')
   }
+
+  const showInitialLocalLoading = loading && followings.length === 0 && !allFollowings
 
   return (
     <div className="flex h-full">
@@ -280,7 +288,7 @@ export function FollowingPage() {
           <div className="space-y-2 border-b border-border p-3">
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">AI 与规则智能分组</p>
-              <Button variant="ghost" size="icon" onClick={() => void runAiClassify()} title="AI 自动分类">
+              <Button variant="ghost" size="icon" onClick={() => void runAiClassify()} title="运行智能分组">
                 <Sparkles className="h-4 w-4" />
               </Button>
             </div>
@@ -313,9 +321,10 @@ export function FollowingPage() {
               )}
             </div>
           ) : (
-            <UpGroupPanel
-              groups={localGroups}
-              selectedId={selectedLocalGroupId}
+            <UpGroupTree
+              tree={upGroupTree}
+              selection={localSelection}
+              uncategorizedCount={uncategorizedCount}
               onSelect={handleSelectLocalGroup}
             />
           )}
@@ -326,7 +335,7 @@ export function FollowingPage() {
         <div className="border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
           {isLocalMode ? (
             <>
-              本地分组「{selectedLocalGroup?.name ?? '...'}」：共 {followings.length} 个 UP
+              本地分组「{localSelectionLabel}」：共 {followings.length} 个 UP
             </>
           ) : (
             <>
@@ -338,7 +347,7 @@ export function FollowingPage() {
         </div>
 
         <div ref={scrollRef} className="scrollbar-none flex-1 overflow-y-auto">
-          {loading ? (
+          {showInitialLocalLoading || (loading && !isLocalMode) ? (
             <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               加载关注列表...
@@ -358,7 +367,7 @@ export function FollowingPage() {
               {!loading && followings.length === 0 && (
                 <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
                   {isLocalMode
-                    ? '该本地分组暂无成员，可点击上方 ✨ 运行 AI 分类'
+                    ? '该本地分组暂无成员，可点击上方 ✨ 运行智能分组'
                     : error || '该分组暂无关注的 UP'}
                 </p>
               )}
