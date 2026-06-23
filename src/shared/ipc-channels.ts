@@ -1,0 +1,47 @@
+export const IPC = {
+  AUTH_GET_QR: 'auth:get-qr',
+  AUTH_POLL: 'auth:poll',
+  AUTH_LOGOUT: 'auth:logout',
+  AUTH_STATUS: 'auth:status',
+
+  BILI_RECOMMEND: 'bili:recommend',
+  BILI_VIDEO: 'bili:video',
+  BILI_PLAY_URL: 'bili:play-url',
+  BILI_FAV_FOLDERS: 'bili:fav-folders',
+  BILI_FAV_RESOURCES: 'bili:fav-resources',
+  BILI_FOLLOWINGS: 'bili:followings',
+  BILI_FOLLOW_TAGS: 'bili:follow-tags',
+  BILI_FOLLOW_TAG_MEMBERS: 'bili:follow-tag-members',
+  BILI_FOLLOW_USER_TAGS: 'bili:follow-user-tags',
+  BILI_FOLLOW_USER_TAGS_SET: 'bili:follow-user-tags-set',
+  BILI_UP_PROFILE: 'bili:up-profile',
+  BILI_UP_RELATION: 'bili:up-relation',
+  BILI_UP_MODIFY_FOLLOW: 'bili:up-modify-follow',
+  BILI_UP_VIDEOS: 'bili:up-videos',
+
+  TAXONOMY_L1_LIST: 'taxonomy:l1-list',
+  TAXONOMY_L1_CREATE: 'taxonomy:l1-create',
+  TAXONOMY_L2_LIST: 'taxonomy:l2-list',
+  TAXONOMY_L2_CREATE: 'taxonomy:l2-create',
+  TAXONOMY_L3_CREATE: 'taxonomy:l3-create',
+  TAXONOMY_CATEGORY_UPDATE: 'taxonomy:category-update',
+  TAXONOMY_FAV_ASSIGNMENTS: 'taxonomy:fav-assignments',
+  TAXONOMY_FAV_CLASSIFY_ALL: 'taxonomy:fav-classify-all',
+  TAXONOMY_FAV_CLASSIFY_FOLDER: 'taxonomy:fav-classify-folder',
+  TAXONOMY_FAV_TASK_STATUS: 'taxonomy:fav-task-status',
+  TAXONOMY_FAV_ENRICH_COVERS: 'taxonomy:fav-enrich-covers',
+  TAXONOMY_TREE: 'taxonomy:tree',
+  TAXONOMY_UP_GROUPS: 'taxonomy:up-groups',
+  TAXONOMY_UP_GROUP_CREATE: 'taxonomy:up-group-create',
+  TAXONOMY_UP_GROUP_MEMBERS: 'taxonomy:up-group-members',
+
+  AI_CONFIG_GET: 'ai:config-get',
+  AI_CONFIG_SET: 'ai:config-set',
+  AI_RUN_UP_CLASSIFY: 'ai:run-up-classify',
+  AI_TASK_STATUS: 'ai:task-status',
+
+  APP_GET_THEME: 'app:get-theme',
+  APP_SET_THEME: 'app:set-theme'
+} as const
+
+export type IpcChannel = (typeof IPC)[keyof typeof IPC]
