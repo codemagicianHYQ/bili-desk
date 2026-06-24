@@ -9,6 +9,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "dist:win": "electron-vite build && electron-builder --win",
+    "dist:win:zip": "electron-vite build && electron-builder --win zip",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -58,11 +59,16 @@
       "target": [
         "nsis"
       ],
-      "icon": "resources/icon.ico"
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "language": "2052"
     }
   }
 }
