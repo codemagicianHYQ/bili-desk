@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
+import { useNavigationStore } from '@/stores/navigation-store'
 import { BiliImage } from '@/components/ui/bili-image'
 
 const navItems = [
@@ -24,6 +25,15 @@ export function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, setUser } = useAppStore()
+  const followingKeepAlive = useNavigationStore((state) => state.followingKeepAlive)
+  const favoritesKeepAlive = useNavigationStore((state) => state.favoritesKeepAlive)
+
+  const path = location.pathname
+  const inFollowingFlow =
+    followingKeepAlive &&
+    (path === '/following' || path.startsWith('/up/') || (path.startsWith('/video/') && !favoritesKeepAlive))
+  const inFavoritesFlow =
+    favoritesKeepAlive && (path === '/favorites' || path.startsWith('/video/') || path.startsWith('/up/'))
 
   const handleLogout = async () => {
     await window.biliDesk.auth.logout()
@@ -42,7 +52,11 @@ export function Sidebar() {
 
       <nav className="flex flex-1 flex-col gap-1">
         {navItems.map(({ to, icon: Icon, label }) => {
-          const active = location.pathname === to || (to !== '/' && location.pathname.startsWith(to))
+          const active =
+            location.pathname === to ||
+            (to !== '/' && location.pathname.startsWith(to)) ||
+            (to === '/following' && inFollowingFlow) ||
+            (to === '/favorites' && inFavoritesFlow)
           return (
             <Link
               key={to}

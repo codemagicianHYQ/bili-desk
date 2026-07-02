@@ -1,8 +1,11 @@
-import { Outlet } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
 import { HomePage } from '@/features/home/HomePage'
-import { useLocation } from 'react-router-dom'
+import { FavoritesPage } from '@/features/favorites/FavoritesPage'
+import { FollowingPage } from '@/features/following/FollowingPage'
+import { useNavigationStore } from '@/stores/navigation-store'
 import { cn } from '@/lib/utils'
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
@@ -16,6 +19,17 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
 
 export function MainLayout() {
   const location = useLocation()
+  const prevPathRef = useRef(location.pathname)
+  const syncKeepAlive = useNavigationStore((state) => state.syncKeepAlive)
+  const followingKeepAlive = useNavigationStore((state) => state.followingKeepAlive)
+  const favoritesKeepAlive = useNavigationStore((state) => state.favoritesKeepAlive)
+
+  useEffect(() => {
+    const path = location.pathname
+    syncKeepAlive(path, prevPathRef.current)
+    prevPathRef.current = path
+  }, [location.pathname, syncKeepAlive])
+
   const meta =
     location.pathname.startsWith('/up/')
       ? { title: 'UP 主主页', subtitle: '投稿与关注' }
@@ -27,7 +41,15 @@ export function MainLayout() {
     return <Outlet />
   }
 
-  const isHome = location.pathname === '/'
+  const path = location.pathname
+  const isHome = path === '/'
+  const isFollowing = path === '/following'
+  const isFavorites = path === '/favorites'
+  const isUpSpace = path.startsWith('/up/')
+  const isVideo = path.startsWith('/video/')
+  const isSearch = path === '/search'
+  const isSettings = path === '/settings'
+  const showOutlet = isUpSpace || isVideo || isSearch || isSettings
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -38,7 +60,17 @@ export function MainLayout() {
           <div className={cn('h-full', !isHome && 'hidden')} aria-hidden={!isHome}>
             <HomePage />
           </div>
-          {!isHome && (
+          {(followingKeepAlive || isFollowing) && (
+            <div className={cn('h-full', !isFollowing && 'hidden')} aria-hidden={!isFollowing}>
+              <FollowingPage />
+            </div>
+          )}
+          {(favoritesKeepAlive || isFavorites) && (
+            <div className={cn('h-full', !isFavorites && 'hidden')} aria-hidden={!isFavorites}>
+              <FavoritesPage />
+            </div>
+          )}
+          {showOutlet && (
             <div className="h-full">
               <Outlet />
             </div>

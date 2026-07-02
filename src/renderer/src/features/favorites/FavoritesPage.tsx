@@ -64,6 +64,7 @@ export function FavoritesPage() {
   const ensureFolders = useFavoritesStore((state) => state.ensureFolders)
   const enrichCoversOnce = useFavoritesStore((state) => state.enrichCoversOnce)
   const invalidateTaxonomy = useFavoritesStore((state) => state.invalidateTaxonomy)
+  const refreshVersion = useFavoritesStore((state) => state.refreshVersion)
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('bilibili')
   const [resources, setResources] = useState<FavResource[]>([])
@@ -130,6 +131,16 @@ export function FavoritesPage() {
     if (sidebarMode !== 'bilibili' || !selectedFolder) return
     void loadFolderPage(selectedFolder, 1, false)
   }, [selectedFolder, sidebarMode, loadFolderPage])
+
+  useEffect(() => {
+    if (refreshVersion === 0) return
+    if (sidebarMode === 'bilibili' && selectedFolder != null) {
+      void loadFolderPage(selectedFolder, 1, false)
+    }
+    if (sidebarMode === 'local') {
+      setLocalVisibleCount(LOCAL_PAGE_SIZE)
+    }
+  }, [refreshVersion, sidebarMode, selectedFolder, loadFolderPage])
 
   useEffect(() => {
     setLocalVisibleCount(LOCAL_PAGE_SIZE)

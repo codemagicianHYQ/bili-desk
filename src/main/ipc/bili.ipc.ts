@@ -12,6 +12,10 @@ export function registerBiliIpc(): void {
     biliApi.getPlayUrl(bvid, cid, qn)
   )
   ipcMain.handle(IPC.BILI_FAV_FOLDERS, () => biliApi.getFavFolders())
+  ipcMain.handle(IPC.BILI_VIDEO_FAV_FOLDERS, (_e, aid: number) => biliApi.getVideoFavFolders(aid))
+  ipcMain.handle(IPC.BILI_VIDEO_FAV_SET, (_e, aid: number, addMediaIds: number[], delMediaIds: number[]) =>
+    biliApi.setVideoFavFolders(aid, addMediaIds, delMediaIds)
+  )
   ipcMain.handle(IPC.BILI_FAV_RESOURCES, (_e, mediaId: number, page?: number) =>
     biliApi.getFavResources(mediaId, page)
   )

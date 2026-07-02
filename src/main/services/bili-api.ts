@@ -7,6 +7,7 @@ import type {
   AuthPollResult,
   FavFolder,
   FavResource,
+  VideoFavFolder,
   FollowTag,
   FollowingUp,
   FollowingsPage,
@@ -641,6 +642,78 @@ class BiliApiService {
     }
 
     return []
+  }
+
+  async getVideoFavFolders(aid: number): Promise<VideoFavFolder[]> {
+    const mid = appStore.get('user')?.mid ?? Number(appStore.get('cookies').DedeUserID)
+    if (!mid) return []
+
+    await this.ensureBuvid3()
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await this.client.get('/x/v3/fav/folder/created/list-all', {
+        params: { up_mid: mid, type: 2, rid: aid },
+        headers: { Referer: 'https://www.bilibili.com/' },
+        validateStatus: () => true
+      })
+
+      if (res.status === 412 || res.data?.code === -412) {
+        if (attempt < 3) {
+          await sleep(600 * attempt)
+          continue
+        }
+        throw new Error('请求被 B 站安全策略拦截，请稍后重试')
+      }
+
+      if (res.data?.code !== 0) {
+        throw new Error((res.data?.message as string) || '收藏夹列表获取失败')
+      }
+
+      const list = res.data?.data?.list ?? []
+      return list.map((f: Record<string, unknown>) => ({
+        id: f.id as number,
+        fid: f.fid as number,
+        title: f.title as string,
+        mediaCount: (f.media_count as number) ?? 0,
+        cover: (f.cover as string) ?? '',
+        collected: (f.fav_state as number) === 1,
+        isDefault:
+          (f.title as string) === '默认收藏夹' || (f.title as string).toLowerCase() === 'default'
+      }))
+    }
+
+    return []
+  }
+
+  async setVideoFavFolders(aid: number, addMediaIds: number[], delMediaIds: number[]): Promise<void> {
+    const csrf = getCsrf()
+    if (!csrf) throw new Error('请先登录后再收藏')
+
+    if (addMediaIds.length === 0 && delMediaIds.length === 0) return
+
+    const body: Record<string, string> = {
+      rid: String(aid),
+      type: '2',
+      csrf
+    }
+    if (addMediaIds.length > 0) body.add_media_ids = addMediaIds.join(',')
+    if (delMediaIds.length > 0) body.del_media_ids = delMediaIds.join(',')
+
+    const res = await this.client.post('/x/v3/fav/resource/deal', new URLSearchParams(body), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Referer: 'https://www.bilibili.com/'
+      },
+      validateStatus: () => true
+    })
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error('请求被 B 站安全策略拦截，请稍后重试')
+    }
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || '收藏操作失败')
+    }
   }
 
   async getFavResources(mediaId: number, page = 1, pageSize = 20): Promise<{

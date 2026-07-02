@@ -11,8 +11,11 @@ interface FollowingState {
   upGroupTree: UpGroupTreeNode[]
   uncategorizedCount: number
   sidebarReady: boolean
+  refreshing: boolean
+  refreshVersion: number
   ensureAllFollowings: (options?: { force?: boolean }) => Promise<FollowingUp[]>
   refreshSidebar: (options?: { force?: boolean }) => Promise<void>
+  refresh: () => Promise<void>
   filterLocalFollowings: (selection: UpGroupSelection) => Promise<FollowingUp[]>
   invalidateFollowings: () => void
   invalidateSidebar: () => void
@@ -42,6 +45,8 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
   upGroupTree: [],
   uncategorizedCount: 0,
   sidebarReady: false,
+  refreshing: false,
+  refreshVersion: 0,
 
   ensureAllFollowings: async ({ force = false } = {}) => {
     const { allFollowings, followingsLoadedAt, followingsLoading } = get()
@@ -98,6 +103,20 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
       uncategorizedCount: Math.max(0, all.length - assignedMids.length),
       sidebarReady: true
     })
+  },
+
+  refresh: async () => {
+    if (get().refreshing) return
+
+    set({ refreshing: true })
+    try {
+      get().invalidateFollowings()
+      get().invalidateSidebar()
+      await get().refreshSidebar({ force: true })
+      set((state) => ({ refreshVersion: state.refreshVersion + 1 }))
+    } finally {
+      set({ refreshing: false })
+    }
   },
 
   filterLocalFollowings: async (selection) => {

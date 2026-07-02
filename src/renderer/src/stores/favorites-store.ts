@@ -8,10 +8,14 @@ interface FavoritesState {
   taxonomyReady: boolean
   foldersReady: boolean
   coversEnriched: boolean
+  refreshing: boolean
+  refreshVersion: number
   ensureTaxonomy: (options?: { force?: boolean }) => Promise<void>
   ensureFolders: (options?: { force?: boolean }) => Promise<FavFolder[]>
   enrichCoversOnce: () => Promise<void>
+  refresh: () => Promise<void>
   invalidateTaxonomy: () => void
+  invalidateFolders: () => void
 }
 
 export const useFavoritesStore = create<FavoritesState>((set, get) => ({
@@ -21,6 +25,8 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
   taxonomyReady: false,
   foldersReady: false,
   coversEnriched: false,
+  refreshing: false,
+  refreshVersion: 0,
 
   ensureTaxonomy: async ({ force = false } = {}) => {
     if (!force && get().taxonomyReady) return
@@ -69,7 +75,23 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
     set({ coversEnriched: true })
   },
 
+  refresh: async () => {
+    if (get().refreshing) return
+
+    set({ refreshing: true, foldersReady: false, taxonomyReady: false })
+    try {
+      await Promise.all([get().ensureTaxonomy({ force: true }), get().ensureFolders({ force: true })])
+      set((state) => ({ refreshVersion: state.refreshVersion + 1 }))
+    } finally {
+      set({ refreshing: false })
+    }
+  },
+
   invalidateTaxonomy: () => {
     set({ taxonomyReady: false, coversEnriched: false })
+  },
+
+  invalidateFolders: () => {
+    set({ foldersReady: false })
   }
 }))

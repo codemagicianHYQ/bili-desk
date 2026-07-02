@@ -68,6 +68,11 @@ export interface FavFolder {
   cover: string
 }
 
+export interface VideoFavFolder extends FavFolder {
+  collected: boolean
+  isDefault?: boolean
+}
+
 export interface FavResource {
   id: number
   bvid: string
@@ -263,6 +268,8 @@ export interface BiliDeskApi {
     getVideo: (bvid: string) => Promise<VideoDetail>
     getPlayUrl: (bvid: string, cid: number, qn?: number) => Promise<VideoPlayInfo>
     getFavFolders: () => Promise<FavFolder[]>
+    getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>
+    setVideoFavFolders: (aid: number, addMediaIds: number[], delMediaIds: number[]) => Promise<void>
     getFavResources: (mediaId: number, page?: number) => Promise<FavResourcesPage>
     getFollowings: (page?: number) => Promise<FollowingUp[]>
     getFollowTags: () => Promise<FollowTag[]>
