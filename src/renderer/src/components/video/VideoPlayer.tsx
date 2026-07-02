@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import Artplayer from 'artplayer'
 import flvjs from 'flv.js'
+import dashjs from 'dashjs'
 import type { VideoPlayInfo } from '@shared/types'
 
 interface VideoPlayerProps {
@@ -8,6 +9,12 @@ interface VideoPlayerProps {
   poster?: string
   onQualityChange: (qn: number) => void
   onError?: (message: string) => void
+}
+
+function resolvePlayerType(format: VideoPlayInfo['format']): string {
+  if (format === 'flv') return 'flv'
+  if (format === 'dash') return 'mpd'
+  return 'mp4'
 }
 
 export function VideoPlayer({ playInfo, poster, onQualityChange, onError }: VideoPlayerProps) {
@@ -38,7 +45,7 @@ export function VideoPlayer({ playInfo, poster, onQualityChange, onError }: Vide
       mutex: true,
       theme: '#fb7299',
       lang: 'zh-cn',
-      type: playInfo.format === 'flv' ? 'flv' : 'mp4',
+      type: resolvePlayerType(playInfo.format),
       customType: {
         flv(video, url, player) {
           if (!flvjs.isSupported()) {
@@ -50,6 +57,21 @@ export function VideoPlayer({ playInfo, poster, onQualityChange, onError }: Vide
           flvPlayer.attachMediaElement(video)
           flvPlayer.load()
           player.on('destroy', () => flvPlayer.destroy())
+        },
+        mpd(video, url, player) {
+          if (!dashjs.supportsMediaSource()) {
+            onErrorRef.current?.('当前环境不支持 DASH 播放')
+            return
+          }
+
+          const dashPlayer = dashjs.MediaPlayer().create()
+          dashPlayer.updateSettings({
+            streaming: {
+              abr: { autoSwitchBitrate: { video: false, audio: false } }
+            }
+          })
+          dashPlayer.initialize(video, url, player.option.autoplay)
+          player.on('destroy', () => dashPlayer.reset())
         }
       },
       settings: [

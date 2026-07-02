@@ -36,7 +36,7 @@ export interface VideoPagePart {
 
 export interface VideoPlayInfo {
   url: string
-  format: 'mp4' | 'flv'
+  format: 'mp4' | 'flv' | 'dash'
   quality: number
   qualityLabel: string
   qualities: Array<{ qn: number; label: string }>
