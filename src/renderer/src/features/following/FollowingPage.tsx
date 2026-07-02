@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { Folder, Loader2, Sparkles } from 'lucide-react'
 import { FollowTagDialog } from './FollowTagDialog'
 import { FollowingUpCard } from './FollowingUpCard'
+import { UnfollowConfirmDialog } from './UnfollowConfirmDialog'
 
 type SidebarMode = 'bilibili' | 'local'
 
@@ -46,6 +47,7 @@ export function FollowingPage() {
   const invalidateFollowings = useFollowingStore((state) => state.invalidateFollowings)
   const invalidateSidebar = useFollowingStore((state) => state.invalidateSidebar)
   const patchFollowing = useFollowingStore((state) => state.patchFollowing)
+  const refreshVersion = useFollowingStore((state) => state.refreshVersion)
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('bilibili')
   const [selectedTagId, setSelectedTagId] = useState<number | null>(null)
@@ -58,6 +60,8 @@ export function FollowingPage() {
   const [error, setError] = useState('')
   const [taskMessage, setTaskMessage] = useState('')
   const [tagDialogUp, setTagDialogUp] = useState<FollowingUp | null>(null)
+  const [unfollowTarget, setUnfollowTarget] = useState<FollowingUp | null>(null)
+  const [unfollowing, setUnfollowing] = useState(false)
   const [actionMessage, setActionMessage] = useState('')
 
   const isLocalMode = sidebarMode === 'local'
@@ -225,9 +229,16 @@ export function FollowingPage() {
     }
   }, [sidebarMode, selectedTagId, localSelection, loadBilibiliPage, loadLocalGroupMembers])
 
-  const handleUnfollow = async (up: FollowingUp) => {
-    if (!window.confirm(`确定取消关注「${up.uname}」吗？`)) return
+  useEffect(() => {
+    if (refreshVersion === 0) return
+    void reloadCurrentList()
+  }, [refreshVersion, reloadCurrentList])
 
+  const handleUnfollow = async () => {
+    const up = unfollowTarget
+    if (!up) return
+
+    setUnfollowing(true)
     setActionMessage('')
     try {
       await window.biliDesk.bili.modifyFollow(up.mid, false)
@@ -236,8 +247,11 @@ export function FollowingPage() {
       invalidateSidebar()
       await refreshSidebar({ force: true })
       setActionMessage(`已取消关注「${up.uname}」`)
+      setUnfollowTarget(null)
     } catch (err) {
       setActionMessage(formatError(err))
+    } finally {
+      setUnfollowing(false)
     }
   }
 
@@ -360,7 +374,7 @@ export function FollowingPage() {
                   up={up}
                   showGroupActions={!isLocalMode}
                   onSetGroup={setTagDialogUp}
-                  onUnfollow={(item) => void handleUnfollow(item)}
+                  onUnfollow={setUnfollowTarget}
                 />
               ))}
 
@@ -397,6 +411,15 @@ export function FollowingPage() {
         tags={followTags}
         onClose={() => setTagDialogUp(null)}
         onSaved={() => void handleTagSaved()}
+      />
+
+      <UnfollowConfirmDialog
+        up={unfollowTarget}
+        loading={unfollowing}
+        onConfirm={() => void handleUnfollow()}
+        onCancel={() => {
+          if (!unfollowing) setUnfollowTarget(null)
+        }}
       />
     </div>
   )

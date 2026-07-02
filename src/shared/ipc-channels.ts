@@ -8,6 +8,8 @@ export const IPC = {
   BILI_VIDEO: 'bili:video',
   BILI_PLAY_URL: 'bili:play-url',
   BILI_FAV_FOLDERS: 'bili:fav-folders',
+  BILI_VIDEO_FAV_FOLDERS: 'bili:video-fav-folders',
+  BILI_VIDEO_FAV_SET: 'bili:video-fav-set',
   BILI_FAV_RESOURCES: 'bili:fav-resources',
   BILI_FOLLOWINGS: 'bili:followings',
   BILI_FOLLOW_TAGS: 'bili:follow-tags',

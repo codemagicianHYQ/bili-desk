@@ -1,7 +1,5 @@
 import { createHashRouter } from 'react-router-dom'
 import { MainLayout } from '@/layouts/MainLayout'
-import { FavoritesPage } from '@/features/favorites/FavoritesPage'
-import { FollowingPage } from '@/features/following/FollowingPage'
 import { VideoPage } from '@/features/video/VideoPage'
 import { SearchPage } from '@/features/search/SearchPage'
 import { LoginPage } from '@/features/login/LoginPage'
@@ -14,8 +12,8 @@ export const router = createHashRouter([
     element: <MainLayout />,
     children: [
       { index: true, element: null },
-      { path: 'favorites', element: <FavoritesPage /> },
-      { path: 'following', element: <FollowingPage /> },
+      { path: 'favorites', element: null },
+      { path: 'following', element: null },
       { path: 'video/:bvid', element: <VideoPage /> },
       { path: 'up/:mid', element: <UpSpacePage /> },
       { path: 'search', element: <SearchPage /> },

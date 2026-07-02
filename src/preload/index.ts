@@ -18,6 +18,9 @@ const api = {
     getPlayUrl: (bvid: string, cid: number, qn?: number) =>
       ipcRenderer.invoke(IPC.BILI_PLAY_URL, bvid, cid, qn),
     getFavFolders: () => ipcRenderer.invoke(IPC.BILI_FAV_FOLDERS),
+    getVideoFavFolders: (aid: number) => ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_FOLDERS, aid),
+    setVideoFavFolders: (aid: number, addMediaIds: number[], delMediaIds: number[]) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_SET, aid, addMediaIds, delMediaIds),
     getFavResources: (mediaId: number, page?: number) =>
       page != null
         ? ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId, page)

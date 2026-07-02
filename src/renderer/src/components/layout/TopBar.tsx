@@ -1,9 +1,13 @@
 import { Moon, RefreshCw, Sun, UserCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BiliImage } from '@/components/ui/bili-image'
+import { HomeGridLayoutPicker } from '@/components/layout/HomeGridLayoutPicker'
 import { useAppStore } from '@/stores/app-store'
+import { useFavoritesStore } from '@/stores/favorites-store'
+import { useFollowingStore } from '@/stores/following-store'
 import { useHomeFeedStore } from '@/stores/home-feed-store'
 import { Link, useLocation } from 'react-router-dom'
+
 interface TopBarProps {
   title: string
   subtitle?: string
@@ -12,9 +16,33 @@ interface TopBarProps {
 export function TopBar({ title, subtitle }: TopBarProps) {
   const location = useLocation()
   const { theme, setTheme, user } = useAppStore()
-  const refresh = useHomeFeedStore((state) => state.refresh)
-  const refreshing = useHomeFeedStore((state) => state.refreshing)
+  const homeRefresh = useHomeFeedStore((state) => state.refresh)
+  const homeRefreshing = useHomeFeedStore((state) => state.refreshing)
+  const followingRefresh = useFollowingStore((state) => state.refresh)
+  const followingRefreshing = useFollowingStore((state) => state.refreshing)
+  const favoritesRefresh = useFavoritesStore((state) => state.refresh)
+  const favoritesRefreshing = useFavoritesStore((state) => state.refreshing)
+
   const isHome = location.pathname === '/'
+  const isFollowing = location.pathname === '/following'
+  const isFavorites = location.pathname === '/favorites'
+  const showRefresh = isHome || isFollowing || isFavorites
+
+  const refreshing = isHome
+    ? homeRefreshing
+    : isFollowing
+      ? followingRefreshing
+      : isFavorites
+        ? favoritesRefreshing
+        : false
+
+  const handleRefresh = () => {
+    if (isHome) void homeRefresh()
+    else if (isFollowing) void followingRefresh()
+    else if (isFavorites) void favoritesRefresh()
+  }
+
+  const refreshLabel = isHome ? '刷新推荐' : isFollowing ? '刷新关注' : '刷新收藏'
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
@@ -23,15 +51,15 @@ export function TopBar({ title, subtitle }: TopBarProps) {
           <h2 className="text-base font-semibold">{title}</h2>
           {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
         </div>
-        {isHome && (
+        {showRefresh && (
           <Button
             variant="ghost"
             size="icon"
             className="shrink-0"
             disabled={refreshing}
-            onClick={() => void refresh()}
-            aria-label="刷新推荐"
-            title="刷新推荐"
+            onClick={handleRefresh}
+            aria-label={refreshLabel}
+            title={refreshLabel}
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           </Button>
@@ -39,6 +67,8 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-2">
+        {isHome && <HomeGridLayoutPicker />}
+
         <Button
           variant="ghost"
           size="icon"
