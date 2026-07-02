@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useHomeFeedStore } from '@/stores/home-feed-store'
+import { useAppStore } from '@/stores/app-store'
 import { VideoCard } from '@/components/video/VideoCard'
 import { Loader2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+const GRID_COLS_CLASS = {
+  2: 'grid-cols-2',
+  3: 'grid-cols-3',
+  4: 'grid-cols-4',
+  5: 'grid-cols-5'
+} as const
 
 export function HomePage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const homeGridColumns = useAppStore((state) => state.homeGridColumns)
   const {
     videos,
     hasMore,
@@ -64,7 +74,7 @@ export function HomePage() {
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto">
-      <div className="grid grid-cols-2 gap-4 p-6 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className={cn('grid gap-4 p-6', GRID_COLS_CLASS[homeGridColumns])}>
         {videos.map((video) => (
           <VideoCard key={video.bvid} video={video} />
         ))}

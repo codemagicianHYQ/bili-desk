@@ -1,6 +1,7 @@
 import { Moon, RefreshCw, Sun, UserCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BiliImage } from '@/components/ui/bili-image'
+import { HomeGridLayoutPicker } from '@/components/layout/HomeGridLayoutPicker'
 import { useAppStore } from '@/stores/app-store'
 import { useFavoritesStore } from '@/stores/favorites-store'
 import { useFollowingStore } from '@/stores/following-store'
@@ -66,6 +67,8 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-2">
+        {isHome && <HomeGridLayoutPicker />}
+
         <Button
           variant="ghost"
           size="icon"
