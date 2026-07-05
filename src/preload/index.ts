@@ -1,16 +1,27 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { IPC } from '@shared/ipc-channels'
-import type { AiConfig, Theme, UpGroupSelection, UpGroupTreeNode } from '@shared/types'
+import { contextBridge, ipcRenderer } from "electron";
+import { IPC } from "@shared/ipc-channels";
+import type {
+  AiConfig,
+  SearchOrder,
+  Theme,
+  UpGroupSelection,
+  UpGroupTreeNode,
+} from "@shared/types";
 
 const api = {
   auth: {
     getQrCode: () => ipcRenderer.invoke(IPC.AUTH_GET_QR),
-    pollLogin: (qrcodeKey: string) => ipcRenderer.invoke(IPC.AUTH_POLL, qrcodeKey),
+    pollLogin: (qrcodeKey: string) =>
+      ipcRenderer.invoke(IPC.AUTH_POLL, qrcodeKey),
     logout: () => ipcRenderer.invoke(IPC.AUTH_LOGOUT),
-    getStatus: () => ipcRenderer.invoke(IPC.AUTH_STATUS)
+    getStatus: () => ipcRenderer.invoke(IPC.AUTH_STATUS),
   },
   bili: {
-    getRecommend: (options?: { freshIdx?: number; freshIdx1h?: number; ps?: number }) =>
+    getRecommend: (options?: {
+      freshIdx?: number;
+      freshIdx1h?: number;
+      ps?: number;
+    }) =>
       options
         ? ipcRenderer.invoke(IPC.BILI_RECOMMEND, options)
         : ipcRenderer.invoke(IPC.BILI_RECOMMEND),
@@ -18,31 +29,65 @@ const api = {
     getPlayUrl: (bvid: string, cid: number, qn?: number) =>
       ipcRenderer.invoke(IPC.BILI_PLAY_URL, bvid, cid, qn),
     getFavFolders: () => ipcRenderer.invoke(IPC.BILI_FAV_FOLDERS),
-    getVideoFavFolders: (aid: number) => ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_FOLDERS, aid),
-    setVideoFavFolders: (aid: number, addMediaIds: number[], delMediaIds: number[]) =>
+    getVideoFavFolders: (aid: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_FOLDERS, aid),
+    setVideoFavFolders: (
+      aid: number,
+      addMediaIds: number[],
+      delMediaIds: number[],
+    ) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_SET, aid, addMediaIds, delMediaIds),
     getFavResources: (mediaId: number, page?: number) =>
       page != null
         ? ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId, page)
         : ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId),
     getFollowings: (page?: number) =>
-      page != null ? ipcRenderer.invoke(IPC.BILI_FOLLOWINGS, page) : ipcRenderer.invoke(IPC.BILI_FOLLOWINGS),
+      page != null
+        ? ipcRenderer.invoke(IPC.BILI_FOLLOWINGS, page)
+        : ipcRenderer.invoke(IPC.BILI_FOLLOWINGS),
     getFollowTags: () => ipcRenderer.invoke(IPC.BILI_FOLLOW_TAGS),
     getFollowingsInTag: (tagId: number, page?: number) =>
       page != null
         ? ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_MEMBERS, tagId, page)
         : ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_MEMBERS, tagId),
-    getUserFollowTags: (mid: number) => ipcRenderer.invoke(IPC.BILI_FOLLOW_USER_TAGS, mid),
+    getUserFollowTags: (mid: number) =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_USER_TAGS, mid),
     setUserFollowTags: (mid: number, tagIds: number[]) =>
       ipcRenderer.invoke(IPC.BILI_FOLLOW_USER_TAGS_SET, mid, tagIds),
     getUpProfile: (mid: number) => ipcRenderer.invoke(IPC.BILI_UP_PROFILE, mid),
-    getUpRelation: (mid: number) => ipcRenderer.invoke(IPC.BILI_UP_RELATION, mid),
+    getUpRelation: (mid: number) =>
+      ipcRenderer.invoke(IPC.BILI_UP_RELATION, mid),
     modifyFollow: (mid: number, follow: boolean) =>
       ipcRenderer.invoke(IPC.BILI_UP_MODIFY_FOLLOW, mid, follow),
     getUpVideos: (mid: number, page?: number) =>
       page != null
         ? ipcRenderer.invoke(IPC.BILI_UP_VIDEOS, mid, page)
         : ipcRenderer.invoke(IPC.BILI_UP_VIDEOS, mid),
+    searchVideos: (keyword: string, page?: number, order?: SearchOrder) =>
+      ipcRenderer.invoke(IPC.BILI_SEARCH, keyword, page ?? 1, order),
+    getToViewList: () => ipcRenderer.invoke(IPC.BILI_TOVIEW_LIST),
+    addToView: (aid: number, bvid: string) =>
+      ipcRenderer.invoke(IPC.BILI_TOVIEW_ADD, aid, bvid),
+    removeFromToView: (aid: number) =>
+      ipcRenderer.invoke(IPC.BILI_TOVIEW_REMOVE, aid),
+    getSpaceDynamics: (mid: number, offset?: string) =>
+      ipcRenderer.invoke(IPC.BILI_SPACE_DYNAMICS, mid, offset ?? ""),
+    getUserCollections: (mid: number, page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_USER_COLLECTIONS, mid, page ?? 1),
+    getSeasonArchives: (mid: number, seasonId: number, page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_SEASON_ARCHIVES, mid, seasonId, page ?? 1),
+    getSeriesArchives: (seriesId: number, page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_SERIES_ARCHIVES, seriesId, page ?? 1),
+    getBangumiFollowList: (mid: number, type?: 1 | 2, page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_BANGUMI_FOLLOW, mid, type ?? 1, page ?? 1),
+    getSubscribedCollections: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_SUBSCRIBED_COLLECTIONS, page ?? 1),
+    getFavVideoMedias: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_FAV_VIDEO_MEDIAS, page ?? 1),
+    getOpusFavorites: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_OPUS_FAVORITES, page ?? 1),
+    getCheeseFollowList: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_CHEESE_FOLLOW, page ?? 1),
   },
   taxonomy: {
     getTree: () => ipcRenderer.invoke(IPC.TAXONOMY_TREE),
@@ -54,14 +99,18 @@ const api = {
       ipcRenderer.invoke(IPC.TAXONOMY_L2_CREATE, categoryL1Id, name),
     createL3: (categoryL2Id: number, name: string) =>
       ipcRenderer.invoke(IPC.TAXONOMY_L3_CREATE, categoryL2Id, name),
-    updateCategoryName: (level: 'l1' | 'l2' | 'l3', id: number, name: string) =>
+    updateCategoryName: (level: "l1" | "l2" | "l3", id: number, name: string) =>
       ipcRenderer.invoke(IPC.TAXONOMY_CATEGORY_UPDATE, level, id, name),
-    getFavoriteAssignments: () => ipcRenderer.invoke(IPC.TAXONOMY_FAV_ASSIGNMENTS),
-    classifyAllFavorites: () => ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_ALL),
+    getFavoriteAssignments: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_ASSIGNMENTS),
+    classifyAllFavorites: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_ALL),
     classifyFolderFavorites: (mediaId: number) =>
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_FOLDER, mediaId),
-    getFavTaskStatus: (taskId: number) => ipcRenderer.invoke(IPC.TAXONOMY_FAV_TASK_STATUS, taskId),
-    enrichFavoriteCovers: () => ipcRenderer.invoke(IPC.TAXONOMY_FAV_ENRICH_COVERS),
+    getFavTaskStatus: (taskId: number) =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_TASK_STATUS, taskId),
+    enrichFavoriteCovers: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_ENRICH_COVERS),
     getUpGroups: () => ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUPS),
     getUpGroupTree: () => ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_TREE),
     createUpGroup: (name: string, color?: string) =>
@@ -73,14 +122,16 @@ const api = {
   },
   ai: {
     getConfig: () => ipcRenderer.invoke(IPC.AI_CONFIG_GET),
-    setConfig: (config: Partial<AiConfig>) => ipcRenderer.invoke(IPC.AI_CONFIG_SET, config),
+    setConfig: (config: Partial<AiConfig>) =>
+      ipcRenderer.invoke(IPC.AI_CONFIG_SET, config),
     runUpClassification: () => ipcRenderer.invoke(IPC.AI_RUN_UP_CLASSIFY),
-    getTaskStatus: (taskId: number) => ipcRenderer.invoke(IPC.AI_TASK_STATUS, taskId)
+    getTaskStatus: (taskId: number) =>
+      ipcRenderer.invoke(IPC.AI_TASK_STATUS, taskId),
   },
   app: {
     getTheme: () => ipcRenderer.invoke(IPC.APP_GET_THEME),
-    setTheme: (theme: Theme) => ipcRenderer.invoke(IPC.APP_SET_THEME, theme)
-  }
-}
+    setTheme: (theme: Theme) => ipcRenderer.invoke(IPC.APP_SET_THEME, theme),
+  },
+};
 
-contextBridge.exposeInMainWorld('biliDesk', api)
+contextBridge.exposeInMainWorld("biliDesk", api);

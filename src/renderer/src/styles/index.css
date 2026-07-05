@@ -46,11 +46,74 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family:
+      "Segoe UI",
+      system-ui,
+      -apple-system,
+      sans-serif;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+
+  body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  body::-webkit-scrollbar-track {
+    margin: 4px 0;
+    background: transparent;
+  }
+
+  body::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: hsl(var(--muted-foreground) / 0.35);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  body::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.55);
   }
 }
 
 @layer utilities {
+  .overflow-y-auto,
+  .overflow-auto,
+  .scrollbar-overlay {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar,
+  .overflow-auto::-webkit-scrollbar,
+  .scrollbar-overlay::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-track,
+  .overflow-auto::-webkit-scrollbar-track,
+  .scrollbar-overlay::-webkit-scrollbar-track {
+    margin: 4px 0;
+    background: transparent;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-thumb,
+  .overflow-auto::-webkit-scrollbar-thumb,
+  .scrollbar-overlay::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: hsl(var(--muted-foreground) / 0.35);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-thumb:hover,
+  .overflow-auto::-webkit-scrollbar-thumb:hover,
+  .scrollbar-overlay::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.55);
+  }
+
   .scrollbar-none {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -58,5 +121,129 @@
 
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+
+  .bili-action-btn {
+    @apply border-sky-400/50 bg-sky-500/15 text-sky-300 shadow-none hover:bg-sky-500/25 hover:text-sky-200;
+  }
+
+  .bili-action-btn-active {
+    @apply border-sky-400/70 bg-sky-500/25 text-sky-100 hover:bg-sky-500/30;
+  }
+
+  .bili-speed-control {
+    position: relative;
+    width: auto !important;
+    min-width: 52px;
+    flex-shrink: 0;
+  }
+
+  .bili-speed-control .bili-speed-btn {
+    padding: 4px 10px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.14);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: #fff;
+    user-select: none;
+  }
+
+  .bili-speed-control:hover .bili-speed-btn {
+    background: rgba(255, 255, 255, 0.22);
+  }
+
+  .bili-speed-panel {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 10px);
+    z-index: 60;
+    width: 220px;
+    overflow: hidden;
+    border-radius: 8px;
+    background: rgba(28, 28, 30, 0.96);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  .bili-rate-panel {
+    padding: 8px 10px 12px;
+    color: #fff;
+  }
+
+  .bili-rate-presets {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .bili-rate-preset {
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.88);
+    font-size: 12px;
+    line-height: 1;
+    padding: 8px 0;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .bili-rate-preset:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .bili-rate-preset.is-active {
+    border-color: rgba(251, 114, 153, 0.8);
+    background: rgba(251, 114, 153, 0.18);
+    color: #ffb3c7;
+  }
+
+  .bili-rate-dial-wrap {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .bili-rate-dial {
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .bili-rate-dial:active {
+    cursor: grabbing;
+  }
+
+  .bili-rate-track {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.18);
+    stroke-width: 8;
+    stroke-linecap: round;
+    stroke-dasharray: 326 326;
+    stroke-dashoffset: 81.5;
+    transform-origin: center;
+    transform: rotate(135deg);
+  }
+
+  .bili-rate-knob {
+    fill: #fb7299;
+    stroke: #fff;
+    stroke-width: 2;
+    filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.35));
+  }
+
+  .bili-rate-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .bili-rate-hint {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
   }
 }

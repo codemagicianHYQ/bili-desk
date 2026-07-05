@@ -25,6 +25,22 @@ import type {
   VideoItem,
   VideoPlayInfo,
   UpVideosPage,
+  SearchOrder,
+  SearchVideosPage,
+  ToViewItem,
+  ToViewList,
+  SpaceDynamicItem,
+  SpaceDynamicPage,
+  UserCollectionItem,
+  UserCollectionsPage,
+  BangumiFollowItem,
+  BangumiFollowPage,
+  FavMediaItem,
+  FavMediasPage,
+  OpusFavItem,
+  OpusFavPage,
+  CheeseCourseItem,
+  CheeseCoursePage,
 } from "@shared/types";
 
 const COOKIE_KEYS = [
@@ -44,6 +60,7 @@ function sleep(ms: number): Promise<void> {
 class BiliApiService {
   private client: AxiosInstance;
   private passportClient: AxiosInstance;
+  private memberClient: AxiosInstance;
 
   constructor() {
     this.client = axios.create({
@@ -53,6 +70,11 @@ class BiliApiService {
 
     this.passportClient = axios.create({
       baseURL: "https://passport.bilibili.com",
+      timeout: 15000,
+    });
+
+    this.memberClient = axios.create({
+      baseURL: "https://member.bilibili.com",
       timeout: 15000,
     });
 
@@ -66,6 +88,15 @@ class BiliApiService {
       return cfg;
     });
     this.passportClient.interceptors.request.use(async (cfg) => {
+      await this.ensureBuvid3();
+      cfg.headers = {
+        ...defaultHeaders(),
+        ...cfg.headers,
+        Cookie: getCookieString(),
+      } as typeof cfg.headers;
+      return cfg;
+    });
+    this.memberClient.interceptors.request.use(async (cfg) => {
       await this.ensureBuvid3();
       cfg.headers = {
         ...defaultHeaders(),
@@ -759,6 +790,120 @@ class BiliApiService {
     };
   }
 
+  private subscribedSeasonsCache: UserCollectionItem[] | null = null;
+
+  private getDefaultFavFolderId(folders: FavFolder[]): number | null {
+    if (folders.length === 0) return null;
+    const preferred = folders.find(
+      (folder) =>
+        folder.title === "默认收藏夹" ||
+        folder.title.toLowerCase() === "default",
+    );
+    return preferred?.id ?? folders[0].id;
+  }
+
+  private async fetchCollectedSeasonFolders(
+    mid: number,
+    page: number,
+    pageSize: number,
+  ): Promise<{ items: UserCollectionItem[]; hasMore: boolean }> {
+    await this.ensureBuvid3();
+
+    const res = await this.client.get("/x/v3/fav/folder/collected/list", {
+      params: {
+        up_mid: mid,
+        pn: page,
+        ps: pageSize,
+        platform: "web",
+      },
+      headers: { Referer: `https://space.bilibili.com/${mid}/favlist` },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      return { items: [], hasMore: false };
+    }
+
+    const list =
+      (res.data?.data?.list as Record<string, unknown>[] | undefined) ?? [];
+    const items = list
+      .map((item) => this.normalizeCollectedFolderAsSeason(item))
+      .filter((item): item is UserCollectionItem => item != null);
+
+    return {
+      items,
+      hasMore: list.length >= pageSize,
+    };
+  }
+
+  private async loadSubscribedSeasonsFromFolders(): Promise<
+    UserCollectionItem[]
+  > {
+    if (this.subscribedSeasonsCache) return this.subscribedSeasonsCache;
+
+    const folders = await this.getFavFolders();
+    const defaultId = this.getDefaultFavFolderId(folders);
+    const folderOrder = defaultId
+      ? [
+          ...folders.filter((folder) => folder.id === defaultId),
+          ...folders.filter((folder) => folder.id !== defaultId),
+        ]
+      : folders;
+
+    const seen = new Set<number>();
+    const result: UserCollectionItem[] = [];
+
+    for (const folder of folderOrder) {
+      let page = 1;
+      while (true) {
+        const { medias, hasMore } = await this.fetchFavResourcePage(
+          folder.id,
+          page,
+          40,
+        );
+        for (const media of medias) {
+          const item = this.normalizeSubscribedSeason(media);
+          if (!item || seen.has(item.id)) continue;
+          seen.add(item.id);
+          result.push(item);
+        }
+        if (!hasMore) break;
+        page++;
+      }
+    }
+
+    this.subscribedSeasonsCache = result;
+    return result;
+  }
+
+  private normalizeCollectedFolderAsSeason(
+    item: Record<string, unknown>,
+  ): UserCollectionItem | null {
+    const type = Number(item.type);
+    const seasonId = Number(item.season_id ?? item.id);
+    if (!seasonId) return null;
+
+    // 普通收藏夹 type=11，视频合集在 collected/list 中会有不同标识
+    if (type === 11 && !item.season_id) return null;
+
+    const upper = item.upper as Record<string, unknown> | undefined;
+    const cntInfo = item.cnt_info as Record<string, unknown> | undefined;
+
+    return {
+      id: seasonId,
+      kind: "season",
+      title: (item.title as string) ?? "未命名合集",
+      cover: this.normalizeBfsUrl((item.cover as string) ?? ""),
+      description: (item.intro as string) ?? "",
+      total: (item.media_count as number) ?? (cntInfo?.collect as number) ?? 0,
+      ownerMid: Number(upper?.mid) || undefined,
+      source: "subscribed",
+    };
+  }
+
   private mapFavMedias(medias: unknown[]): FavResource[] {
     return medias.map((m) => {
       const media = m as Record<string, unknown>;
@@ -856,7 +1001,88 @@ class BiliApiService {
     return [];
   }
 
-<<<<<<< HEAD
+  async getVideoFavFolders(aid: number): Promise<VideoFavFolder[]> {
+    const mid =
+      appStore.get("user")?.mid ?? Number(appStore.get("cookies").DedeUserID);
+    if (!mid) return [];
+
+    await this.ensureBuvid3();
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await this.client.get("/x/v3/fav/folder/created/list-all", {
+        params: { up_mid: mid, type: 2, rid: aid },
+        headers: { Referer: "https://www.bilibili.com/" },
+        validateStatus: () => true,
+      });
+
+      if (res.status === 412 || res.data?.code === -412) {
+        if (attempt < 3) {
+          await sleep(600 * attempt);
+          continue;
+        }
+        throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+      }
+
+      if (res.data?.code !== 0) {
+        throw new Error((res.data?.message as string) || "收藏夹列表获取失败");
+      }
+
+      const list = res.data?.data?.list ?? [];
+      return list.map((f: Record<string, unknown>) => ({
+        id: f.id as number,
+        fid: f.fid as number,
+        title: f.title as string,
+        mediaCount: (f.media_count as number) ?? 0,
+        cover: (f.cover as string) ?? "",
+        collected: (f.fav_state as number) === 1,
+        isDefault:
+          (f.title as string) === "默认收藏夹" ||
+          (f.title as string).toLowerCase() === "default",
+      }));
+    }
+
+    return [];
+  }
+
+  async setVideoFavFolders(
+    aid: number,
+    addMediaIds: number[],
+    delMediaIds: number[],
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再收藏");
+
+    if (addMediaIds.length === 0 && delMediaIds.length === 0) return;
+
+    const body: Record<string, string> = {
+      rid: String(aid),
+      type: "2",
+      csrf,
+    };
+    if (addMediaIds.length > 0) body.add_media_ids = addMediaIds.join(",");
+    if (delMediaIds.length > 0) body.del_media_ids = delMediaIds.join(",");
+
+    const res = await this.client.post(
+      "/x/v3/fav/resource/deal",
+      new URLSearchParams(body),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "收藏操作失败");
+    }
+  }
+
   async getFavResources(
     mediaId: number,
     page = 1,
@@ -865,84 +1091,6 @@ class BiliApiService {
     resources: FavResource[];
     page: number;
     hasMore: boolean;
-=======
-  async getVideoFavFolders(aid: number): Promise<VideoFavFolder[]> {
-    const mid = appStore.get('user')?.mid ?? Number(appStore.get('cookies').DedeUserID)
-    if (!mid) return []
-
-    await this.ensureBuvid3()
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const res = await this.client.get('/x/v3/fav/folder/created/list-all', {
-        params: { up_mid: mid, type: 2, rid: aid },
-        headers: { Referer: 'https://www.bilibili.com/' },
-        validateStatus: () => true
-      })
-
-      if (res.status === 412 || res.data?.code === -412) {
-        if (attempt < 3) {
-          await sleep(600 * attempt)
-          continue
-        }
-        throw new Error('请求被 B 站安全策略拦截，请稍后重试')
-      }
-
-      if (res.data?.code !== 0) {
-        throw new Error((res.data?.message as string) || '收藏夹列表获取失败')
-      }
-
-      const list = res.data?.data?.list ?? []
-      return list.map((f: Record<string, unknown>) => ({
-        id: f.id as number,
-        fid: f.fid as number,
-        title: f.title as string,
-        mediaCount: (f.media_count as number) ?? 0,
-        cover: (f.cover as string) ?? '',
-        collected: (f.fav_state as number) === 1,
-        isDefault:
-          (f.title as string) === '默认收藏夹' || (f.title as string).toLowerCase() === 'default'
-      }))
-    }
-
-    return []
-  }
-
-  async setVideoFavFolders(aid: number, addMediaIds: number[], delMediaIds: number[]): Promise<void> {
-    const csrf = getCsrf()
-    if (!csrf) throw new Error('请先登录后再收藏')
-
-    if (addMediaIds.length === 0 && delMediaIds.length === 0) return
-
-    const body: Record<string, string> = {
-      rid: String(aid),
-      type: '2',
-      csrf
-    }
-    if (addMediaIds.length > 0) body.add_media_ids = addMediaIds.join(',')
-    if (delMediaIds.length > 0) body.del_media_ids = delMediaIds.join(',')
-
-    const res = await this.client.post('/x/v3/fav/resource/deal', new URLSearchParams(body), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Referer: 'https://www.bilibili.com/'
-      },
-      validateStatus: () => true
-    })
-
-    if (res.status === 412 || res.data?.code === -412) {
-      throw new Error('请求被 B 站安全策略拦截，请稍后重试')
-    }
-
-    if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || '收藏操作失败')
-    }
-  }
-
-  async getFavResources(mediaId: number, page = 1, pageSize = 20): Promise<{
-    resources: FavResource[]
-    page: number
-    hasMore: boolean
->>>>>>> d56893376a3058c35e749b157786a0cccc76f1ba
   }> {
     const { medias, hasMore } = await this.fetchFavResourcePage(
       mediaId,
@@ -1179,11 +1327,19 @@ class BiliApiService {
   async getUpProfile(mid: number): Promise<UpProfile> {
     await this.ensureBuvid3();
 
-    const [cardRes, statRes] = await Promise.all([
+    const accParams = await signParams({ mid });
+    const [cardRes, statRes, accRes] = await Promise.all([
       this.client.get("/x/web-interface/card", {
         params: { mid, photo: true },
       }),
       this.client.get("/x/relation/stat", { params: { vmid: mid } }),
+      this.client
+        .get("/x/space/wbi/acc/info", {
+          params: accParams,
+          headers: { Referer: `https://space.bilibili.com/${mid}` },
+          validateStatus: () => true,
+        })
+        .catch(() => null),
     ]);
 
     if (cardRes.data?.code !== 0) {
@@ -1193,6 +1349,10 @@ class BiliApiService {
     const payload = cardRes.data?.data as Record<string, unknown> | undefined;
     const card = payload?.card as Record<string, unknown> | undefined;
     const stat = statRes.data?.data as Record<string, unknown> | undefined;
+    const accData =
+      accRes && (accRes as AxiosResponse).data?.code === 0
+        ? ((accRes as AxiosResponse).data?.data as Record<string, unknown>)
+        : undefined;
 
     return {
       mid,
@@ -1206,6 +1366,7 @@ class BiliApiService {
         0,
       following: (stat?.following as number) ?? 0,
       videos: (payload?.archive_count as number) ?? 0,
+      topPhoto: this.normalizeBfsUrl((accData?.top_photo as string) ?? ""),
     };
   }
 
@@ -1258,6 +1419,15 @@ class BiliApiService {
       throw new Error("请先登录后查看 UP 主投稿");
     }
 
+    const currentUser = this.getAuthStatus();
+    if (currentUser.isLogin && currentUser.mid === mid) {
+      try {
+        return await this.fetchMyArchives(page);
+      } catch {
+        // fall back to public list
+      }
+    }
+
     try {
       return await this.fetchSpaceArcList(mid, page);
     } catch (primaryError) {
@@ -1277,6 +1447,59 @@ class BiliApiService {
         ? primaryError
         : new Error("投稿列表获取失败，请稍后重试");
     }
+  }
+
+  async searchVideos(
+    keyword: string,
+    page = 1,
+    order: SearchOrder = "totalrank",
+  ): Promise<SearchVideosPage> {
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      return { videos: [], page: 1, hasMore: false, total: 0 };
+    }
+
+    await this.ensureBuvid3();
+
+    const pageSize = 20;
+    const params = await signParams({
+      search_type: "video",
+      keyword: trimmed,
+      page,
+      page_size: pageSize,
+      order,
+      platform: "pc",
+      single_column: 0,
+      source: "",
+    });
+
+    const res = await this.client.get("/x/web-interface/wbi/search/type", {
+      params,
+      headers: { Referer: "https://search.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "搜索失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const results = (
+      (data?.result as Record<string, unknown>[] | undefined) ?? []
+    ).filter((item) => item.bvid);
+    const total = (data?.numResults as number) ?? results.length;
+    const videos = results.map((item) => this.normalizeSearchVideo(item));
+
+    return {
+      videos,
+      page,
+      hasMore: page * pageSize < total,
+      total,
+    };
   }
 
   private async fetchSpaceArcList(
@@ -1333,6 +1556,96 @@ class BiliApiService {
     throw new Error("投稿列表获取失败，请稍后重试");
   }
 
+  private async fetchMyArchives(page: number): Promise<UpVideosPage> {
+    const pageSize = 30;
+    const res = await this.memberClient.get("/x/web/archives", {
+      params: {
+        status: "is_pubing,pubed,not_pubed",
+        pn: page,
+        ps: pageSize,
+        coop: 1,
+        interactive: 1,
+      },
+      headers: {
+        Referer: "https://member.bilibili.com/platform/upload-manager/article",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "我的投稿列表获取失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const arcAudits = (data?.arc_audits ?? []) as Record<string, unknown>[];
+    const pageInfo = data?.page as
+      | { pn?: number; ps?: number; count?: number }
+      | undefined;
+    const total = pageInfo?.count ?? arcAudits.length;
+    const user = this.getAuthStatus();
+
+    const videos = arcAudits
+      .map((item) => {
+        const archive = item.Archive as Record<string, unknown> | undefined;
+        if (!archive?.bvid) return null;
+        return this.normalizeArchiveAudit(item, user.mid, user.name);
+      })
+      .filter((item): item is VideoItem => item != null);
+
+    return {
+      videos,
+      page,
+      total,
+      hasMore: page * pageSize < total,
+    };
+  }
+
+  private normalizeBfsUrl(path: string): string {
+    if (!path) return "";
+    if (path.startsWith("//")) return `https:${path}`;
+    if (path.startsWith("http://")) return path.replace(/^http:/, "https:");
+    if (path.startsWith("https://")) return path;
+    if (path.startsWith("/")) return `https://i0.hdslb.com${path}`;
+    return path;
+  }
+
+  private normalizeVideoCoverUrl(url: string): string {
+    const base = this.normalizeBfsUrl(url);
+    if (!base) return "";
+    if (base.includes("@")) return base;
+    return `${base}@672w_378h_1c.webp`;
+  }
+
+  private normalizeArchiveAudit(
+    item: Record<string, unknown>,
+    mid: number,
+    name: string,
+  ): VideoItem {
+    const archive = item.Archive as Record<string, unknown>;
+    const stat = item.stat as Record<string, unknown> | undefined;
+    const parts = item.Videos as Record<string, unknown>[] | null | undefined;
+
+    let duration = (archive.duration as number) ?? 0;
+    if (!duration && parts?.length) {
+      duration = parts.reduce(
+        (sum, part) => sum + ((part.duration as number) ?? 0),
+        0,
+      );
+    }
+
+    return {
+      bvid: archive.bvid as string,
+      aid: (archive.aid as number) ?? 0,
+      title: archive.title as string,
+      cover: this.normalizeVideoCoverUrl((archive.cover as string) ?? ""),
+      duration,
+      play: (stat?.view as number) ?? 0,
+      danmaku: (stat?.danmaku as number) ?? 0,
+      owner: { mid, name, face: "" },
+      pubdate: (archive.ptime as number) ?? (archive.ctime as number) ?? 0,
+    };
+  }
+
   private async fetchUpVideosBySearch(
     mid: number,
     upName: string,
@@ -1366,7 +1679,7 @@ class BiliApiService {
     const results = (res.data?.data?.result ?? []) as Record<string, unknown>[];
     const videos = results
       .filter((item) => item.mid === mid)
-      .map((item) => this.normalizeSearchVideo(item, mid));
+      .map((item) => this.normalizeSearchVideo(item));
 
     return {
       videos,
@@ -1400,7 +1713,7 @@ class BiliApiService {
       bvid: item.bvid as string,
       aid: (item.id as number) ?? 0,
       title: item.title as string,
-      cover: (item.pic as string) ?? "",
+      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
       duration: (item.duration as number) ?? 0,
       play: (item.stat as { view?: number })?.view ?? 0,
       danmaku: (item.stat as { danmaku?: number })?.danmaku ?? 0,
@@ -1409,7 +1722,12 @@ class BiliApiService {
         name: (owner?.name as string) ?? "",
         face: (owner?.face as string) ?? "",
       },
-      pubdate: (item.pubdate as number) ?? 0,
+      pubdate:
+        (item.pubdate as number) ??
+        (item.pub_time as number) ??
+        (item.ctime as number) ??
+        (item.created as number) ??
+        0,
     };
   }
 
@@ -1421,7 +1739,7 @@ class BiliApiService {
       bvid: item.bvid as string,
       aid: (item.aid as number) ?? 0,
       title: item.title as string,
-      cover: ((item.pic as string) ?? "").replace(/^http:/, "https:"),
+      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
       duration: (item.length as number) ?? 0,
       play: (item.play as number) ?? 0,
       danmaku: (item.video_review as number) ?? 0,
@@ -1434,10 +1752,828 @@ class BiliApiService {
     };
   }
 
-  private normalizeSearchVideo(
+  async getToViewList(): Promise<ToViewList> {
+    if (!isLoggedIn()) return { videos: [], count: 0 };
+
+    await this.ensureBuvid3();
+
+    const res = await this.client.get("/x/v2/history/toview", {
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "稍后再看列表获取失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const list = (data?.list as Record<string, unknown>[] | undefined) ?? [];
+    const videos = list
+      .filter((item) => item.bvid)
+      .map((item) => this.normalizeToViewItem(item));
+
+    return {
+      videos,
+      count: (data?.count as number) ?? videos.length,
+    };
+  }
+
+  async addToView(aid: number, bvid: string): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再添加稍后再看");
+
+    const body = new URLSearchParams({
+      csrf,
+      aid: String(aid),
+      bvid,
+    });
+
+    const res = await this.client.post("/x/v2/history/toview/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    this.assertToViewMutationResponse(res, "添加稍后再看失败");
+  }
+
+  async removeFromToView(aid: number): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录");
+
+    const body = new URLSearchParams({
+      csrf,
+      aid: String(aid),
+    });
+
+    const res = await this.client.post("/x/v2/history/toview/del", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    this.assertToViewMutationResponse(res, "移除稍后再看失败");
+  }
+
+  private assertToViewMutationResponse(
+    res: AxiosResponse,
+    fallback: string,
+  ): void {
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+
+    const code = res.data?.code as number | undefined;
+    if (code === 90001) {
+      throw new Error("稍后再看列表已满（最多 100 个）");
+    }
+    if (code === 0) return;
+
+    throw new Error((res.data?.message as string) || fallback);
+  }
+
+  async getSpaceDynamics(mid: number, offset = ""): Promise<SpaceDynamicPage> {
+    await this.ensureBuvid3();
+
+    const params: Record<string, string | number> = {
+      host_mid: mid,
+      timezone_offset: -480,
+      platform: "web",
+      features:
+        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,forwardListHidden,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard",
+    };
+    if (offset) params.offset = offset;
+
+    const res = await this.client.get("/x/polymer/web-dynamic/v1/feed/space", {
+      params,
+      headers: { Referer: `https://space.bilibili.com/${mid}/dynamic` },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "动态获取失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const rawItems =
+      (data?.items as Record<string, unknown>[] | undefined) ?? [];
+    const items = rawItems
+      .map((item) => this.normalizeSpaceDynamicItem(item))
+      .filter((item): item is SpaceDynamicItem => item != null);
+
+    return {
+      items,
+      offset: (data?.offset as string) ?? "",
+      hasMore: Boolean(data?.has_more),
+    };
+  }
+
+  async getUserCollections(
+    mid: number,
+    page = 1,
+  ): Promise<UserCollectionsPage> {
+    await this.ensureBuvid3();
+
+    const params = await signParams({
+      mid,
+      page_num: page,
+      page_size: 20,
+      web_location: "333.999",
+    });
+
+    const res = await this.client.get(
+      "/x/polymer/web-space/seasons_series_list",
+      {
+        params,
+        headers: { Referer: `https://space.bilibili.com/${mid}/lists` },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "合集列表获取失败");
+    }
+
+    let itemsLists = (res.data?.data as Record<string, unknown> | undefined)
+      ?.items_lists as Record<string, unknown> | undefined;
+
+    let seasons = this.parseCollectionList(
+      itemsLists?.seasons_list,
+      "season",
+      "created",
+    );
+    let series = this.parseCollectionList(
+      itemsLists?.series_list,
+      "series",
+      "created",
+    );
+
+    if (seasons.length === 0 && series.length === 0 && page === 1) {
+      const fallback = await this.client.get(
+        "/x/polymer/web-space/home/seasons_series",
+        {
+          params: await signParams({ mid, web_location: "333.999" }),
+          headers: { Referer: `https://space.bilibili.com/${mid}` },
+          validateStatus: () => true,
+        },
+      );
+      if (fallback.data?.code === 0) {
+        const homeData = fallback.data?.data as Record<string, unknown>;
+        itemsLists = homeData?.items_lists as
+          | Record<string, unknown>
+          | undefined;
+        seasons = this.parseCollectionList(
+          itemsLists?.seasons_list ?? homeData?.seasons_list,
+          "season",
+          "created",
+        );
+        series = this.parseCollectionList(
+          itemsLists?.series_list ?? homeData?.series_list,
+          "series",
+          "created",
+        );
+      }
+    }
+
+    const pageInfo = itemsLists?.page as Record<string, unknown> | undefined;
+    const total = (pageInfo?.total as number) ?? seasons.length + series.length;
+    const pageSize = (pageInfo?.page_size as number) ?? 20;
+
+    return {
+      seasons,
+      series,
+      page,
+      hasMore: page * pageSize < total,
+    };
+  }
+
+  async getSubscribedCollections(page = 1): Promise<UserCollectionsPage> {
+    const mid =
+      appStore.get("user")?.mid ?? Number(appStore.get("cookies").DedeUserID);
+    if (!mid) {
+      return { seasons: [], series: [], page, hasMore: false };
+    }
+
+    const pageSize = 20;
+
+    try {
+      const collected = await this.fetchCollectedSeasonFolders(
+        mid,
+        page,
+        pageSize,
+      );
+      if (collected.items.length > 0) {
+        return {
+          seasons: collected.items,
+          series: [],
+          page,
+          hasMore: collected.hasMore,
+        };
+      }
+    } catch {
+      // 继续走文件夹扫描兜底
+    }
+
+    const all = await this.loadSubscribedSeasonsFromFolders();
+    const start = (page - 1) * pageSize;
+    const slice = all.slice(start, start + pageSize);
+
+    return {
+      seasons: slice,
+      series: [],
+      page,
+      hasMore: start + pageSize < all.length,
+    };
+  }
+
+  async getFavVideoMedias(page = 1): Promise<FavMediasPage> {
+    const folders = await this.getFavFolders();
+    const mediaId = this.getDefaultFavFolderId(folders);
+    if (!mediaId) {
+      return { items: [], page, hasMore: false };
+    }
+
+    const pageSize = 20;
+    const { resources, hasMore } = await this.getFavResources(
+      mediaId,
+      page,
+      pageSize,
+    );
+
+    const items: FavMediaItem[] = resources.map((resource) => ({
+      id: resource.id,
+      type: 2,
+      title: resource.title,
+      cover: resource.cover,
+      intro: "",
+      link: resource.bvid
+        ? `https://www.bilibili.com/video/${resource.bvid}`
+        : "",
+      bvid: resource.bvid,
+      upper: resource.upper,
+      duration: resource.duration,
+      playCount: 0,
+      favTime: 0,
+    }));
+
+    return { items, page, hasMore };
+  }
+
+  async getOpusFavorites(page = 1): Promise<OpusFavPage> {
+    await this.ensureBuvid3();
+
+    const res = await this.client.get(
+      "/x/polymer/web-dynamic/v1/opus/feed/fav",
+      {
+        params: { page, page_size: 20 },
+        headers: { Referer: "https://www.bilibili.com/" },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "图文收藏获取失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const rawItems =
+      (data?.items as Record<string, unknown>[] | undefined) ??
+      (data?.list as Record<string, unknown>[] | undefined) ??
+      [];
+
+    const items = rawItems
+      .map((item) => this.normalizeOpusFavItem(item))
+      .filter((item): item is OpusFavItem => item != null);
+
+    return {
+      items,
+      page,
+      hasMore: Boolean(data?.has_more ?? items.length >= 20),
+    };
+  }
+
+  async getCheeseFollowList(page = 1): Promise<CheeseCoursePage> {
+    await this.ensureBuvid3();
+    const pageSize = 20;
+
+    const endpoints = [
+      {
+        url: "/pugv/view/web/purchased/list",
+        params: { pn: page, ps: pageSize },
+      },
+      {
+        url: "/pugv/app/web/season/follow/list",
+        params: { pn: page, ps: pageSize },
+      },
+      {
+        url: "/pugv/app/web/season/listfollow",
+        params: { pn: page, ps: pageSize },
+      },
+    ];
+
+    for (const { url, params } of endpoints) {
+      const res = await this.client.get(url, {
+        params,
+        headers: { Referer: "https://www.bilibili.com/" },
+        validateStatus: () => true,
+      });
+      if (res.data?.code !== 0) continue;
+
+      const data = res.data?.data as Record<string, unknown> | undefined;
+      const rawList =
+        (data?.list as unknown[] | undefined) ??
+        (data?.items as unknown[] | undefined) ??
+        [];
+      if (!Array.isArray(rawList) || rawList.length === 0) continue;
+
+      const list = rawList
+        .map((item) => this.normalizeCheeseCourseItem(item))
+        .filter((item): item is CheeseCourseItem => item != null);
+
+      const pageInfo = data?.page as Record<string, unknown> | undefined;
+      const total =
+        (pageInfo?.total as number) ?? (data?.total as number) ?? list.length;
+
+      return {
+        list,
+        page,
+        hasMore: page * pageSize < total,
+        total,
+      };
+    }
+
+    return { list: [], page, hasMore: false, total: 0 };
+  }
+
+  async getSeasonArchives(
+    mid: number,
+    seasonId: number,
+    page = 1,
+  ): Promise<UpVideosPage> {
+    await this.ensureBuvid3();
+
+    const params = await signParams({
+      mid,
+      season_id: seasonId,
+      page_num: page,
+      page_size: 30,
+    });
+
+    const res = await this.client.get(
+      "/x/polymer/web-space/seasons_archives_list",
+      {
+        params,
+        headers: { Referer: `https://space.bilibili.com/${mid}/lists` },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "合集视频获取失败");
+    }
+
+    return this.normalizeArchivesPage(res.data?.data, mid, page);
+  }
+
+  async getSeriesArchives(seriesId: number, page = 1): Promise<UpVideosPage> {
+    await this.ensureBuvid3();
+
+    const res = await this.client.get("/x/series/archives", {
+      params: { series_id: seriesId, page_num: page, page_size: 30 },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "系列视频获取失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const meta = data?.meta as Record<string, unknown> | undefined;
+    const mid = (meta?.mid as number) ?? 0;
+    return this.normalizeArchivesPage(data, mid, page);
+  }
+
+  async getBangumiFollowList(
+    mid: number,
+    type: 1 | 2 = 1,
+    page = 1,
+  ): Promise<BangumiFollowPage> {
+    await this.ensureBuvid3();
+
+    const res = await this.client.get("/x/space/bangumi/follow/list", {
+      params: {
+        vmid: mid,
+        type,
+        follow_status: 0,
+        pn: page,
+        ps: 20,
+      },
+      headers: {
+        Referer: `https://space.bilibili.com/${mid}/${type === 1 ? "bangumi" : "cinema"}`,
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "追番列表获取失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const list = (
+      (data?.list as Record<string, unknown>[] | undefined) ?? []
+    ).map((item) => this.normalizeBangumiItem(item));
+
+    const total = (data?.total as number) ?? list.length;
+    const pageSize = 20;
+
+    return {
+      list,
+      page,
+      hasMore: page * pageSize < total,
+      total,
+    };
+  }
+
+  private normalizeArchivesPage(
+    data: unknown,
+    mid: number,
+    page: number,
+  ): UpVideosPage {
+    const payload = data as Record<string, unknown> | undefined;
+    const archives =
+      (payload?.archives as Record<string, unknown>[] | undefined) ?? [];
+    const pageInfo = payload?.page as Record<string, unknown> | undefined;
+    const total = (pageInfo?.total as number) ?? archives.length;
+    const pageSize = (pageInfo?.page_size as number) ?? 30;
+
+    const videos = archives
+      .filter((item) => item.bvid)
+      .map((item) => this.normalizeArchiveVideo(item, mid));
+
+    return {
+      videos,
+      page,
+      hasMore: page * pageSize < total,
+      total,
+    };
+  }
+
+  private normalizeArchiveVideo(
     item: Record<string, unknown>,
     mid: number,
   ): VideoItem {
+    const stat = item.stat as Record<string, unknown> | undefined;
+    return {
+      bvid: item.bvid as string,
+      aid: Number(item.aid) || 0,
+      title: (item.title as string) ?? "",
+      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
+      duration: (item.duration as number) ?? 0,
+      play: (stat?.view as number) ?? 0,
+      danmaku: (stat?.danmaku as number) ?? 0,
+      owner: {
+        mid,
+        name: "",
+        face: "",
+      },
+      pubdate:
+        (item.pubdate as number) ??
+        (item.ptime as number) ??
+        (item.ctime as number) ??
+        (item.created as number) ??
+        0,
+    };
+  }
+
+  private parseCollectionList(
+    raw: unknown,
+    kind: "season" | "series",
+    source: "created" | "subscribed",
+  ): UserCollectionItem[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item) => this.normalizeCollectionItem(item, kind, source))
+      .filter((item): item is UserCollectionItem => item != null);
+  }
+
+  private normalizeCollectionItem(
+    item: Record<string, unknown>,
+    kind: "season" | "series",
+    source: "created" | "subscribed" = "created",
+  ): UserCollectionItem | null {
+    const meta =
+      (item.meta as Record<string, unknown> | undefined) ??
+      (item as Record<string, unknown>);
+
+    const id =
+      kind === "season"
+        ? Number(meta.season_id ?? item.season_id)
+        : Number(meta.series_id ?? meta.seriesId ?? item.series_id);
+    if (!id) return null;
+
+    const upper = meta.upper as Record<string, unknown> | undefined;
+    const cntInfo = meta.cnt_info as Record<string, unknown> | undefined;
+
+    return {
+      id,
+      kind,
+      title: (meta.name as string) ?? (meta.title as string) ?? "未命名",
+      cover: this.normalizeBfsUrl(
+        (meta.cover as string) ?? (meta.covr as string) ?? "",
+      ),
+      description: (meta.description as string) ?? (meta.intro as string) ?? "",
+      total:
+        (meta.total as number) ??
+        (meta.archives_count as number) ??
+        (meta.media_count as number) ??
+        (cntInfo?.collect as number) ??
+        0,
+      ownerMid: Number(meta.mid ?? upper?.mid) || undefined,
+      source,
+    };
+  }
+
+  private normalizeSubscribedSeason(item: unknown): UserCollectionItem | null {
+    const media = item as Record<string, unknown>;
+    if (Number(media.type) !== 21) return null;
+
+    const upper = media.upper as Record<string, unknown> | undefined;
+    const cntInfo = media.cnt_info as Record<string, unknown> | undefined;
+
+    return {
+      id: Number(media.id) || 0,
+      kind: "season",
+      title: (media.title as string) ?? "未命名合集",
+      cover: this.normalizeBfsUrl((media.cover as string) ?? ""),
+      description: (media.intro as string) ?? "",
+      total: (media.page as number) ?? (cntInfo?.collect as number) ?? 0,
+      ownerMid: Number(upper?.mid) || undefined,
+      source: "subscribed",
+    };
+  }
+
+  private normalizeFavMediaItem(item: unknown): FavMediaItem | null {
+    const media = item as Record<string, unknown>;
+    const id = Number(media.id);
+    if (!id) return null;
+
+    const upper = media.upper as Record<string, unknown> | undefined;
+    const cntInfo = media.cnt_info as Record<string, unknown> | undefined;
+    const link = (media.link as string) ?? "";
+
+    return {
+      id,
+      type: Number(media.type) || 0,
+      title: (media.title as string) ?? "",
+      cover: this.normalizeBfsUrl((media.cover as string) ?? ""),
+      intro: (media.intro as string) ?? "",
+      link,
+      bvid: (media.bvid as string) ?? (media.bv_id as string) ?? "",
+      upper: {
+        mid: Number(upper?.mid) || 0,
+        name: (upper?.name as string) ?? "",
+      },
+      duration: Number(media.duration) || 0,
+      playCount: Number(cntInfo?.play) || 0,
+      favTime: Number(media.fav_time) || 0,
+    };
+  }
+
+  private normalizeOpusFavItem(
+    item: Record<string, unknown>,
+  ): OpusFavItem | null {
+    const opusId =
+      (item.opus_id as string) ??
+      (item.id_str as string) ??
+      String(item.id ?? "");
+    if (!opusId) return null;
+
+    const coverObj = item.cover as Record<string, unknown> | undefined;
+    const coverPic = item.cover_pic as Record<string, unknown> | undefined;
+    const textParagraph = item.text_paragraph as
+      | Record<string, unknown>
+      | undefined;
+    const author = item.author as Record<string, unknown> | undefined;
+    const moduleAuthor = item.module_author as
+      | Record<string, unknown>
+      | undefined;
+
+    const jumpUrl =
+      (item.jump_url as string) ??
+      (item.card_uri as string) ??
+      `https://www.bilibili.com/opus/${opusId}`;
+
+    const summary =
+      this.extractRichText(textParagraph) ||
+      this.extractRichText(item.summary) ||
+      this.extractRichText(item.content) ||
+      "";
+
+    return {
+      id: opusId,
+      title: (item.title as string) ?? (summary.slice(0, 40) || "图文动态"),
+      cover: this.normalizeBfsUrl(
+        (coverObj?.url as string) ??
+          (coverPic?.url as string) ??
+          (item.cover as string) ??
+          "",
+      ),
+      summary,
+      url: jumpUrl.startsWith("http")
+        ? jumpUrl
+        : `https:${jumpUrl.replace(/^\/\//, "//")}`,
+      author: (author?.name as string) ?? (moduleAuthor?.name as string) ?? "",
+    };
+  }
+
+  private normalizeCheeseCourseItem(item: unknown): CheeseCourseItem | null {
+    const raw = item as Record<string, unknown>;
+    const seasonId = Number(raw.season_id ?? raw.id);
+    if (!seasonId) return null;
+
+    const link = (raw.link as string) ?? "";
+    const url = link.startsWith("http")
+      ? link
+      : `https://www.bilibili.com/cheese/play/ss${seasonId}`;
+
+    return {
+      seasonId,
+      title: (raw.title as string) ?? "未命名课程",
+      cover: this.normalizeBfsUrl((raw.cover as string) ?? ""),
+      subtitle: (raw.subtitle as string) ?? "",
+      epCount: Number(raw.ep_count ?? raw.episode_count) || 0,
+      playCount: Number(raw.play ?? raw.view) || 0,
+      status: (raw.status as string) ?? "",
+      url,
+    };
+  }
+
+  private normalizeBangumiItem(
+    item: Record<string, unknown>,
+  ): BangumiFollowItem {
+    const newEp = item.new_ep as Record<string, unknown> | undefined;
+    const seasonId = Number(item.season_id) || 0;
+    const epId = Number(newEp?.id) || 0;
+    const url = epId
+      ? `https://www.bilibili.com/bangumi/play/ep${epId}`
+      : `https://www.bilibili.com/bangumi/play/ss${seasonId}`;
+
+    return {
+      seasonId,
+      title: (item.title as string) ?? "",
+      cover: ((item.cover as string) ?? "").replace(/^http:/, "https:"),
+      evaluate: (item.evaluate as string) ?? "",
+      progress: (newEp?.index_show as string) ?? "",
+      url,
+    };
+  }
+
+  private extractRichText(value: unknown): string {
+    if (value == null) return "";
+    if (typeof value === "string") return value;
+    if (typeof value !== "object") return "";
+
+    const obj = value as Record<string, unknown>;
+
+    if (typeof obj.text === "string" && obj.text.trim()) return obj.text;
+    if (obj.text && typeof obj.text === "object") {
+      const nested = this.extractRichText(obj.text);
+      if (nested) return nested;
+    }
+
+    const paragraphs = obj.paragraphs as unknown[] | undefined;
+    if (paragraphs?.length) {
+      const joined = paragraphs
+        .map((paragraph) => this.extractRichText(paragraph))
+        .filter(Boolean)
+        .join("\n");
+      if (joined) return joined;
+    }
+
+    const nodes = obj.rich_text_nodes as unknown[] | undefined;
+    if (nodes?.length) {
+      return nodes.map((node) => this.extractRichText(node)).join("");
+    }
+
+    return "";
+  }
+
+  private normalizeSpaceDynamicItem(
+    item: Record<string, unknown>,
+  ): SpaceDynamicItem | null {
+    const id = (item.id_str as string) ?? String(item.id ?? "");
+    if (!id) return null;
+
+    const type = (item.type as string) ?? "";
+    const modules = item.modules as Record<string, unknown> | undefined;
+    const moduleAuthor = modules?.module_author as
+      | Record<string, unknown>
+      | undefined;
+    const pubTime =
+      (moduleAuthor?.pub_ts as number) ??
+      (moduleAuthor?.pub_time as number) ??
+      0;
+
+    const moduleDynamic = modules?.module_dynamic as
+      | Record<string, unknown>
+      | undefined;
+    const major = moduleDynamic?.major as Record<string, unknown> | undefined;
+
+    if (major?.archive) {
+      const archive = major.archive as Record<string, unknown>;
+      const stat = archive.stat as Record<string, unknown> | undefined;
+      return {
+        id,
+        type,
+        text: "",
+        pubTime,
+        title: (archive.title as string) ?? "",
+        bvid: archive.bvid as string | undefined,
+        cover: ((archive.cover as string) ?? "").replace(/^http:/, "https:"),
+        stats: {
+          view: Number(stat?.play) || 0,
+          like: Number(stat?.like) || 0,
+          reply: Number(stat?.reply) || 0,
+        },
+      };
+    }
+
+    if (major?.opus) {
+      const opus = major.opus as Record<string, unknown>;
+      return {
+        id,
+        type,
+        text: this.extractRichText(opus.summary),
+        pubTime,
+        title: (opus.title as string) ?? "图文动态",
+        cover: ((opus.cover as string) ?? "").replace(/^http:/, "https:"),
+      };
+    }
+
+    const desc = moduleDynamic?.desc as Record<string, unknown> | undefined;
+    const text =
+      this.extractRichText(desc) ||
+      this.extractRichText(moduleDynamic) ||
+      (type.includes("FORWARD") ? "转发动态" : "动态");
+
+    const coverMajor = major?.draw as Record<string, unknown> | undefined;
+    const items = coverMajor?.items as Record<string, unknown>[] | undefined;
+
+    return {
+      id,
+      type,
+      text,
+      pubTime,
+      title: text.slice(0, 40) || "动态",
+      cover: ((items?.[0]?.src as string) ?? "").replace(/^http:/, "https:"),
+    };
+  }
+
+  private normalizeToViewItem(item: Record<string, unknown>): ToViewItem {
+    const owner = item.owner as Record<string, unknown> | undefined;
+    const stat = item.stat as Record<string, unknown> | undefined;
+
+    return {
+      bvid: item.bvid as string,
+      aid: (item.aid as number) ?? 0,
+      title: (item.title as string) ?? "",
+      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
+      duration: (item.duration as number) ?? 0,
+      play: (stat?.view as number) ?? 0,
+      danmaku: (stat?.danmaku as number) ?? 0,
+      owner: {
+        mid: (owner?.mid as number) ?? 0,
+        name: (owner?.name as string) ?? "",
+        face: ((owner?.face as string) ?? "").replace(/^http:/, "https:"),
+      },
+      pubdate: 0,
+      progress: (item.progress as number) ?? 0,
+      addAt: (item.add_at as number) ?? 0,
+      cid: (item.cid as number) ?? 0,
+    };
+  }
+
+  private normalizeSearchVideo(item: Record<string, unknown>): VideoItem {
     const durationText = item.duration as string | undefined;
     let duration = 0;
     if (durationText?.includes(":")) {
@@ -1455,16 +2591,20 @@ class BiliApiService {
       bvid: item.bvid as string,
       aid: (item.aid as number) ?? 0,
       title,
-      cover: ((item.pic as string) ?? "").replace(/^http:/, "https:"),
+      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
       duration,
       play: (item.play as number) ?? 0,
       danmaku: (item.video_review as number) ?? 0,
       owner: {
-        mid,
+        mid: (item.mid as number) ?? 0,
         name: (item.author as string) ?? "",
-        face: "",
+        face: ((item.upic as string) ?? "").replace(/^http:/, "https:"),
       },
-      pubdate: (item.pubdate as number) ?? 0,
+      pubdate:
+        (item.pubdate as number) ??
+        (item.pub_time as number) ??
+        (item.ctime as number) ??
+        0,
     };
   }
 }

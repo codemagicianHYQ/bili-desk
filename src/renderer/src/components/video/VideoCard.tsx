@@ -1,29 +1,38 @@
-import { Link } from 'react-router-dom'
-import { Play } from 'lucide-react'
-import type { VideoItem } from '@shared/types'
-import { cn, formatCount, formatDuration } from '@/lib/utils'
-import { BiliImage } from '@/components/ui/bili-image'
+import { Link } from "react-router-dom";
+import { Play } from "lucide-react";
+import type { VideoItem } from "@shared/types";
+import { cn, formatCount, formatDuration, formatPubdate } from "@/lib/utils";
+import { BiliImage } from "@/components/ui/bili-image";
+import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 
 interface VideoCardProps {
-  video: VideoItem
-  className?: string
+  video: VideoItem;
+  className?: string;
+  /** owner: UP 主 + 播放量；stats: 发布时间 + 播放量（用于自己的投稿） */
+  meta?: "owner" | "stats";
 }
 
-export function VideoCard({ video, className }: VideoCardProps) {
+export function VideoCard({
+  video,
+  className,
+  meta = "owner",
+}: VideoCardProps) {
   return (
     <Link
       to={`/video/${video.bvid}`}
       className={cn(
-        'group block overflow-hidden rounded-xl border border-border bg-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg',
-        className
+        "group block overflow-hidden rounded-xl border border-border bg-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg",
+        className,
       )}
     >
       <div className="relative aspect-video overflow-hidden bg-muted">
         <BiliImage
           src={video.cover}
           alt={video.title}
-          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+          variant="cover"
+          className="absolute inset-0 h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
         />
+        <WatchLaterButton aid={video.aid} bvid={video.bvid} video={video} />
         <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
           {formatDuration(video.duration)}
         </span>
@@ -32,12 +41,26 @@ export function VideoCard({ video, className }: VideoCardProps) {
         </div>
       </div>
       <div className="space-y-2 p-3">
-        <h3 className="line-clamp-2 text-sm font-medium leading-snug">{video.title}</h3>
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span className="truncate">{video.owner.name}</span>
-          <span>{formatCount(video.play)} 播放</span>
+        <h3 className="line-clamp-2 text-sm font-medium leading-snug">
+          {video.title}
+        </h3>
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          {meta === "stats" ? (
+            <span>{formatPubdate(video.pubdate) || "—"}</span>
+          ) : (
+            <span className="min-w-0 truncate">
+              {video.owner.name}
+              {video.pubdate > 0 && (
+                <>
+                  <span className="mx-1 text-muted-foreground/50">·</span>
+                  <span>{formatPubdate(video.pubdate)}</span>
+                </>
+              )}
+            </span>
+          )}
+          <span className="shrink-0">{formatCount(video.play)} 播放</span>
         </div>
       </div>
     </Link>
-  )
+  );
 }

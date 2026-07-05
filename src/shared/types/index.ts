@@ -1,318 +1,502 @@
 export interface VideoItem {
-  bvid: string
-  aid: number
-  title: string
-  cover: string
-  duration: number
-  play: number
-  danmaku: number
+  bvid: string;
+  aid: number;
+  title: string;
+  cover: string;
+  duration: number;
+  play: number;
+  danmaku: number;
   owner: {
-    mid: number
-    name: string
-    face: string
-  }
-  pubdate: number
+    mid: number;
+    name: string;
+    face: string;
+  };
+  pubdate: number;
 }
 
 export interface VideoDetail extends VideoItem {
-  desc: string
-  pages: VideoPagePart[]
+  desc: string;
+  pages: VideoPagePart[];
   stat: {
-    view: number
-    danmaku: number
-    reply: number
-    favorite: number
-    coin: number
-    like: number
-  }
+    view: number;
+    danmaku: number;
+    reply: number;
+    favorite: number;
+    coin: number;
+    like: number;
+  };
 }
 
 export interface VideoPagePart {
-  cid: number
-  page: number
-  part: string
-  duration: number
+  cid: number;
+  page: number;
+  part: string;
+  duration: number;
 }
 
 export interface VideoPlayInfo {
-  url: string
-  format: 'mp4' | 'flv' | 'dash'
-  quality: number
-  qualityLabel: string
-  qualities: Array<{ qn: number; label: string }>
+  url: string;
+  format: "mp4" | "flv" | "dash";
+  quality: number;
+  qualityLabel: string;
+  qualities: Array<{ qn: number; label: string }>;
 }
 
 export interface UserInfo {
-  mid: number
-  name: string
-  face: string
-  isLogin: boolean
+  mid: number;
+  name: string;
+  face: string;
+  isLogin: boolean;
 }
 
 export interface QrLoginResult {
-  url: string
-  qrcodeKey: string
+  url: string;
+  qrcodeKey: string;
 }
 
 export interface AuthPollResult {
-  status: 'waiting' | 'scanned' | 'confirmed' | 'expired' | 'failed'
-  user?: UserInfo
-  message?: string
+  status: "waiting" | "scanned" | "confirmed" | "expired" | "failed";
+  user?: UserInfo;
+  message?: string;
 }
 
 export interface FavFolder {
-  id: number
-  fid: number
-  title: string
-  mediaCount: number
-  cover: string
+  id: number;
+  fid: number;
+  title: string;
+  mediaCount: number;
+  cover: string;
 }
 
 export interface VideoFavFolder extends FavFolder {
-  collected: boolean
-  isDefault?: boolean
+  collected: boolean;
+  isDefault?: boolean;
 }
 
 export interface FavResource {
-  id: number
-  bvid: string
-  title: string
-  cover: string
-  upper: { mid: number; name: string }
-  duration: number
+  id: number;
+  bvid: string;
+  title: string;
+  cover: string;
+  upper: { mid: number; name: string };
+  duration: number;
 }
 
 export interface FavResourcesPage {
-  resources: FavResource[]
-  page: number
-  hasMore: boolean
+  resources: FavResource[];
+  page: number;
+  hasMore: boolean;
 }
 
 export interface FollowingUp {
-  mid: number
-  uname: string
-  face: string
-  sign: string
-  official: { role: number; title: string }
+  mid: number;
+  uname: string;
+  face: string;
+  sign: string;
+  official: { role: number; title: string };
   /** 是否特别关注 */
-  special?: boolean
+  special?: boolean;
   /** 是否互相关注 */
-  mutual?: boolean
+  mutual?: boolean;
 }
 
 export interface FollowTag {
-  tagId: number
-  name: string
-  count: number
+  tagId: number;
+  name: string;
+  count: number;
 }
 
 export interface FollowingsPage {
-  followings: FollowingUp[]
-  page: number
-  hasMore: boolean
+  followings: FollowingUp[];
+  page: number;
+  hasMore: boolean;
 }
 
 export interface UpProfile {
-  mid: number
-  name: string
-  face: string
-  sign: string
-  fans: number
-  following: number
-  videos: number
+  mid: number;
+  name: string;
+  face: string;
+  sign: string;
+  fans: number;
+  following: number;
+  videos: number;
+  topPhoto?: string;
 }
 
 export interface UpRelation {
-  isFollowing: boolean
-  attribute: number
+  isFollowing: boolean;
+  attribute: number;
 }
 
 export interface UpVideosPage {
-  videos: VideoItem[]
-  page: number
-  hasMore: boolean
-  total: number
+  videos: VideoItem[];
+  page: number;
+  hasMore: boolean;
+  total: number;
 }
 
 export interface RecommendPage {
-  videos: VideoItem[]
-  freshIdx: number
-  hasMore: boolean
+  videos: VideoItem[];
+  freshIdx: number;
+  hasMore: boolean;
+}
+
+export type SearchOrder = "totalrank" | "click" | "pubdate" | "dm" | "stow";
+
+export interface SearchVideosPage {
+  videos: VideoItem[];
+  page: number;
+  hasMore: boolean;
+  total: number;
+}
+
+export interface ToViewItem extends VideoItem {
+  progress: number;
+  addAt: number;
+  cid: number;
+}
+
+export interface ToViewList {
+  videos: ToViewItem[];
+  count: number;
+}
+
+export interface SpaceDynamicItem {
+  id: string;
+  type: string;
+  text: string;
+  pubTime: number;
+  cover?: string;
+  bvid?: string;
+  title?: string;
+  stats?: { view?: number; like?: number; reply?: number };
+}
+
+export interface SpaceDynamicPage {
+  items: SpaceDynamicItem[];
+  offset: string;
+  hasMore: boolean;
+}
+
+export interface UserCollectionItem {
+  id: number;
+  kind: "season" | "series";
+  title: string;
+  cover: string;
+  description: string;
+  total: number;
+  /** 订阅/收藏他人的合集时，创建者 mid */
+  ownerMid?: number;
+  source?: "created" | "subscribed";
+}
+
+export interface FavMediaItem {
+  id: number;
+  type: number;
+  title: string;
+  cover: string;
+  intro: string;
+  link: string;
+  bvid: string;
+  upper: { mid: number; name: string };
+  duration: number;
+  playCount: number;
+  favTime: number;
+}
+
+export interface FavMediasPage {
+  items: FavMediaItem[];
+  page: number;
+  hasMore: boolean;
+}
+
+export interface OpusFavItem {
+  id: string;
+  title: string;
+  cover: string;
+  summary: string;
+  url: string;
+  author: string;
+}
+
+export interface OpusFavPage {
+  items: OpusFavItem[];
+  page: number;
+  hasMore: boolean;
+}
+
+export interface CheeseCourseItem {
+  seasonId: number;
+  title: string;
+  cover: string;
+  subtitle: string;
+  epCount: number;
+  playCount: number;
+  status: string;
+  url: string;
+}
+
+export interface CheeseCoursePage {
+  list: CheeseCourseItem[];
+  page: number;
+  hasMore: boolean;
+  total: number;
+}
+
+export interface UserCollectionsPage {
+  seasons: UserCollectionItem[];
+  series: UserCollectionItem[];
+  page: number;
+  hasMore: boolean;
+}
+
+export interface BangumiFollowItem {
+  seasonId: number;
+  title: string;
+  cover: string;
+  evaluate: string;
+  progress: string;
+  url: string;
+}
+
+export interface BangumiFollowPage {
+  list: BangumiFollowItem[];
+  page: number;
+  hasMore: boolean;
+  total: number;
 }
 
 export interface CategoryL1 {
-  id: number
-  name: string
-  icon: string
-  sortOrder: number
+  id: number;
+  name: string;
+  icon: string;
+  sortOrder: number;
 }
 
 export interface CategoryL2 {
-  id: number
-  categoryL1Id: number
-  name: string
-  sortOrder: number
+  id: number;
+  categoryL1Id: number;
+  name: string;
+  sortOrder: number;
 }
 
 export interface CategoryL3 {
-  id: number
-  categoryL2Id: number
-  name: string
-  sortOrder: number
+  id: number;
+  categoryL2Id: number;
+  name: string;
+  sortOrder: number;
 }
 
 export interface CategoryTreeL3Node {
-  id: number
-  name: string
-  sortOrder: number
-  count?: number
+  id: number;
+  name: string;
+  sortOrder: number;
+  count?: number;
 }
 
 export interface CategoryTreeL2Node {
-  id: number
-  name: string
-  sortOrder: number
-  count?: number
-  children: CategoryTreeL3Node[]
+  id: number;
+  name: string;
+  sortOrder: number;
+  count?: number;
+  children: CategoryTreeL3Node[];
 }
 
 export interface CategoryTreeNode {
-  id: number
-  name: string
-  icon: string
-  sortOrder: number
-  count?: number
-  children: CategoryTreeL2Node[]
+  id: number;
+  name: string;
+  icon: string;
+  sortOrder: number;
+  count?: number;
+  children: CategoryTreeL2Node[];
 }
 
 export interface FavoriteItemAssignment {
-  id: number
-  mediaId: number
-  avid: number
-  bvid: string
-  title: string
-  cover?: string
-  upperName?: string
-  duration?: number
-  categoryL1Id: number | null
-  categoryL2Id: number | null
-  categoryL3Id: number | null
+  id: number;
+  mediaId: number;
+  avid: number;
+  bvid: string;
+  title: string;
+  cover?: string;
+  upperName?: string;
+  duration?: number;
+  categoryL1Id: number | null;
+  categoryL2Id: number | null;
+  categoryL3Id: number | null;
 }
 
-export type LocalCategoryLevel = 'all' | 'l1' | 'l2' | 'l3' | 'uncategorized'
+export type LocalCategoryLevel = "all" | "l1" | "l2" | "l3" | "uncategorized";
 
 export interface LocalCategorySelection {
-  level: LocalCategoryLevel
-  id: number | null
+  level: LocalCategoryLevel;
+  id: number | null;
 }
 
 export interface UpGroup {
-  id: number
-  name: string
-  color: string
-  isAiGenerated: boolean
-  sortOrder: number
-  parentId: number | null
-  memberCount: number
+  id: number;
+  name: string;
+  color: string;
+  isAiGenerated: boolean;
+  sortOrder: number;
+  parentId: number | null;
+  memberCount: number;
 }
 
 export interface UpGroupTreeL2Node {
-  id: number
-  name: string
-  color: string
-  sortOrder: number
-  count: number
+  id: number;
+  name: string;
+  color: string;
+  sortOrder: number;
+  count: number;
 }
 
 export interface UpGroupTreeNode {
-  id: number
-  name: string
-  color: string
-  sortOrder: number
-  count: number
-  children: UpGroupTreeL2Node[]
+  id: number;
+  name: string;
+  color: string;
+  sortOrder: number;
+  count: number;
+  children: UpGroupTreeL2Node[];
 }
 
-export type UpGroupSelectionLevel = 'all' | 'l1' | 'l2' | 'uncategorized'
+export type UpGroupSelectionLevel = "all" | "l1" | "l2" | "uncategorized";
 
 export interface UpGroupSelection {
-  level: UpGroupSelectionLevel
-  id: number | null
+  level: UpGroupSelectionLevel;
+  id: number | null;
 }
 
 export interface AiConfig {
-  baseUrl: string
-  apiKey: string
-  model: string
+  baseUrl: string;
+  apiKey: string;
+  model: string;
 }
 
 export interface ClassificationTask {
-  id: number
-  type: string
-  status: 'pending' | 'running' | 'done' | 'failed'
-  progress: number
-  message: string
+  id: number;
+  type: string;
+  status: "pending" | "running" | "done" | "failed";
+  progress: number;
+  message: string;
 }
 
-export type Theme = 'light' | 'dark'
+export type Theme = "light" | "dark";
 
 export interface BiliDeskApi {
   auth: {
-    getQrCode: () => Promise<QrLoginResult>
-    pollLogin: (qrcodeKey: string) => Promise<AuthPollResult>
-    logout: () => Promise<void>
-    getStatus: () => Promise<UserInfo>
-  }
+    getQrCode: () => Promise<QrLoginResult>;
+    pollLogin: (qrcodeKey: string) => Promise<AuthPollResult>;
+    logout: () => Promise<void>;
+    getStatus: () => Promise<UserInfo>;
+  };
   bili: {
-    getRecommend: (options?: { freshIdx?: number; freshIdx1h?: number; ps?: number }) => Promise<RecommendPage>
-    getVideo: (bvid: string) => Promise<VideoDetail>
-    getPlayUrl: (bvid: string, cid: number, qn?: number) => Promise<VideoPlayInfo>
-    getFavFolders: () => Promise<FavFolder[]>
-    getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>
-    setVideoFavFolders: (aid: number, addMediaIds: number[], delMediaIds: number[]) => Promise<void>
-    getFavResources: (mediaId: number, page?: number) => Promise<FavResourcesPage>
-    getFollowings: (page?: number) => Promise<FollowingUp[]>
-    getFollowTags: () => Promise<FollowTag[]>
-    getFollowingsInTag: (tagId: number, page?: number) => Promise<FollowingsPage>
-    getUserFollowTags: (mid: number) => Promise<number[]>
-    setUserFollowTags: (mid: number, tagIds: number[]) => Promise<void>
-    getUpProfile: (mid: number) => Promise<UpProfile>
-    getUpRelation: (mid: number) => Promise<UpRelation>
-    modifyFollow: (mid: number, follow: boolean) => Promise<void>
-    getUpVideos: (mid: number, page?: number) => Promise<UpVideosPage>
-  }
+    getRecommend: (options?: {
+      freshIdx?: number;
+      freshIdx1h?: number;
+      ps?: number;
+    }) => Promise<RecommendPage>;
+    getVideo: (bvid: string) => Promise<VideoDetail>;
+    getPlayUrl: (
+      bvid: string,
+      cid: number,
+      qn?: number,
+    ) => Promise<VideoPlayInfo>;
+    getFavFolders: () => Promise<FavFolder[]>;
+    getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
+    setVideoFavFolders: (
+      aid: number,
+      addMediaIds: number[],
+      delMediaIds: number[],
+    ) => Promise<void>;
+    getFavResources: (
+      mediaId: number,
+      page?: number,
+    ) => Promise<FavResourcesPage>;
+    getFollowings: (page?: number) => Promise<FollowingUp[]>;
+    getFollowTags: () => Promise<FollowTag[]>;
+    getFollowingsInTag: (
+      tagId: number,
+      page?: number,
+    ) => Promise<FollowingsPage>;
+    getUserFollowTags: (mid: number) => Promise<number[]>;
+    setUserFollowTags: (mid: number, tagIds: number[]) => Promise<void>;
+    getUpProfile: (mid: number) => Promise<UpProfile>;
+    getUpRelation: (mid: number) => Promise<UpRelation>;
+    modifyFollow: (mid: number, follow: boolean) => Promise<void>;
+    getUpVideos: (mid: number, page?: number) => Promise<UpVideosPage>;
+    searchVideos: (
+      keyword: string,
+      page?: number,
+      order?: SearchOrder,
+    ) => Promise<SearchVideosPage>;
+    getToViewList: () => Promise<ToViewList>;
+    addToView: (aid: number, bvid: string) => Promise<void>;
+    removeFromToView: (aid: number) => Promise<void>;
+    getSpaceDynamics: (
+      mid: number,
+      offset?: string,
+    ) => Promise<SpaceDynamicPage>;
+    getUserCollections: (
+      mid: number,
+      page?: number,
+    ) => Promise<UserCollectionsPage>;
+    getSeasonArchives: (
+      mid: number,
+      seasonId: number,
+      page?: number,
+    ) => Promise<UpVideosPage>;
+    getSeriesArchives: (
+      seriesId: number,
+      page?: number,
+    ) => Promise<UpVideosPage>;
+    getBangumiFollowList: (
+      mid: number,
+      type?: 1 | 2,
+      page?: number,
+    ) => Promise<BangumiFollowPage>;
+    getSubscribedCollections: (
+      page?: number,
+    ) => Promise<UserCollectionsPage>;
+    getFavVideoMedias: (page?: number) => Promise<FavMediasPage>;
+    getOpusFavorites: (page?: number) => Promise<OpusFavPage>;
+    getCheeseFollowList: (page?: number) => Promise<CheeseCoursePage>;
+  };
   taxonomy: {
-    getTree: () => Promise<CategoryTreeNode[]>
-    createL1: (name: string, icon?: string) => Promise<CategoryL1>
-    createL2: (categoryL1Id: number, name: string) => Promise<CategoryL2>
-    createL3: (categoryL2Id: number, name: string) => Promise<CategoryL3>
-    updateCategoryName: (level: 'l1' | 'l2' | 'l3', id: number, name: string) => Promise<void>
-    getFavoriteAssignments: () => Promise<FavoriteItemAssignment[]>
-    classifyAllFavorites: () => Promise<{ taskId: number }>
-    classifyFolderFavorites: (mediaId: number) => Promise<{ taskId: number }>
-    getFavTaskStatus: (taskId: number) => Promise<ClassificationTask | null>
-    enrichFavoriteCovers: () => Promise<{ updated: number; remaining: number }>
-    getUpGroups: () => Promise<UpGroup[]>
-    getUpGroupTree: () => Promise<UpGroupTreeNode[]>
-    createUpGroup: (name: string, color?: string) => Promise<UpGroup>
-    getUpGroupMemberMids: (selection: UpGroupSelection) => Promise<number[]>
-  }
+    getTree: () => Promise<CategoryTreeNode[]>;
+    createL1: (name: string, icon?: string) => Promise<CategoryL1>;
+    createL2: (categoryL1Id: number, name: string) => Promise<CategoryL2>;
+    createL3: (categoryL2Id: number, name: string) => Promise<CategoryL3>;
+    updateCategoryName: (
+      level: "l1" | "l2" | "l3",
+      id: number,
+      name: string,
+    ) => Promise<void>;
+    getFavoriteAssignments: () => Promise<FavoriteItemAssignment[]>;
+    classifyAllFavorites: () => Promise<{ taskId: number }>;
+    classifyFolderFavorites: (mediaId: number) => Promise<{ taskId: number }>;
+    getFavTaskStatus: (taskId: number) => Promise<ClassificationTask | null>;
+    enrichFavoriteCovers: () => Promise<{ updated: number; remaining: number }>;
+    getUpGroups: () => Promise<UpGroup[]>;
+    getUpGroupTree: () => Promise<UpGroupTreeNode[]>;
+    createUpGroup: (name: string, color?: string) => Promise<UpGroup>;
+    getUpGroupMemberMids: (selection: UpGroupSelection) => Promise<number[]>;
+  };
   ai: {
-    getConfig: () => Promise<AiConfig>
-    setConfig: (config: Partial<AiConfig>) => Promise<AiConfig>
-    runUpClassification: () => Promise<{ taskId: number }>
-    getTaskStatus: (taskId: number) => Promise<ClassificationTask | null>
-  }
+    getConfig: () => Promise<AiConfig>;
+    setConfig: (config: Partial<AiConfig>) => Promise<AiConfig>;
+    runUpClassification: () => Promise<{ taskId: number }>;
+    getTaskStatus: (taskId: number) => Promise<ClassificationTask | null>;
+  };
   app: {
-    getTheme: () => Promise<Theme>
-    setTheme: (theme: Theme) => Promise<Theme>
-  }
+    getTheme: () => Promise<Theme>;
+    setTheme: (theme: Theme) => Promise<Theme>;
+  };
 }
 
 declare global {
   interface Window {
-    biliDesk: BiliDeskApi
+    biliDesk: BiliDeskApi;
   }
 }
 
-export {}
+export {};

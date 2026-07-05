@@ -1,14 +1,22 @@
-import { type ImgHTMLAttributes } from 'react'
-import { normalizeBiliImage } from '@/lib/bili-image'
+import { type ImgHTMLAttributes } from "react";
+import { normalizeBiliImage, normalizeVideoCover } from "@/lib/bili-image";
 
 interface BiliImageProps extends ImgHTMLAttributes<HTMLImageElement> {
-  src: string
+  src: string;
+  variant?: "default" | "cover";
 }
 
-export function BiliImage({ src, alt, className, ...props }: BiliImageProps) {
-  const url = normalizeBiliImage(src)
+export function BiliImage({
+  src,
+  alt,
+  className,
+  variant = "default",
+  ...props
+}: BiliImageProps) {
+  const url =
+    variant === "cover" ? normalizeVideoCover(src) : normalizeBiliImage(src);
   if (!url) {
-    return <div className={className} aria-label={alt} />
+    return <div className={className} aria-label={alt} />;
   }
 
   return (
@@ -20,5 +28,5 @@ export function BiliImage({ src, alt, className, ...props }: BiliImageProps) {
       loading="lazy"
       {...props}
     />
-  )
+  );
 }

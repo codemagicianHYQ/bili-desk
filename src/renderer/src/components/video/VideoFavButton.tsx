@@ -1,120 +1,140 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
-import type { VideoFavFolder } from '@shared/types'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
-import { Bookmark, Folder, Loader2, X } from 'lucide-react'
-import { useFavoritesStore } from '@/stores/favorites-store'
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import type { VideoFavFolder } from "@shared/types";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { Bookmark, Folder, Loader2, X } from "lucide-react";
+import { useFavoritesStore } from "@/stores/favorites-store";
 
 interface VideoFavButtonProps {
-  aid: number
-  className?: string
+  aid: number;
+  className?: string;
 }
 
 function formatFavError(err: unknown): string {
-  const message = err instanceof Error ? err.message : '操作失败'
-  if (message.includes('412') || message.includes('安全策略')) {
-    return '请求被 B 站安全策略拦截，请稍后重试'
+  const message = err instanceof Error ? err.message : "操作失败";
+  if (message.includes("412") || message.includes("安全策略")) {
+    return "请求被 B 站安全策略拦截，请稍后重试";
   }
-  return message
+  return message;
 }
 
 export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
-  const invalidateFolders = useFavoritesStore((state) => state.invalidateFolders)
+  const invalidateFolders = useFavoritesStore(
+    (state) => state.invalidateFolders,
+  );
 
-  const [open, setOpen] = useState(false)
-  const [folders, setFolders] = useState<VideoFavFolder[]>([])
-  const [initialSelected, setInitialSelected] = useState<Set<number>>(new Set())
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [open, setOpen] = useState(false);
+  const [folders, setFolders] = useState<VideoFavFolder[]>([]);
+  const [initialSelected, setInitialSelected] = useState<Set<number>>(
+    new Set(),
+  );
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const isCollected = useMemo(() => folders.some((folder) => folder.collected), [folders])
+  const isCollected = useMemo(
+    () => folders.some((folder) => folder.collected),
+    [folders],
+  );
 
   const loadFolders = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError("");
     try {
-      const list = await window.biliDesk.bili.getVideoFavFolders(aid)
-      setFolders(list)
-      const collectedIds = new Set(list.filter((folder) => folder.collected).map((folder) => folder.id))
-      setInitialSelected(collectedIds)
-      setSelected(new Set(collectedIds))
+      const list = await window.biliDesk.bili.getVideoFavFolders(aid);
+      setFolders(list);
+      const collectedIds = new Set(
+        list.filter((folder) => folder.collected).map((folder) => folder.id),
+      );
+      setInitialSelected(collectedIds);
+      setSelected(new Set(collectedIds));
     } catch (err) {
-      setError(formatFavError(err))
-      setFolders([])
-      setInitialSelected(new Set())
-      setSelected(new Set())
+      setError(formatFavError(err));
+      setFolders([]);
+      setInitialSelected(new Set());
+      setSelected(new Set());
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [aid])
+  }, [aid]);
 
   useEffect(() => {
-    void loadFolders()
-  }, [loadFolders])
+    void loadFolders();
+  }, [loadFolders]);
 
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !saving) setOpen(false)
-    }
+      if (event.key === "Escape" && !saving) setOpen(false);
+    };
 
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, saving])
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, saving]);
 
   const toggleFolder = (folderId: number) => {
-    setError('')
+    setError("");
     setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(folderId)) next.delete(folderId)
-      else next.add(folderId)
-      return next
-    })
-  }
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
 
   const handleSave = async () => {
-    const addMediaIds = [...selected].filter((id) => !initialSelected.has(id))
-    const delMediaIds = [...initialSelected].filter((id) => !selected.has(id))
+    const addMediaIds = [...selected].filter((id) => !initialSelected.has(id));
+    const delMediaIds = [...initialSelected].filter((id) => !selected.has(id));
 
     if (addMediaIds.length === 0 && delMediaIds.length === 0) {
-      setOpen(false)
-      return
+      setOpen(false);
+      return;
     }
 
     if (selected.size === 0 && initialSelected.size === 0) {
-      setError('请至少选择一个收藏夹')
-      return
+      setError("请至少选择一个收藏夹");
+      return;
     }
 
-    setSaving(true)
-    setError('')
+    setSaving(true);
+    setError("");
     try {
-      await window.biliDesk.bili.setVideoFavFolders(aid, addMediaIds, delMediaIds)
-      invalidateFolders()
-      setOpen(false)
-      await loadFolders()
+      await window.biliDesk.bili.setVideoFavFolders(
+        aid,
+        addMediaIds,
+        delMediaIds,
+      );
+      invalidateFolders();
+      const nextSelected = new Set(selected);
+      setFolders((prev) =>
+        prev.map((folder) => ({
+          ...folder,
+          collected: nextSelected.has(folder.id),
+        })),
+      );
+      setInitialSelected(nextSelected);
+      setOpen(false);
     } catch (err) {
-      setError(formatFavError(err))
+      setError(formatFavError(err));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const handleOpen = () => {
-    setError('')
-    setOpen(true)
-    void loadFolders()
-  }
+    setError("");
+    setOpen(true);
+    void loadFolders();
+  };
 
   const dialog = open ? (
     <div
       className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
       onClick={() => {
-        if (!saving) setOpen(false)
+        if (!saving) setOpen(false);
       }}
     >
       <div
@@ -124,7 +144,9 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div>
             <p className="text-sm font-medium">添加到收藏夹</p>
-            <p className="text-xs text-muted-foreground">选择要收录此视频的 B 站收藏夹</p>
+            <p className="text-xs text-muted-foreground">
+              选择要收录此视频的 B 站收藏夹
+            </p>
           </div>
           <button
             type="button"
@@ -136,7 +158,7 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
           </button>
         </div>
 
-        <div className="max-h-80 overflow-y-auto p-2">
+        <div className="scrollbar-overlay max-h-80 overflow-y-auto p-2">
           {loading ? (
             <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -144,12 +166,12 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
             </div>
           ) : folders.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-              {error || '暂无收藏夹，请先在 B 站创建收藏夹'}
+              {error || "暂无收藏夹，请先在 B 站创建收藏夹"}
             </p>
           ) : (
             <div className="space-y-1">
               {folders.map((folder) => {
-                const checked = selected.has(folder.id)
+                const checked = selected.has(folder.id);
                 return (
                   <label
                     key={folder.id}
@@ -163,16 +185,22 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
                       onChange={() => toggleFolder(folder.id)}
                     />
                     <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate text-sm">{folder.title}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{folder.mediaCount}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {folder.title}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {folder.mediaCount}
+                    </span>
                   </label>
-                )
+                );
               })}
             </div>
           )}
         </div>
 
-        {error && folders.length > 0 && <p className="px-4 pb-2 text-xs text-red-400">{error}</p>}
+        {error && folders.length > 0 && (
+          <p className="px-4 pb-2 text-xs text-red-400">{error}</p>
+        )}
 
         <div className="flex gap-2 border-t border-border p-3">
           <Button
@@ -196,33 +224,34 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
                 保存中...
               </>
             ) : (
-              '确定'
+              "确定"
             )}
           </Button>
         </div>
       </div>
     </div>
-  ) : null
+  ) : null;
 
   return (
     <>
       <Button
         type="button"
         size="sm"
-        variant={isCollected ? 'secondary' : 'outline'}
+        variant="outline"
         className={cn(
-          'gap-1.5',
-          isCollected &&
-            'border border-border bg-muted text-foreground shadow-none hover:bg-muted/80',
-          className
+          "gap-1.5",
+          isCollected ? "bili-action-btn-active" : "bili-action-btn",
+          className,
         )}
         onClick={handleOpen}
       >
-        <Bookmark className={cn('h-4 w-4', isCollected && 'fill-current text-primary')} />
-        {isCollected ? '已收藏' : '收藏'}
+        <Bookmark
+          className={cn("h-4 w-4", isCollected && "fill-current text-sky-200")}
+        />
+        {isCollected ? "已收藏" : "收藏"}
       </Button>
 
       {dialog && createPortal(dialog, document.body)}
     </>
-  )
+  );
 }
