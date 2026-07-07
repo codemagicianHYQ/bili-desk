@@ -404,7 +404,7 @@ export function MyPage() {
 
           {tab === "follow" && <MyFollowPanel mid={mid} />}
 
-          {tab === "cheese" && <MyCheesePanel />}
+          {tab === "cheese" && <MyCheesePanel mid={mid} />}
 
           {tab === "videos" && (
             <section>

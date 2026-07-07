@@ -1832,7 +1832,7 @@ class BiliApiService {
 
     const code = res.data?.code as number | undefined;
     if (code === 90001) {
-      throw new Error("稍后再看列表已满（最多 100 个）");
+      throw new Error("稍后再看列表已满（最多 1000 个）");
     }
     if (code === 0) return;
 
@@ -2068,57 +2068,97 @@ class BiliApiService {
     };
   }
 
-  async getCheeseFollowList(page = 1): Promise<CheeseCoursePage> {
+  async getCheeseFollowList(page = 1, mid?: number): Promise<CheeseCoursePage> {
     await this.ensureBuvid3();
     const pageSize = 20;
+    const user = this.getAuthStatus();
+    const targetMid = mid ?? user.mid ?? 0;
 
-    const endpoints = [
-      {
-        url: "/pugv/view/web/purchased/list",
-        params: { pn: page, ps: pageSize },
-      },
-      {
-        url: "/pugv/app/web/season/follow/list",
-        params: { pn: page, ps: pageSize },
-      },
-      {
-        url: "/pugv/app/web/season/listfollow",
-        params: { pn: page, ps: pageSize },
-      },
-    ];
-
-    for (const { url, params } of endpoints) {
-      const res = await this.client.get(url, {
-        params,
-        headers: { Referer: "https://www.bilibili.com/" },
-        validateStatus: () => true,
-      });
-      if (res.data?.code !== 0) continue;
-
-      const data = res.data?.data as Record<string, unknown> | undefined;
-      const rawList =
-        (data?.list as unknown[] | undefined) ??
-        (data?.items as unknown[] | undefined) ??
-        [];
-      if (!Array.isArray(rawList) || rawList.length === 0) continue;
-
-      const list = rawList
-        .map((item) => this.normalizeCheeseCourseItem(item))
-        .filter((item): item is CheeseCourseItem => item != null);
-
-      const pageInfo = data?.page as Record<string, unknown> | undefined;
-      const total =
-        (pageInfo?.total as number) ?? (data?.total as number) ?? list.length;
-
-      return {
-        list,
-        page,
-        hasMore: page * pageSize < total,
-        total,
-      };
+    if (!isLoggedIn() || targetMid <= 0) {
+      return { list: [], page, hasMore: false, total: 0 };
     }
 
-    return { list: [], page, hasMore: false, total: 0 };
+    const merged = new Map<number, CheeseCourseItem>();
+    let paidTotal = 0;
+    let paidHasMore = false;
+
+    if (page === 1) {
+      const paid = await this.fetchCheesePaidList(1, pageSize);
+      paidTotal = paid.total;
+      paidHasMore = paid.hasMore;
+      for (const item of paid.list) merged.set(item.seasonId, item);
+    }
+
+    const favorite = await this.fetchCheeseFavoriteList(
+      targetMid,
+      page,
+      pageSize,
+    );
+    for (const item of favorite.list) merged.set(item.seasonId, item);
+
+    const total = paidTotal + favorite.total;
+    const hasMore = favorite.hasMore || (page === 1 && paidHasMore);
+
+    return {
+      list: [...merged.values()],
+      page,
+      hasMore,
+      total: total || merged.size,
+    };
+  }
+
+  private async fetchCheesePaidList(
+    page: number,
+    pageSize: number,
+  ): Promise<{ list: CheeseCourseItem[]; total: number; hasMore: boolean }> {
+    const res = await this.client.get("/pugv/pay/web/my/paid", {
+      params: { pn: page, ps: pageSize },
+      headers: { Referer: "https://www.bilibili.com/cheese/mine/list" },
+      validateStatus: () => true,
+    });
+
+    if (res.data?.code !== 0) {
+      return { list: [], total: 0, hasMore: false };
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const rawList = Array.isArray(data?.data) ? data.data : [];
+    const list = rawList
+      .map((item) => this.normalizeCheeseCourseItem(item))
+      .filter((item): item is CheeseCourseItem => item != null);
+
+    const total = Number(data?.total ?? list.length) || list.length;
+    const hasMore = data?.next === true || page * pageSize < total;
+
+    return { list, total, hasMore };
+  }
+
+  private async fetchCheeseFavoriteList(
+    mid: number,
+    page: number,
+    pageSize: number,
+  ): Promise<{ list: CheeseCourseItem[]; total: number; hasMore: boolean }> {
+    const res = await this.client.get("/pugv/app/web/favorite/page", {
+      params: { mid, pn: page, ps: pageSize },
+      headers: { Referer: "https://www.bilibili.com/cheese/" },
+      validateStatus: () => true,
+    });
+
+    if (res.data?.code !== 0) {
+      return { list: [], total: 0, hasMore: false };
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const rawList = Array.isArray(data?.items) ? data.items : [];
+    const list = rawList
+      .map((item) => this.normalizeCheeseCourseItem(item))
+      .filter((item): item is CheeseCourseItem => item != null);
+
+    const pageInfo = (data?.page as Record<string, unknown> | undefined) ?? {};
+    const total = Number(pageInfo.total ?? list.length) || list.length;
+    const hasMore = pageInfo.next === true || page * pageSize < total;
+
+    return { list, total, hasMore };
   }
 
   async getSeasonArchives(
@@ -2407,23 +2447,54 @@ class BiliApiService {
   }
 
   private normalizeCheeseCourseItem(item: unknown): CheeseCourseItem | null {
+    if (!item || typeof item !== "object") return null;
+
     const raw = item as Record<string, unknown>;
-    const seasonId = Number(raw.season_id ?? raw.id);
+    const season =
+      (raw.season as Record<string, unknown> | undefined) ??
+      (raw.season_info as Record<string, unknown> | undefined) ??
+      (raw.course as Record<string, unknown> | undefined) ??
+      raw;
+
+    const seasonId = Number(
+      season.season_id ?? raw.season_id ?? season.id ?? raw.id ?? raw.ssid,
+    );
     if (!seasonId) return null;
 
-    const link = (raw.link as string) ?? "";
+    const coverRaw = season.cover ?? raw.cover ?? season.cover_url ?? raw.pic;
+    let cover = "";
+    if (typeof coverRaw === "string") {
+      cover = coverRaw;
+    } else if (coverRaw && typeof coverRaw === "object") {
+      cover = ((coverRaw as { url?: string }).url as string) ?? "";
+    }
+
+    const link = String(season.link ?? raw.link ?? raw.url ?? "");
     const url = link.startsWith("http")
       ? link
       : `https://www.bilibili.com/cheese/play/ss${seasonId}`;
 
+    const statusRaw = season.status ?? raw.status ?? raw.update_info ?? "";
+    const status =
+      typeof statusRaw === "string" || typeof statusRaw === "number"
+        ? String(statusRaw)
+        : "";
+
     return {
       seasonId,
-      title: (raw.title as string) ?? "未命名课程",
-      cover: this.normalizeBfsUrl((raw.cover as string) ?? ""),
-      subtitle: (raw.subtitle as string) ?? "",
-      epCount: Number(raw.ep_count ?? raw.episode_count) || 0,
-      playCount: Number(raw.play ?? raw.view) || 0,
-      status: (raw.status as string) ?? "",
+      title: String(season.title ?? raw.title ?? "未命名课程"),
+      cover: this.normalizeBfsUrl(cover),
+      subtitle: String(season.subtitle ?? raw.subtitle ?? raw.sub_title ?? ""),
+      epCount:
+        Number(
+          season.ep_count ??
+            raw.ep_count ??
+            season.episode_count ??
+            raw.episode_count,
+        ) || 0,
+      playCount:
+        Number(season.play ?? raw.play ?? season.view ?? raw.view) || 0,
+      status,
       url,
     };
   }
@@ -2566,7 +2637,7 @@ class BiliApiService {
         name: (owner?.name as string) ?? "",
         face: ((owner?.face as string) ?? "").replace(/^http:/, "https:"),
       },
-      pubdate: 0,
+      pubdate: (item.pubdate as number) ?? (item.ctime as number) ?? 0,
       progress: (item.progress as number) ?? 0,
       addAt: (item.add_at as number) ?? 0,
       cid: (item.cid as number) ?? 0,

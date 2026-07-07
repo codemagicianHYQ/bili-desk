@@ -454,12 +454,13 @@ export interface BiliDeskApi {
       type?: 1 | 2,
       page?: number,
     ) => Promise<BangumiFollowPage>;
-    getSubscribedCollections: (
-      page?: number,
-    ) => Promise<UserCollectionsPage>;
+    getSubscribedCollections: (page?: number) => Promise<UserCollectionsPage>;
     getFavVideoMedias: (page?: number) => Promise<FavMediasPage>;
     getOpusFavorites: (page?: number) => Promise<OpusFavPage>;
-    getCheeseFollowList: (page?: number) => Promise<CheeseCoursePage>;
+    getCheeseFollowList: (
+      page?: number,
+      mid?: number,
+    ) => Promise<CheeseCoursePage>;
   };
   taxonomy: {
     getTree: () => Promise<CategoryTreeNode[]>;

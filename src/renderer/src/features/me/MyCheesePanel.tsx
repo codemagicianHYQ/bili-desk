@@ -8,7 +8,7 @@ function formatError(err: unknown): string {
   return err instanceof Error ? err.message : "加载失败";
 }
 
-export function MyCheesePanel() {
+export function MyCheesePanel({ mid }: { mid: number }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<CheeseCourseItem[]>([]);
@@ -18,25 +18,31 @@ export function MyCheesePanel() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
-  const load = useCallback(async (nextPage: number, append: boolean) => {
-    if (append) setLoadingMore(true);
-    else {
-      setLoading(true);
-      setError("");
-    }
+  const load = useCallback(
+    async (nextPage: number, append: boolean) => {
+      if (append) setLoadingMore(true);
+      else {
+        setLoading(true);
+        setError("");
+      }
 
-    try {
-      const result = await window.biliDesk.bili.getCheeseFollowList(nextPage);
-      setItems((prev) => (append ? [...prev, ...result.list] : result.list));
-      setPage(result.page);
-      setHasMore(result.hasMore);
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, []);
+      try {
+        const result = await window.biliDesk.bili.getCheeseFollowList(
+          nextPage,
+          mid,
+        );
+        setItems((prev) => (append ? [...prev, ...result.list] : result.list));
+        setPage(result.page);
+        setHasMore(result.hasMore);
+      } catch (err) {
+        setError(formatError(err));
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [mid],
+  );
 
   useEffect(() => {
     void load(1, false);

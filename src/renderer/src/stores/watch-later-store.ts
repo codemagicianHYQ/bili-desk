@@ -14,6 +14,7 @@ interface WatchLaterState {
   refresh: () => Promise<void>;
   add: (aid: number, bvid: string, video?: VideoItem) => Promise<void>;
   remove: (aid: number, bvid: string) => Promise<void>;
+  removeMany: (items: Array<{ aid: number; bvid: string }>) => Promise<void>;
   toggle: (aid: number, bvid: string, video?: VideoItem) => Promise<void>;
   isInList: (bvid: string) => boolean;
   reset: () => void;
@@ -95,6 +96,23 @@ export const useWatchLaterStore = create<WatchLaterState>((set, get) => ({
       return {
         bvids,
         videos: state.videos.filter((item) => item.bvid !== bvid),
+        count: bvids.size,
+      };
+    });
+  },
+
+  removeMany: async (items) => {
+    if (items.length === 0) return;
+    for (const item of items) {
+      await window.biliDesk.bili.removeFromToView(item.aid);
+    }
+    set((state) => {
+      const removeBvids = new Set(items.map((item) => item.bvid));
+      const bvids = new Set(state.bvids);
+      for (const bvid of removeBvids) bvids.delete(bvid);
+      return {
+        bvids,
+        videos: state.videos.filter((item) => !removeBvids.has(item.bvid)),
         count: bvids.size,
       };
     });

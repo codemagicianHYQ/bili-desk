@@ -10,21 +10,23 @@ interface VideoCardProps {
   className?: string;
   /** owner: UP 主 + 播放量；stats: 发布时间 + 播放量（用于自己的投稿） */
   meta?: "owner" | "stats";
+  /** 禁用跳转（编辑多选等场景） */
+  interactive?: boolean;
+  /** 隐藏稍后再看快捷按钮 */
+  hideWatchLater?: boolean;
+  onCardClick?: () => void;
 }
 
 export function VideoCard({
   video,
   className,
   meta = "owner",
+  interactive = true,
+  hideWatchLater = false,
+  onCardClick,
 }: VideoCardProps) {
-  return (
-    <Link
-      to={`/video/${video.bvid}`}
-      className={cn(
-        "group block overflow-hidden rounded-xl border border-border bg-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg",
-        className,
-      )}
-    >
+  const content = (
+    <>
       <div className="relative aspect-video overflow-hidden bg-muted">
         <BiliImage
           src={video.cover}
@@ -32,13 +34,17 @@ export function VideoCard({
           variant="cover"
           className="absolute inset-0 h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
         />
-        <WatchLaterButton aid={video.aid} bvid={video.bvid} video={video} />
+        {!hideWatchLater && (
+          <WatchLaterButton aid={video.aid} bvid={video.bvid} video={video} />
+        )}
         <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
           {formatDuration(video.duration)}
         </span>
-        <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-opacity group-hover:bg-black/20 group-hover:opacity-100">
-          <Play className="h-10 w-10 fill-white text-white" />
-        </div>
+        {interactive && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-opacity group-hover:bg-black/20 group-hover:opacity-100">
+            <Play className="h-10 w-10 fill-white text-white" />
+          </div>
+        )}
       </div>
       <div className="space-y-2 p-3">
         <h3 className="line-clamp-2 text-sm font-medium leading-snug">
@@ -61,6 +67,42 @@ export function VideoCard({
           <span className="shrink-0">{formatCount(video.play)} 播放</span>
         </div>
       </div>
+    </>
+  );
+
+  const cardClassName = cn(
+    "group block overflow-hidden rounded-xl border border-border bg-card transition-all duration-200",
+    interactive && "hover:-translate-y-0.5 hover:shadow-lg",
+    !interactive && onCardClick && "cursor-pointer",
+    className,
+  );
+
+  if (!interactive) {
+    return (
+      <div
+        role={onCardClick ? "button" : undefined}
+        tabIndex={onCardClick ? 0 : undefined}
+        onClick={onCardClick}
+        onKeyDown={
+          onCardClick
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onCardClick();
+                }
+              }
+            : undefined
+        }
+        className={cardClassName}
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link to={`/video/${video.bvid}`} className={cardClassName}>
+      {content}
     </Link>
   );
 }

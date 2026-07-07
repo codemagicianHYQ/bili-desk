@@ -97,7 +97,7 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_OPUS_FAVORITES, (_e, page?: number) =>
     biliApi.getOpusFavorites(page),
   );
-  handleIpc(IPC.BILI_CHEESE_FOLLOW, (_e, page?: number) =>
-    biliApi.getCheeseFollowList(page),
+  handleIpc(IPC.BILI_CHEESE_FOLLOW, (_e, page?: number, mid?: number) =>
+    biliApi.getCheeseFollowList(page, mid),
   );
 }

@@ -86,8 +86,8 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_FAV_VIDEO_MEDIAS, page ?? 1),
     getOpusFavorites: (page?: number) =>
       ipcRenderer.invoke(IPC.BILI_OPUS_FAVORITES, page ?? 1),
-    getCheeseFollowList: (page?: number) =>
-      ipcRenderer.invoke(IPC.BILI_CHEESE_FOLLOW, page ?? 1),
+    getCheeseFollowList: (page?: number, mid?: number) =>
+      ipcRenderer.invoke(IPC.BILI_CHEESE_FOLLOW, page ?? 1, mid),
   },
   taxonomy: {
     getTree: () => ipcRenderer.invoke(IPC.TAXONOMY_TREE),
