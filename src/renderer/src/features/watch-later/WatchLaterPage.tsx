@@ -5,15 +5,9 @@ import { useAppStore } from "@/stores/app-store";
 import { useWatchLaterStore } from "@/stores/watch-later-store";
 import { VideoCard } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 import { cn, formatDuration } from "@/lib/utils";
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Loader2,
-  Trash2,
-} from "lucide-react";
+import { Check, Clock, Loader2, Trash2 } from "lucide-react";
 
 const PAGE_SIZE = 30;
 const TOVIEW_MAX = 1000;
@@ -313,41 +307,18 @@ export function WatchLaterPage() {
       </div>
 
       {videos.length > 0 && (
-        <div className="shrink-0 border-t border-border bg-background px-6 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
+        <PaginationBar
+          className="shrink-0 bg-background"
+          page={page}
+          totalPages={totalPages}
+          disabled={batchRemoving}
+          onPageChange={setPage}
+          info={
+            <>
               第 {page} / {totalPages} 页 · 本页 {pageVideos.length} 个
-            </p>
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="gap-1"
-                  disabled={page <= 1 || batchRemoving}
-                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  上一页
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="gap-1"
-                  disabled={page >= totalPages || batchRemoving}
-                  onClick={() =>
-                    setPage((prev) => Math.min(totalPages, prev + 1))
-                  }
-                >
-                  下一页
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
+            </>
+          }
+        />
       )}
     </div>
   );

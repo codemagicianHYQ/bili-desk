@@ -398,7 +398,9 @@ export function MyPage() {
             </>
           )}
 
-          {tab === "dynamics" && <MyDynamicsPanel mid={mid} />}
+          {tab === "dynamics" && (
+            <MyDynamicsPanel mid={mid} profile={displayProfile} />
+          )}
 
           {tab === "collections" && <MyCollectionsPanel mid={mid} />}
 

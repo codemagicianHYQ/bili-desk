@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -7,15 +8,21 @@ interface PageBackHeaderProps {
   fallback?: string
   label?: string
   className?: string
+  trailing?: ReactNode
 }
 
-export function PageBackHeader({ fallback = '/', label = '返回', className }: PageBackHeaderProps) {
+export function PageBackHeader({
+  fallback = '/',
+  label = '返回',
+  className,
+  trailing,
+}: PageBackHeaderProps) {
   const navigate = useNavigate()
 
   return (
     <div
       className={cn(
-        'sticky top-0 z-30 shrink-0 border-b border-border/60 bg-background/85 px-4 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/70',
+        'sticky top-0 z-30 flex shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-background/85 px-4 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/70',
         className
       )}
     >
@@ -34,6 +41,7 @@ export function PageBackHeader({ fallback = '/', label = '返回', className }: 
         <ArrowLeft className="h-4 w-4" />
         {label}
       </Button>
+      {trailing}
     </div>
   )
 }

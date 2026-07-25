@@ -6,6 +6,7 @@ import type {
   Theme,
   UpGroupSelection,
   UpGroupTreeNode,
+  UpVideosOrder,
 } from "@shared/types";
 
 const api = {
@@ -59,12 +60,28 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_UP_RELATION, mid),
     modifyFollow: (mid: number, follow: boolean) =>
       ipcRenderer.invoke(IPC.BILI_UP_MODIFY_FOLLOW, mid, follow),
-    getUpVideos: (mid: number, page?: number) =>
-      page != null
-        ? ipcRenderer.invoke(IPC.BILI_UP_VIDEOS, mid, page)
-        : ipcRenderer.invoke(IPC.BILI_UP_VIDEOS, mid),
-    searchVideos: (keyword: string, page?: number, order?: SearchOrder) =>
-      ipcRenderer.invoke(IPC.BILI_SEARCH, keyword, page ?? 1, order),
+    getUpVideos: (mid: number, page?: number, order?: UpVideosOrder) =>
+      ipcRenderer.invoke(
+        IPC.BILI_UP_VIDEOS,
+        mid,
+        page ?? 1,
+        order ?? "pubdate",
+      ),
+    searchVideos: (
+      keyword: string,
+      page?: number,
+      order?: SearchOrder,
+      apiStartPage?: number,
+      pageSize?: number,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_SEARCH,
+        keyword,
+        page ?? 1,
+        order,
+        apiStartPage ?? 1,
+        pageSize ?? 30,
+      ),
     getToViewList: () => ipcRenderer.invoke(IPC.BILI_TOVIEW_LIST),
     addToView: (aid: number, bvid: string) =>
       ipcRenderer.invoke(IPC.BILI_TOVIEW_ADD, aid, bvid),

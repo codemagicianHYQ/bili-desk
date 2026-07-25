@@ -3,12 +3,11 @@ import type { UserCollectionItem, VideoItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { VideoCard } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 import { cn } from "@/lib/utils";
 import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
-  ChevronLeft,
-  ChevronRight,
   Folder,
   Layers,
   Loader2,
@@ -362,42 +361,19 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
                     </div>
 
                     {videoTotal > 0 && (
-                      <div className="mt-auto shrink-0 border-t border-border bg-background pt-3">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <p className="text-xs text-muted-foreground">
+                      <PaginationBar
+                        page={videoPage}
+                        totalPages={videoTotalPages}
+                        disabled={videosLoading}
+                        onPageChange={goToVideoPage}
+                        className="mt-auto shrink-0 border-t border-border bg-background px-0 pt-3"
+                        info={
+                          <>
                             共 {videoTotal} 个视频 · 第 {videoPage} /{" "}
                             {videoTotalPages} 页
-                          </p>
-                          {videoTotalPages > 1 && (
-                            <div className="flex items-center gap-1.5">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="gap-1"
-                                disabled={videoPage <= 1 || videosLoading}
-                                onClick={() => goToVideoPage(videoPage - 1)}
-                              >
-                                <ChevronLeft className="h-4 w-4" />
-                                上一页
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="gap-1"
-                                disabled={
-                                  videoPage >= videoTotalPages || videosLoading
-                                }
-                                onClick={() => goToVideoPage(videoPage + 1)}
-                              >
-                                下一页
-                                <ChevronRight className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                          </>
+                        }
+                      />
                     )}
                   </>
                 ) : (

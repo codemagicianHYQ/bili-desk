@@ -1,5 +1,11 @@
 import { create } from "zustand";
 import type { ToViewItem, VideoItem } from "@shared/types";
+import {
+  isWatchLaterFullError,
+  TOVIEW_FULL_ERROR,
+} from "@/lib/watch-later-error";
+
+const TOVIEW_MAX = 1000;
 
 interface WatchLaterState {
   videos: ToViewItem[];
@@ -70,7 +76,21 @@ export const useWatchLaterStore = create<WatchLaterState>((set, get) => ({
   },
 
   add: async (aid, bvid, video) => {
-    await window.biliDesk.bili.addToView(aid, bvid);
+    if (get().count >= TOVIEW_MAX) {
+      throw new Error(TOVIEW_FULL_ERROR);
+    }
+
+    try {
+      await window.biliDesk.bili.addToView(aid, bvid);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err ?? "");
+      if (isWatchLaterFullError(message)) {
+        set({ count: Math.max(get().count, TOVIEW_MAX) });
+        throw new Error(TOVIEW_FULL_ERROR);
+      }
+      throw err;
+    }
+
     set((state) => {
       const bvids = new Set(state.bvids);
       bvids.add(bvid);

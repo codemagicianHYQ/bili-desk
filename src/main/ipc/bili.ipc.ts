@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { IPC } from "@shared/ipc-channels";
-import type { SearchOrder } from "@shared/types";
+import type { SearchOrder, UpVideosOrder } from "@shared/types";
 import { biliApi } from "../services/bili-api";
 import { handleIpc } from "./safe-handler";
 
@@ -54,13 +54,21 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_UP_MODIFY_FOLLOW, (_e, mid: number, follow: boolean) =>
     biliApi.modifyFollow(mid, follow),
   );
-  handleIpc(IPC.BILI_UP_VIDEOS, (_e, mid: number, page?: number) =>
-    biliApi.getUpVideos(mid, page),
+  handleIpc(
+    IPC.BILI_UP_VIDEOS,
+    (_e, mid: number, page?: number, order?: UpVideosOrder) =>
+      biliApi.getUpVideos(mid, page, order),
   );
   handleIpc(
     IPC.BILI_SEARCH,
-    (_e, keyword: string, page?: number, order?: SearchOrder) =>
-      biliApi.searchVideos(keyword, page, order),
+    (
+      _e,
+      keyword: string,
+      page?: number,
+      order?: SearchOrder,
+      apiStartPage?: number,
+      pageSize?: number,
+    ) => biliApi.searchVideos(keyword, page, order, apiStartPage, pageSize),
   );
   handleIpc(IPC.BILI_TOVIEW_LIST, () => biliApi.getToViewList());
   handleIpc(IPC.BILI_TOVIEW_ADD, (_e, aid: number, bvid: string) =>

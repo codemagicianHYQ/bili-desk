@@ -4,11 +4,18 @@ import flvjs from "flv.js";
 import dashjs from "dashjs";
 import type { VideoPlayInfo } from "@shared/types";
 import { createPlaybackRateControl } from "@/components/video/playback-rate-setting";
+import {
+  getPlaybackProgress,
+  savePlaybackProgress,
+} from "@/lib/playback-progress";
 
 interface VideoPlayerProps {
   playInfo: VideoPlayInfo;
+  bvid: string;
+  cid: number;
   poster?: string;
   active?: boolean;
+  reloadKey?: number;
   onQualityChange: (qn: number) => void;
   onError?: (message: string) => void;
 }
@@ -19,16 +26,23 @@ function resolvePlayerType(format: VideoPlayInfo["format"]): string {
   return "mp4";
 }
 
+const SAVE_INTERVAL_MS = 3000;
+
 export function VideoPlayer({
   playInfo,
+  bvid,
+  cid,
   poster,
   active = true,
+  reloadKey = 0,
   onQualityChange,
   onError,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const artRef = useRef<Artplayer | null>(null);
   const resumeOnActiveRef = useRef(false);
+  const hasSeekedRef = useRef(false);
+  const lastSaveAtRef = useRef(0);
   const onQualityChangeRef = useRef(onQualityChange);
   const onErrorRef = useRef(onError);
 
@@ -38,6 +52,28 @@ export function VideoPlayer({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    hasSeekedRef.current = false;
+    lastSaveAtRef.current = 0;
+
+    const pendingSeek = getPlaybackProgress(bvid, cid);
+
+    const saveCurrentProgress = () => {
+      const art = artRef.current;
+      if (!art || !art.duration) return;
+      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
+    };
+
+    const trySeekToProgress = (art: Artplayer) => {
+      if (hasSeekedRef.current || pendingSeek == null) return;
+      if (!art.duration || art.duration <= 0) return;
+
+      const target = Math.min(pendingSeek, Math.max(0, art.duration - 1));
+      if (target >= 5) {
+        art.currentTime = target;
+        hasSeekedRef.current = true;
+      }
+    };
 
     const art = new Artplayer({
       container,
@@ -100,6 +136,7 @@ export function VideoPlayer({
           onSelect(item) {
             const qn = item.qn as number;
             if (qn !== playInfo.quality) {
+              saveCurrentProgress();
               onQualityChangeRef.current(qn);
             }
             return item.html;
@@ -109,12 +146,32 @@ export function VideoPlayer({
     });
 
     art.on("video:error", () => {
-      onErrorRef.current?.("视频加载失败，请切换清晰度或稍后重试");
+      onErrorRef.current?.("视频加载失败，可点刷新重试或切换清晰度");
+    });
+
+    art.on("video:canplay", () => {
+      trySeekToProgress(art);
+    });
+
+    art.on("video:loadedmetadata", () => {
+      trySeekToProgress(art);
+    });
+
+    art.on("video:timeupdate", () => {
+      const now = Date.now();
+      if (now - lastSaveAtRef.current < SAVE_INTERVAL_MS) return;
+      lastSaveAtRef.current = now;
+      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
+    });
+
+    art.on("pause", () => {
+      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
     });
 
     artRef.current = art;
 
     return () => {
+      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
       artRef.current = null;
       art.destroy();
     };
@@ -124,6 +181,9 @@ export function VideoPlayer({
     playInfo.quality,
     playInfo.qualities,
     poster,
+    bvid,
+    cid,
+    reloadKey,
   ]);
 
   useEffect(() => {
@@ -131,6 +191,7 @@ export function VideoPlayer({
     if (!art) return;
 
     if (!active) {
+      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
       resumeOnActiveRef.current = !art.paused;
       art.pause();
       return;
@@ -140,7 +201,7 @@ export function VideoPlayer({
       resumeOnActiveRef.current = false;
       void art.play().catch(() => {});
     }
-  }, [active]);
+  }, [active, bvid, cid]);
 
   return <div ref={containerRef} className="aspect-video w-full bg-black" />;
 }

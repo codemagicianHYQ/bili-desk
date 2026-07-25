@@ -6,6 +6,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useFavoritesStore } from "@/stores/favorites-store";
 import { useFollowingStore } from "@/stores/following-store";
 import { useHomeFeedStore } from "@/stores/home-feed-store";
+import { useHomeSearchStore } from "@/stores/home-search-store";
 import { useWatchLaterStore } from "@/stores/watch-later-store";
 import { Link, useLocation } from "react-router-dom";
 
@@ -19,6 +20,8 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const { theme, setTheme, user } = useAppStore();
   const homeRefresh = useHomeFeedStore((state) => state.refresh);
   const homeRefreshing = useHomeFeedStore((state) => state.refreshing);
+  const searchQuery = useHomeSearchStore((state) => state.query);
+  const searchOrder = useHomeSearchStore((state) => state.order);
   const followingRefresh = useFollowingStore((state) => state.refresh);
   const followingRefreshing = useFollowingStore((state) => state.refreshing);
   const favoritesRefresh = useFavoritesStore((state) => state.refresh);
@@ -27,10 +30,13 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const watchLaterRefreshing = useWatchLaterStore((state) => state.refreshing);
 
   const isHome = location.pathname === "/";
+  const isSearching = isHome && searchQuery.length > 0;
   const isFollowing = location.pathname === "/following";
   const isFavorites = location.pathname === "/favorites";
   const isWatchLater = location.pathname === "/watch-later";
+  const isUpSpace = location.pathname.startsWith("/up/");
   const showRefresh = isHome || isFollowing || isFavorites || isWatchLater;
+  const showGridPicker = isHome || isWatchLater || isUpSpace;
 
   const refreshing = isHome
     ? homeRefreshing
@@ -43,19 +49,29 @@ export function TopBar({ title, subtitle }: TopBarProps) {
           : false;
 
   const handleRefresh = () => {
+    if (isSearching) {
+      window.dispatchEvent(
+        new CustomEvent("bilidesk:refresh-search", {
+          detail: { query: searchQuery, order: searchOrder },
+        }),
+      );
+      return;
+    }
     if (isHome) void homeRefresh();
     else if (isFollowing) void followingRefresh();
     else if (isFavorites) void favoritesRefresh();
     else if (isWatchLater) void watchLaterRefresh();
   };
 
-  const refreshLabel = isHome
-    ? "刷新推荐"
-    : isFollowing
-      ? "刷新关注"
-      : isFavorites
-        ? "刷新收藏"
-        : "刷新稍后再看";
+  const refreshLabel = isSearching
+    ? "刷新搜索结果"
+    : isHome
+      ? "刷新推荐"
+      : isFollowing
+        ? "刷新关注"
+        : isFavorites
+          ? "刷新收藏"
+          : "刷新稍后再看";
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
@@ -84,7 +100,7 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-2">
-        {isHome && <HomeGridLayoutPicker />}
+        {showGridPicker && <HomeGridLayoutPicker />}
 
         <Button
           variant="ghost"

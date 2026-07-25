@@ -8,6 +8,7 @@ import { UpOwnerCard } from "@/components/video/UpOwnerCard";
 import { VideoFavButton } from "@/components/video/VideoFavButton";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
+import { RefreshCw } from "lucide-react";
 
 interface VideoPageProps {
   bvid: string;
@@ -19,8 +20,20 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [playInfo, setPlayInfo] = useState<VideoPlayInfo | null>(null);
   const [selectedCid, setSelectedCid] = useState<number | null>(null);
   const [quality, setQuality] = useState<number | undefined>(undefined);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState("");
   const [playError, setPlayError] = useState("");
+
+  const fetchPlayUrl = useCallback(
+    (targetBvid: string, cid: number, qn?: number) => {
+      setPlayError("");
+      return window.biliDesk.bili
+        .getPlayUrl(targetBvid, cid, qn)
+        .then(setPlayInfo)
+        .catch((e: Error) => setPlayError(e.message));
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!bvid) return;
@@ -28,6 +41,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     setError("");
     setPlayError("");
     setPlayInfo(null);
+    setReloadKey(0);
 
     window.biliDesk.bili
       .getVideo(bvid)
@@ -41,18 +55,19 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
   useEffect(() => {
     if (!bvid || !selectedCid) return;
-
-    setPlayError("");
-
-    window.biliDesk.bili
-      .getPlayUrl(bvid, selectedCid, quality)
-      .then(setPlayInfo)
-      .catch((e: Error) => setPlayError(e.message));
-  }, [bvid, selectedCid, quality]);
+    void fetchPlayUrl(bvid, selectedCid, quality);
+  }, [bvid, selectedCid, quality, fetchPlayUrl]);
 
   const handleQualityChange = useCallback((qn: number) => {
     setQuality(qn);
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    if (!bvid || !selectedCid) return;
+    setPlayInfo(null);
+    setReloadKey((key) => key + 1);
+    void fetchPlayUrl(bvid, selectedCid, quality);
+  }, [bvid, selectedCid, quality, fetchPlayUrl]);
 
   if (error) {
     return (
@@ -72,16 +87,33 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <PageBackHeader />
+      <PageBackHeader
+        trailing={
+          playInfo ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground"
+              onClick={handleRefresh}
+            >
+              <RefreshCw className="h-4 w-4" />
+              刷新
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="scrollbar-overlay flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl space-y-6 p-6 pt-4">
           <div className="overflow-hidden rounded-2xl border border-border bg-card">
-            {playInfo ? (
+            {playInfo && selectedCid ? (
               <VideoPlayer
                 playInfo={playInfo}
+                bvid={bvid}
+                cid={selectedCid}
                 poster={video.cover}
                 active={active}
+                reloadKey={reloadKey}
                 onQualityChange={handleQualityChange}
                 onError={setPlayError}
               />

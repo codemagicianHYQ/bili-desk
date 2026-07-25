@@ -135,6 +135,9 @@ export interface UpVideosPage {
   total: number;
 }
 
+/** UP 主投稿排序：最新发布 / 最多播放 */
+export type UpVideosOrder = "pubdate" | "click";
+
 export interface RecommendPage {
   videos: VideoItem[];
   freshIdx: number;
@@ -148,6 +151,7 @@ export interface SearchVideosPage {
   page: number;
   hasMore: boolean;
   total: number;
+  nextApiPage?: number;
 }
 
 export interface ToViewItem extends VideoItem {
@@ -164,12 +168,23 @@ export interface ToViewList {
 export interface SpaceDynamicItem {
   id: string;
   type: string;
+  kind: "video" | "opus" | "text" | "forward";
   text: string;
   pubTime: number;
+  pubTimeLabel?: string;
+  pubAction?: string;
+  authorName?: string;
+  authorFace?: string;
   cover?: string;
   bvid?: string;
   title?: string;
-  stats?: { view?: number; like?: number; reply?: number };
+  duration?: number;
+  stats?: {
+    view?: number;
+    like?: number;
+    reply?: number;
+    danmaku?: number;
+  };
 }
 
 export interface SpaceDynamicPage {
@@ -423,11 +438,17 @@ export interface BiliDeskApi {
     getUpProfile: (mid: number) => Promise<UpProfile>;
     getUpRelation: (mid: number) => Promise<UpRelation>;
     modifyFollow: (mid: number, follow: boolean) => Promise<void>;
-    getUpVideos: (mid: number, page?: number) => Promise<UpVideosPage>;
+    getUpVideos: (
+      mid: number,
+      page?: number,
+      order?: UpVideosOrder,
+    ) => Promise<UpVideosPage>;
     searchVideos: (
       keyword: string,
       page?: number,
       order?: SearchOrder,
+      apiStartPage?: number,
+      pageSize?: number,
     ) => Promise<SearchVideosPage>;
     getToViewList: () => Promise<ToViewList>;
     addToView: (aid: number, bvid: string) => Promise<void>;

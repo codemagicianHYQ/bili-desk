@@ -124,11 +124,11 @@
   }
 
   .bili-action-btn {
-    @apply border-sky-400/50 bg-sky-500/15 text-sky-300 shadow-none hover:bg-sky-500/25 hover:text-sky-200;
+    @apply border-border bg-secondary/70 text-muted-foreground shadow-none hover:bg-secondary hover:text-foreground;
   }
 
   .bili-action-btn-active {
-    @apply border-sky-400/70 bg-sky-500/25 text-sky-100 hover:bg-sky-500/30;
+    @apply border-primary/60 bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary;
   }
 
   .bili-speed-control {
@@ -174,7 +174,7 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
-    margin-bottom: 12px;
+    margin-top: 12px;
   }
 
   .bili-rate-preset {
@@ -229,11 +229,35 @@
     transform: rotate(135deg);
   }
 
+  .bili-rate-tick {
+    stroke: rgba(255, 255, 255, 0.35);
+    stroke-width: 2;
+    stroke-linecap: round;
+    transition:
+      stroke 0.12s ease,
+      stroke-width 0.12s ease;
+  }
+
+  .bili-rate-tick.is-active {
+    stroke: #fb7299;
+    stroke-width: 2.5;
+  }
+
+  .bili-rate-tick.is-snap {
+    stroke: #ffb3c7;
+    stroke-width: 3.5;
+  }
+
   .bili-rate-knob {
     fill: #fb7299;
     stroke: #fff;
     stroke-width: 2;
     filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.35));
+    transition: r 0.12s ease;
+  }
+
+  .bili-rate-knob.is-snap {
+    r: 9;
   }
 
   .bili-rate-value {
@@ -245,5 +269,6 @@
   .bili-rate-hint {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.55);
+    text-align: center;
   }
 }

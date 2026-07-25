@@ -25,6 +25,7 @@ import type {
   VideoItem,
   VideoPlayInfo,
   UpVideosPage,
+  UpVideosOrder,
   SearchOrder,
   SearchVideosPage,
   ToViewItem,
@@ -1412,15 +1413,21 @@ class BiliApiService {
     return page.videos.slice(0, limit).map((video) => video.title);
   }
 
-  async getUpVideos(mid: number, page = 1): Promise<UpVideosPage> {
+  async getUpVideos(
+    mid: number,
+    page = 1,
+    order: UpVideosOrder = "pubdate",
+  ): Promise<UpVideosPage> {
     await this.ensureBuvid3();
 
     if (!isLoggedIn()) {
       throw new Error("请先登录后查看 UP 主投稿");
     }
 
+    const sort = order === "click" ? "click" : "pubdate";
     const currentUser = this.getAuthStatus();
-    if (currentUser.isLogin && currentUser.mid === mid) {
+    // 创作中心「我的投稿」接口不支持按播放量排序，统一走空间投稿列表
+    if (sort === "pubdate" && currentUser.isLogin && currentUser.mid === mid) {
       try {
         return await this.fetchMyArchives(page);
       } catch {
@@ -1429,7 +1436,7 @@ class BiliApiService {
     }
 
     try {
-      return await this.fetchSpaceArcList(mid, page);
+      return await this.fetchSpaceArcList(mid, page, sort);
     } catch (primaryError) {
       try {
         const profile = await this.getUpProfile(mid);
@@ -1437,6 +1444,7 @@ class BiliApiService {
           mid,
           profile.name,
           page,
+          sort,
         );
         if (fallback.videos.length > 0) return fallback;
       } catch {
@@ -1453,20 +1461,65 @@ class BiliApiService {
     keyword: string,
     page = 1,
     order: SearchOrder = "totalrank",
+    apiStartPage = 1,
+    pageSize = 30,
   ): Promise<SearchVideosPage> {
     const trimmed = keyword.trim();
     if (!trimmed) {
-      return { videos: [], page: 1, hasMore: false, total: 0 };
+      return { videos: [], page: 1, hasMore: false, total: 0, nextApiPage: 1 };
     }
 
     await this.ensureBuvid3();
 
-    const pageSize = 20;
+    const targetSize = Math.max(1, pageSize);
+    const videos: VideoItem[] = [];
+    const seen = new Set<string>();
+    let apiPage = Math.max(1, apiStartPage);
+    let total = 0;
+    let apiHasMore = true;
+    let scans = 0;
+    const maxScans = 100;
+
+    while (videos.length < targetSize && apiHasMore && scans < maxScans) {
+      const batch = await this.fetchSearchApiPage(trimmed, apiPage, order);
+      scans += 1;
+      if (apiPage === apiStartPage && total === 0) {
+        total = batch.total;
+      }
+      apiHasMore = batch.hasMore;
+
+      if (batch.videos.length === 0 && !apiHasMore) break;
+
+      for (const video of batch.videos) {
+        if (seen.has(video.bvid)) continue;
+        seen.add(video.bvid);
+        videos.push(video);
+        if (videos.length >= targetSize) break;
+      }
+
+      apiPage += 1;
+    }
+
+    return {
+      videos,
+      page,
+      hasMore: apiHasMore,
+      total,
+      nextApiPage: apiPage,
+    };
+  }
+
+  private async fetchSearchApiPage(
+    keyword: string,
+    page: number,
+    order: SearchOrder,
+  ): Promise<SearchVideosPage> {
+    const apiPageSize = 20;
     const params = await signParams({
       search_type: "video",
-      keyword: trimmed,
+      keyword,
       page,
-      page_size: pageSize,
+      page_size: apiPageSize,
       order,
       platform: "pc",
       single_column: 0,
@@ -1488,16 +1541,19 @@ class BiliApiService {
     }
 
     const data = res.data?.data as Record<string, unknown> | undefined;
-    const results = (
-      (data?.result as Record<string, unknown>[] | undefined) ?? []
-    ).filter((item) => item.bvid);
-    const total = (data?.numResults as number) ?? results.length;
+    const rawResults =
+      (data?.result as Record<string, unknown>[] | undefined) ?? [];
+    const results = rawResults
+      .filter((item) => this.isSearchVideoResult(item))
+      .filter((item) => this.isSearchResultRelevant(item, keyword));
+    const total = (data?.numResults as number) ?? rawResults.length;
     const videos = results.map((item) => this.normalizeSearchVideo(item));
+    const fetchedCount = rawResults.length;
 
     return {
       videos,
       page,
-      hasMore: page * pageSize < total,
+      hasMore: fetchedCount > 0 && page * apiPageSize < total,
       total,
     };
   }
@@ -1505,6 +1561,7 @@ class BiliApiService {
   private async fetchSpaceArcList(
     mid: number,
     page: number,
+    order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
     const referer = "https://www.bilibili.com/";
 
@@ -1516,7 +1573,7 @@ class BiliApiService {
           ps: 30,
           tid: 0,
           keyword: "",
-          order: "pubdate",
+          order,
         },
         headers: { Referer: referer },
         validateStatus: () => true,
@@ -1650,6 +1707,7 @@ class BiliApiService {
     mid: number,
     upName: string,
     page: number,
+    order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
     if (!upName.trim()) {
       return { videos: [], page, hasMore: false, total: 0 };
@@ -1660,7 +1718,7 @@ class BiliApiService {
       keyword: upName,
       page,
       page_size: 30,
-      order: "pubdate",
+      order,
       platform: "pc",
       single_column: 0,
       source: "",
@@ -1822,6 +1880,16 @@ class BiliApiService {
     this.assertToViewMutationResponse(res, "移除稍后再看失败");
   }
 
+  private isToViewFullMessage(message: string): boolean {
+    const text = message.toLowerCase();
+    return (
+      text.includes("列表已满") ||
+      text.includes("稍后再看已满") ||
+      (text.includes("1000") &&
+        (text.includes("满") || text.includes("上限") || text.includes("最多")))
+    );
+  }
+
   private assertToViewMutationResponse(
     res: AxiosResponse,
     fallback: string,
@@ -1830,13 +1898,18 @@ class BiliApiService {
       throw new Error("请求被 B 站安全策略拦截，请稍后重试");
     }
 
-    const code = res.data?.code as number | undefined;
-    if (code === 90001) {
-      throw new Error("稍后再看列表已满（最多 1000 个）");
+    const code = Number(res.data?.code);
+    const message = String(res.data?.message ?? "");
+
+    if (code === 90001 || this.isToViewFullMessage(message)) {
+      throw new Error("TOVIEW_FULL");
+    }
+    if (code === 90003) {
+      throw new Error("该视频已被删除，无法添加");
     }
     if (code === 0) return;
 
-    throw new Error((res.data?.message as string) || fallback);
+    throw new Error(message || fallback);
   }
 
   async getSpaceDynamics(mid: number, offset = ""): Promise<SpaceDynamicPage> {
@@ -2560,29 +2633,50 @@ class BiliApiService {
     const moduleAuthor = modules?.module_author as
       | Record<string, unknown>
       | undefined;
-    const pubTime =
-      (moduleAuthor?.pub_ts as number) ??
-      (moduleAuthor?.pub_time as number) ??
-      0;
+    const pubTime = (moduleAuthor?.pub_ts as number) ?? 0;
+    const pubTimeLabel =
+      typeof moduleAuthor?.pub_time === "string"
+        ? moduleAuthor.pub_time
+        : this.formatDynamicPubTime(pubTime);
+    const authorName = (moduleAuthor?.name as string) ?? "";
+    const authorFace = ((moduleAuthor?.face as string) ?? "").replace(
+      /^http:/,
+      "https:",
+    );
+    const pubAction =
+      (moduleAuthor?.pub_action as string) ||
+      (moduleAuthor?.pub_label as string) ||
+      this.getDynamicPubAction(type);
 
     const moduleDynamic = modules?.module_dynamic as
       | Record<string, unknown>
       | undefined;
     const major = moduleDynamic?.major as Record<string, unknown> | undefined;
 
+    const base = {
+      id,
+      type,
+      pubTime,
+      pubTimeLabel,
+      pubAction,
+      authorName,
+      authorFace,
+    };
+
     if (major?.archive) {
       const archive = major.archive as Record<string, unknown>;
       const stat = archive.stat as Record<string, unknown> | undefined;
       return {
-        id,
-        type,
+        ...base,
+        kind: "video",
         text: "",
-        pubTime,
         title: (archive.title as string) ?? "",
         bvid: archive.bvid as string | undefined,
         cover: ((archive.cover as string) ?? "").replace(/^http:/, "https:"),
+        duration: Number(archive.duration) || 0,
         stats: {
           view: Number(stat?.play) || 0,
+          danmaku: Number(stat?.danmaku) || 0,
           like: Number(stat?.like) || 0,
           reply: Number(stat?.reply) || 0,
         },
@@ -2591,13 +2685,27 @@ class BiliApiService {
 
     if (major?.opus) {
       const opus = major.opus as Record<string, unknown>;
+      const summary = this.extractRichText(opus.summary);
       return {
-        id,
-        type,
-        text: this.extractRichText(opus.summary),
-        pubTime,
-        title: (opus.title as string) ?? "图文动态",
+        ...base,
+        kind: "opus",
+        text: summary,
+        title: ((opus.title as string) ?? summary.slice(0, 40)) || "图文动态",
         cover: ((opus.cover as string) ?? "").replace(/^http:/, "https:"),
+      };
+    }
+
+    if (type.includes("FORWARD") || major?.forward) {
+      const desc = moduleDynamic?.desc as Record<string, unknown> | undefined;
+      const text =
+        this.extractRichText(desc) ||
+        this.extractRichText(moduleDynamic) ||
+        "转发动态";
+      return {
+        ...base,
+        kind: "forward",
+        text,
+        title: text.slice(0, 80) || "转发动态",
       };
     }
 
@@ -2605,19 +2713,36 @@ class BiliApiService {
     const text =
       this.extractRichText(desc) ||
       this.extractRichText(moduleDynamic) ||
-      (type.includes("FORWARD") ? "转发动态" : "动态");
+      "动态";
 
     const coverMajor = major?.draw as Record<string, unknown> | undefined;
     const items = coverMajor?.items as Record<string, unknown>[] | undefined;
 
     return {
-      id,
-      type,
+      ...base,
+      kind: "text",
       text,
-      pubTime,
-      title: text.slice(0, 40) || "动态",
+      title: text.slice(0, 80) || "动态",
       cover: ((items?.[0]?.src as string) ?? "").replace(/^http:/, "https:"),
     };
+  }
+
+  private formatDynamicPubTime(ts: number): string {
+    if (!ts) return "";
+    const date = new Date(ts * 1000);
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hour = String(date.getHours()).padStart(2, "0");
+    const minute = String(date.getMinutes()).padStart(2, "0");
+    return `${month}月${day}日 ${hour}:${minute}`;
+  }
+
+  private getDynamicPubAction(type: string): string {
+    if (type.includes("FORWARD")) return "转发了动态";
+    if (type.includes("AV")) return "投稿了视频";
+    if (type.includes("DRAW")) return "发布了动态";
+    if (type.includes("WORD")) return "发布了动态";
+    return "发布了动态";
   }
 
   private normalizeToViewItem(item: Record<string, unknown>): ToViewItem {
@@ -2642,6 +2767,60 @@ class BiliApiService {
       addAt: (item.add_at as number) ?? 0,
       cid: (item.cid as number) ?? 0,
     };
+  }
+
+  private isSearchVideoResult(item: Record<string, unknown>): boolean {
+    if (!item.bvid) return false;
+
+    const type = String(item.type ?? item.result_type ?? "video").toLowerCase();
+    if (type && type !== "video") return false;
+
+    if (item.is_live === 1 || item.is_live === true) return false;
+
+    return true;
+  }
+
+  private isSearchResultRelevant(
+    item: Record<string, unknown>,
+    keyword: string,
+  ): boolean {
+    const titleRaw = String(item.title ?? "");
+    const tagRaw = String(item.tag ?? "");
+    if (
+      titleRaw.includes('<em class="keyword">') ||
+      tagRaw.includes('<em class="keyword">')
+    ) {
+      return true;
+    }
+
+    const terms = keyword
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((term) => term.length > 0);
+    if (terms.length === 0) return true;
+
+    const stripHtml = (value: unknown) =>
+      String(value ?? "")
+        .replace(/<[^>]+>/g, "")
+        .toLowerCase();
+
+    const bvid = stripHtml(item.bvid);
+    const haystack = [
+      item.title,
+      item.author,
+      item.tag,
+      item.description,
+      item.arcurl,
+    ]
+      .map(stripHtml)
+      .join(" ");
+
+    return terms.every(
+      (term) =>
+        haystack.includes(term) ||
+        (term.startsWith("bv") && bvid.includes(term)),
+    );
   }
 
   private normalizeSearchVideo(item: Record<string, unknown>): VideoItem {

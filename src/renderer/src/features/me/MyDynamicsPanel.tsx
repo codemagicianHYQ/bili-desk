@@ -1,71 +1,156 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { SpaceDynamicItem } from "@shared/types";
+import type { SpaceDynamicItem, UpProfile } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
-import { cn, formatCount } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import { cn, formatCount, formatDuration } from "@/lib/utils";
+import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
 
-function formatTime(ts: number): string {
-  if (!ts) return "";
-  return new Date(ts * 1000).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+interface MyDynamicsPanelProps {
+  mid: number;
+  profile: Pick<UpProfile, "name" | "face"> | null;
 }
 
 function formatError(err: unknown): string {
   return err instanceof Error ? err.message : "加载失败";
 }
 
-function displayText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj.text === "string") return obj.text;
-  }
-  return "";
+function DynamicActionBar({ item }: { item: SpaceDynamicItem }) {
+  const reply = item.stats?.reply ?? 0;
+  const like = item.stats?.like ?? 0;
+
+  return (
+    <div className="grid grid-cols-3 border-t border-white/5">
+      <button
+        type="button"
+        className="flex items-center justify-center gap-1.5 py-3 text-sm text-[#9499a0] transition-colors hover:text-[#e3e5e7]"
+      >
+        <Share2 className="h-4 w-4" />
+        转发
+      </button>
+      <button
+        type="button"
+        className="flex items-center justify-center gap-1.5 py-3 text-sm text-[#9499a0] transition-colors hover:text-[#e3e5e7]"
+      >
+        <MessageCircle className="h-4 w-4" />
+        {reply > 0 ? reply : "评论"}
+      </button>
+      <button
+        type="button"
+        className="flex items-center justify-center gap-1.5 py-3 text-sm text-[#9499a0] transition-colors hover:text-[#e3e5e7]"
+      >
+        <ThumbsUp className="h-4 w-4" />
+        {like > 0 ? like : "点赞"}
+      </button>
+    </div>
+  );
 }
 
-function DynamicCard({ item }: { item: SpaceDynamicItem }) {
-  const text = displayText(item.text);
-  const title = displayText(item.title) || item.title;
-  const body = (
-    <article className="rounded-xl border border-border bg-card p-4 transition-colors hover:bg-secondary/30">
-      <p className="text-xs text-muted-foreground">
-        {formatTime(item.pubTime)}
-      </p>
-      {title && (
-        <h3 className="mt-1 line-clamp-2 text-sm font-medium">{title}</h3>
-      )}
-      {text && (
-        <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm text-muted-foreground">
-          {text}
+function VideoDynamicBody({ item }: { item: SpaceDynamicItem }) {
+  const content = (
+    <div className="flex gap-3 rounded-lg bg-black/25 p-3 transition-colors hover:bg-black/35">
+      <div className="relative shrink-0 overflow-hidden rounded-md">
+        {item.cover ? (
+          <BiliImage
+            src={item.cover}
+            alt={item.title ?? ""}
+            className="h-[86px] w-[136px] object-cover"
+          />
+        ) : (
+          <div className="h-[86px] w-[136px] bg-secondary" />
+        )}
+        {item.duration != null && item.duration > 0 && (
+          <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 text-[11px] text-white">
+            {formatDuration(item.duration)}
+          </span>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col justify-between py-0.5">
+        <p className="line-clamp-2 text-sm leading-snug text-[#e3e5e7]">
+          {item.title}
         </p>
-      )}
-      {item.cover && (
-        <BiliImage
-          src={item.cover}
-          alt=""
-          className="mt-3 max-h-48 w-full rounded-lg object-cover"
-        />
-      )}
-      {item.stats?.view != null && item.stats.view > 0 && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          {formatCount(item.stats.view)} 播放
-        </p>
-      )}
-    </article>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-[#9499a0]">
+          {item.stats?.view != null && item.stats.view > 0 && (
+            <span>{formatCount(item.stats.view)} 播放</span>
+          )}
+          {item.stats?.danmaku != null && item.stats.danmaku > 0 && (
+            <span>{formatCount(item.stats.danmaku)} 评论</span>
+          )}
+        </div>
+      </div>
+    </div>
   );
 
   if (item.bvid) {
-    return <Link to={`/video/${item.bvid}`}>{body}</Link>;
+    return <Link to={`/video/${item.bvid}`}>{content}</Link>;
   }
-  return body;
+  return content;
 }
 
-export function MyDynamicsPanel({ mid }: { mid: number }) {
+function DynamicCard({
+  item,
+  fallbackName,
+  fallbackFace,
+}: {
+  item: SpaceDynamicItem;
+  fallbackName: string;
+  fallbackFace: string;
+}) {
+  const authorName = item.authorName || fallbackName;
+  const authorFace = item.authorFace || fallbackFace;
+  const meta = [item.pubTimeLabel, item.pubAction].filter(Boolean).join(" · ");
+
+  return (
+    <article className="overflow-hidden rounded-xl bg-[#232527] shadow-sm ring-1 ring-white/5">
+      <div className="flex items-start gap-3 px-5 pb-1 pt-5">
+        {authorFace ? (
+          <BiliImage
+            src={authorFace}
+            alt={authorName}
+            className="h-12 w-12 shrink-0 rounded-full object-cover ring-1 ring-white/10"
+          />
+        ) : (
+          <div className="h-12 w-12 shrink-0 rounded-full bg-secondary" />
+        )}
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="truncate text-[15px] font-medium text-[#00aeec]">
+            {authorName}
+          </p>
+          {meta && <p className="mt-0.5 text-xs text-[#9499a0]">{meta}</p>}
+        </div>
+      </div>
+
+      <div className="space-y-3 px-5 py-3">
+        {item.kind === "video" ? (
+          <VideoDynamicBody item={item} />
+        ) : (
+          <>
+            {item.title && item.kind !== "text" && (
+              <h3 className="text-sm font-medium leading-snug text-[#e3e5e7]">
+                {item.title}
+              </h3>
+            )}
+            {item.text && (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#e3e5e7]">
+                {item.text}
+              </p>
+            )}
+            {item.cover && (
+              <BiliImage
+                src={item.cover}
+                alt=""
+                className="max-h-80 w-full rounded-lg object-cover"
+              />
+            )}
+          </>
+        )}
+      </div>
+
+      <DynamicActionBar item={item} />
+    </article>
+  );
+}
+
+export function MyDynamicsPanel({ mid, profile }: MyDynamicsPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const offsetRef = useRef("");
@@ -74,6 +159,9 @@ export function MyDynamicsPanel({ mid }: { mid: number }) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+
+  const fallbackName = profile?.name ?? "用户";
+  const fallbackFace = profile?.face ?? "";
 
   const load = useCallback(
     async (append: boolean) => {
@@ -143,10 +231,15 @@ export function MyDynamicsPanel({ mid }: { mid: number }) {
   return (
     <div
       ref={scrollRef}
-      className="max-h-[60vh] space-y-3 overflow-y-auto pr-1"
+      className="max-h-[70vh] space-y-4 overflow-y-auto pr-1"
     >
       {items.map((item) => (
-        <DynamicCard key={item.id} item={item} />
+        <DynamicCard
+          key={item.id}
+          item={item}
+          fallbackName={fallbackName}
+          fallbackFace={fallbackFace}
+        />
       ))}
       <div
         ref={sentinelRef}

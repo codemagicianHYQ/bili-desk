@@ -9,6 +9,7 @@ import { VideoPage } from "@/features/video/VideoPage";
 import { WatchLaterPage } from "@/features/watch-later/WatchLaterPage";
 import { MyPage } from "@/features/me/MyPage";
 import { useNavigationStore } from "@/stores/navigation-store";
+import { useHomeSearchStore } from "@/stores/home-search-store";
 import { cn } from "@/lib/utils";
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
@@ -36,6 +37,7 @@ export function MainLayout() {
   );
   const videoKeepAlive = useNavigationStore((state) => state.videoKeepAlive);
   const activeVideoBvid = useNavigationStore((state) => state.activeVideoBvid);
+  const searchQuery = useHomeSearchStore((state) => state.query);
 
   useLayoutEffect(() => {
     const path = location.pathname;
@@ -53,7 +55,9 @@ export function MainLayout() {
     ? { title: "UP 主主页", subtitle: "投稿与关注" }
     : path.startsWith("/video/")
       ? { title: "视频", subtitle: "正在播放" }
-      : (titles[path] ?? { title: "BiliDesk" });
+      : path === "/" && searchQuery
+        ? { title: `搜索「${searchQuery}」`, subtitle: "已过滤无关结果" }
+        : (titles[path] ?? { title: "BiliDesk" });
 
   if (path === "/login") {
     return <Outlet />;

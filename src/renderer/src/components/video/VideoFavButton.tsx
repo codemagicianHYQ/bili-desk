@@ -245,9 +245,7 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
         )}
         onClick={handleOpen}
       >
-        <Bookmark
-          className={cn("h-4 w-4", isCollected && "fill-current text-sky-200")}
-        />
+        <Bookmark className={cn("h-4 w-4", isCollected && "fill-current")} />
         {isCollected ? "已收藏" : "收藏"}
       </Button>
 

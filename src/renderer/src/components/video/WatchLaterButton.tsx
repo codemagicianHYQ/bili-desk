@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import type { VideoItem } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatWatchLaterError } from "@/lib/watch-later-error";
 import { useAppStore } from "@/stores/app-store";
 import { useWatchLaterStore } from "@/stores/watch-later-store";
 import { Clock, ListVideo, Loader2 } from "lucide-react";
@@ -13,14 +15,6 @@ interface WatchLaterButtonProps {
   video?: VideoItem;
   variant?: "overlay" | "inline";
   className?: string;
-}
-
-function formatWatchLaterError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "操作失败";
-  if (message.includes("412") || message.includes("安全策略")) {
-    return "请求被 B 站安全策略拦截，请稍后重试";
-  }
-  return message;
 }
 
 export function WatchLaterButton({
@@ -37,14 +31,31 @@ export function WatchLaterButton({
   const inList = useWatchLaterStore((state) => state.bvids.has(bvid));
   const [pending, setPending] = useState(false);
   const [tip, setTip] = useState("");
+  const [tipIsError, setTipIsError] = useState(false);
 
   useEffect(() => {
     if (user?.isLogin) void ensureLoaded();
   }, [user?.isLogin, ensureLoaded]);
 
-  const handleClick = async (event: React.MouseEvent) => {
+  const showTip = (message: string, isError = false) => {
+    setTipIsError(isError);
+    setTip(message);
+    window.setTimeout(
+      () => {
+        setTip("");
+        setTipIsError(false);
+      },
+      isError ? 2800 : 1800,
+    );
+  };
+
+  const stopCardNavigation = (event: React.SyntheticEvent) => {
     event.preventDefault();
     event.stopPropagation();
+  };
+
+  const handleClick = async (event: React.MouseEvent) => {
+    stopCardNavigation(event);
 
     if (!user?.isLogin) {
       navigate("/login");
@@ -54,21 +65,38 @@ export function WatchLaterButton({
     const wasInList = inList;
     setPending(true);
     setTip("");
+    setTipIsError(false);
     try {
       await toggle(aid, bvid, video);
-      setTip(wasInList ? "已从稍后再看移除" : "已添加到稍后再看");
-      window.setTimeout(() => setTip(""), 1800);
+      showTip(wasInList ? "已从稍后再看移除" : "已添加到稍后再看");
     } catch (err) {
-      setTip(formatWatchLaterError(err));
-      window.setTimeout(() => setTip(""), 2500);
+      showTip(formatWatchLaterError(err), true);
     } finally {
       setPending(false);
     }
   };
 
+  // 主页卡片有 overflow/transform，本地 tip 会被裁切；错误与成功都走全局 toast
+  const toast =
+    tip &&
+    typeof document !== "undefined" &&
+    createPortal(
+      <div
+        className={cn(
+          "pointer-events-none fixed left-1/2 top-1/2 z-[9999] -translate-x-1/2 -translate-y-1/2 rounded-xl px-5 py-3 text-sm font-semibold shadow-2xl",
+          tipIsError
+            ? "border border-primary/40 bg-black/90 text-primary"
+            : "border border-border/40 bg-black/85 text-white",
+        )}
+      >
+        {tip}
+      </div>,
+      document.body,
+    );
+
   if (variant === "inline") {
     return (
-      <div className="relative">
+      <>
         <Button
           type="button"
           size="sm"
@@ -84,48 +112,43 @@ export function WatchLaterButton({
           {pending ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : inList ? (
-            <Clock className="h-4 w-4 fill-current text-sky-200" />
+            <Clock className="h-4 w-4 fill-current" />
           ) : (
             <ListVideo className="h-4 w-4" />
           )}
           {inList ? "已添加" : "稍后再看"}
         </Button>
-        {tip && (
-          <span className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md">
-            {tip}
-          </span>
-        )}
-      </div>
+        {toast}
+      </>
     );
   }
 
   return (
-    <div className={cn("absolute right-2 top-2 z-10", className)}>
-      <button
-        type="button"
-        title={inList ? "已在稍后再看，点击移除" : "添加到稍后再看"}
-        disabled={pending}
-        onClick={(event) => void handleClick(event)}
-        className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-all",
-          "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-          inList && "opacity-100 text-primary",
-          pending && "opacity-100",
-        )}
-      >
-        {pending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : inList ? (
-          <Clock className="h-4 w-4 fill-current" />
-        ) : (
-          <ListVideo className="h-4 w-4" />
-        )}
-      </button>
-      {tip && (
-        <span className="pointer-events-none absolute right-0 top-full mt-1 whitespace-nowrap rounded-md bg-black/80 px-2 py-1 text-xs text-white">
-          {tip}
-        </span>
-      )}
-    </div>
+    <>
+      <div className={cn("absolute right-2 top-2 z-20", className)}>
+        <button
+          type="button"
+          title={inList ? "已在稍后再看，点击移除" : "添加到稍后再看"}
+          disabled={pending}
+          onMouseDown={stopCardNavigation}
+          onClick={(event) => void handleClick(event)}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-all",
+            "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+            inList && "opacity-100 text-primary",
+            pending && "opacity-100",
+          )}
+        >
+          {pending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : inList ? (
+            <Clock className="h-4 w-4 fill-current" />
+          ) : (
+            <ListVideo className="h-4 w-4" />
+          )}
+        </button>
+      </div>
+      {toast}
+    </>
   );
 }

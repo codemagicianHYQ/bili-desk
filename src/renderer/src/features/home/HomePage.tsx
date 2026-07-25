@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SearchOrder, VideoItem } from "@shared/types";
 import { useHomeFeedStore } from "@/stores/home-feed-store";
+import { useHomeSearchStore } from "@/stores/home-search-store";
 import { useAppStore } from "@/stores/app-store";
 import { VideoCard } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 import { Loader2, Search as SearchIcon, ArrowUp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SEARCH_PAGE_SIZE } from "@/lib/search-page-size";
+import { useFollowedMidSet } from "@/lib/use-followed-mids";
 
 const GRID_COLS_CLASS = {
   2: "grid-cols-2",
@@ -34,7 +38,11 @@ export function HomePage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const searchLoadSeqRef = useRef(0);
+  const searchPageCacheRef = useRef(new Map<number, VideoItem[]>());
+  const searchNextApiPageRef = useRef(new Map<number, number>());
+  const searchStableTotalRef = useRef(0);
   const homeGridColumns = useAppStore((state) => state.homeGridColumns);
+  const followedMidSet = useFollowedMidSet();
 
   const {
     videos: recommendVideos,
@@ -56,7 +64,6 @@ export function HomePage() {
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [showBackToTop, setShowBackToTop] = useState(false);
 
@@ -77,47 +84,94 @@ export function HomePage() {
     async (
       searchQuery: string,
       searchOrder: SearchOrder,
-      nextPage: number,
-      append: boolean,
+      page: number,
+      reset = false,
+      pageSize = SEARCH_PAGE_SIZE,
     ) => {
       const trimmed = searchQuery.trim();
       if (!trimmed) return;
 
       const seq = ++searchLoadSeqRef.current;
 
-      if (append) {
-        setSearchLoadingMore(true);
-      } else {
-        setSearchLoading(true);
+      setSearchLoading(true);
+      if (reset) {
         setSearchError("");
         setSearchVideos([]);
         setSearchPage(1);
         setSearchHasMore(false);
         setSearchTotal(0);
+        searchStableTotalRef.current = 0;
+        searchPageCacheRef.current.clear();
+        searchNextApiPageRef.current.clear();
+      }
+
+      const cached = searchPageCacheRef.current.get(page);
+      if (!reset && cached) {
+        setSearchVideos(cached);
+        setSearchPage(page);
+        setSearchTotal(searchStableTotalRef.current);
+        setSearchLoading(false);
+        return;
       }
 
       try {
+        for (let prev = 1; prev < page; prev += 1) {
+          if (searchNextApiPageRef.current.has(prev)) continue;
+
+          const prevApiStart =
+            prev === 1 ? 1 : searchNextApiPageRef.current.get(prev - 1);
+          if (prev > 1 && !prevApiStart) break;
+
+          const prevResult = await window.biliDesk.bili.searchVideos(
+            trimmed,
+            prev,
+            searchOrder,
+            prevApiStart ?? 1,
+            pageSize,
+          );
+          if (seq !== searchLoadSeqRef.current) return;
+
+          searchPageCacheRef.current.set(prev, prevResult.videos);
+          if (prevResult.nextApiPage) {
+            searchNextApiPageRef.current.set(prev, prevResult.nextApiPage);
+          }
+          if (prevResult.total > 0 && searchStableTotalRef.current === 0) {
+            searchStableTotalRef.current = prevResult.total;
+          }
+        }
+
+        const apiStartPage =
+          page === 1 ? 1 : (searchNextApiPageRef.current.get(page - 1) ?? 1);
+
         const result = await window.biliDesk.bili.searchVideos(
           trimmed,
-          nextPage,
+          page,
           searchOrder,
+          apiStartPage,
+          pageSize,
         );
         if (seq !== searchLoadSeqRef.current) return;
 
-        setSearchVideos((prev) =>
-          append ? [...prev, ...result.videos] : result.videos,
-        );
+        if (result.total > 0 && searchStableTotalRef.current === 0) {
+          searchStableTotalRef.current = result.total;
+        }
+
+        searchPageCacheRef.current.set(page, result.videos);
+        if (result.nextApiPage) {
+          searchNextApiPageRef.current.set(page, result.nextApiPage);
+        }
+
+        setSearchVideos(result.videos);
         setSearchPage(result.page);
         setSearchHasMore(result.hasMore);
-        setSearchTotal(result.total);
+        setSearchTotal(searchStableTotalRef.current);
       } catch (err) {
         if (seq !== searchLoadSeqRef.current) return;
-        if (!append) setSearchVideos([]);
+        if (reset) setSearchVideos([]);
         setSearchError(formatSearchError(err));
       } finally {
         if (seq === searchLoadSeqRef.current) {
           setSearchLoading(false);
-          setSearchLoadingMore(false);
         }
       }
     },
@@ -131,12 +185,45 @@ export function HomePage() {
       setQuery(trimmed);
       setKeyword(trimmed);
       setOrder(nextOrder);
+      useHomeSearchStore.getState().setSearch(trimmed, nextOrder);
       if (scrollRef.current) scrollRef.current.scrollTop = 0;
       setShowBackToTop(false);
-      void loadSearchPage(trimmed, nextOrder, 1, false);
+      void loadSearchPage(trimmed, nextOrder, 1, true, SEARCH_PAGE_SIZE);
     },
     [loadSearchPage],
   );
+
+  const searchTotalPages = Math.max(
+    1,
+    Math.ceil(searchTotal / SEARCH_PAGE_SIZE),
+  );
+
+  const goToSearchPage = useCallback(
+    (page: number) => {
+      if (!query || searchLoading) return;
+      if (page < 1) return;
+      if (page > searchTotalPages && !searchPageCacheRef.current.has(page))
+        return;
+      if (scrollRef.current) scrollRef.current.scrollTop = 0;
+      setShowBackToTop(false);
+      void loadSearchPage(query, order, page, false, SEARCH_PAGE_SIZE);
+    },
+    [query, order, searchLoading, searchTotalPages, loadSearchPage],
+  );
+
+  useEffect(() => {
+    const onRefreshSearch = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ query: string; order: SearchOrder }>
+      ).detail;
+      if (!detail?.query) return;
+      runSearch(detail.query, detail.order);
+    };
+
+    window.addEventListener("bilidesk:refresh-search", onRefreshSearch);
+    return () =>
+      window.removeEventListener("bilidesk:refresh-search", onRefreshSearch);
+  }, [runSearch]);
 
   const clearSearch = useCallback(() => {
     searchLoadSeqRef.current += 1;
@@ -145,7 +232,10 @@ export function HomePage() {
     setSearchVideos([]);
     setSearchError("");
     setSearchLoading(false);
-    setSearchLoadingMore(false);
+    searchPageCacheRef.current.clear();
+    searchNextApiPageRef.current.clear();
+    searchStableTotalRef.current = 0;
+    useHomeSearchStore.getState().clear();
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setShowBackToTop(false);
   }, []);
@@ -166,9 +256,7 @@ export function HomePage() {
   const displayVideos = isSearchMode ? searchVideos : recommendVideos;
   const displayHasMore = isSearchMode ? searchHasMore : recommendHasMore;
   const displayLoading = isSearchMode ? searchLoading : recommendLoading;
-  const displayLoadingMore = isSearchMode
-    ? searchLoadingMore
-    : recommendLoadingMore;
+  const displayLoadingMore = recommendLoadingMore;
   const displayError = isSearchMode ? searchError : recommendError;
 
   const scrollToTop = useCallback(() => {
@@ -189,31 +277,17 @@ export function HomePage() {
   }, [displayVideos.length, isSearchMode, hydrated]);
 
   const handleLoadMore = useCallback(async () => {
-    if (isSearchMode) {
-      if (!query || !searchHasMore || searchLoadingMore || searchLoading)
-        return;
-      await loadSearchPage(query, order, searchPage + 1, true);
-      return;
-    }
+    if (isSearchMode) return;
     await loadMoreRecommend();
-  }, [
-    isSearchMode,
-    query,
-    order,
-    searchPage,
-    searchHasMore,
-    searchLoadingMore,
-    searchLoading,
-    loadSearchPage,
-    loadMoreRecommend,
-  ]);
+  }, [isSearchMode, loadMoreRecommend]);
 
   useEffect(() => {
+    if (isSearchMode) return;
+
     const root = scrollRef.current;
     const target = sentinelRef.current;
     if (!root || !target || !displayHasMore || displayLoading || refreshing)
       return;
-    if (isSearchMode && searchLoading) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -230,7 +304,6 @@ export function HomePage() {
     displayLoading,
     refreshing,
     isSearchMode,
-    searchLoading,
     displayVideos.length,
   ]);
 
@@ -279,7 +352,7 @@ export function HomePage() {
             size="sm"
             disabled={!keyword.trim() || searchLoading}
           >
-            {searchLoading && !searchLoadingMore ? (
+            {searchLoading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 搜索中
@@ -332,32 +405,67 @@ export function HomePage() {
                 className={cn(
                   "grid gap-4 p-6",
                   GRID_COLS_CLASS[homeGridColumns],
+                  isSearchMode &&
+                    searchLoading &&
+                    searchVideos.length > 0 &&
+                    "opacity-60",
                 )}
               >
                 {displayVideos.map((video) => (
-                  <VideoCard key={video.bvid} video={video} />
+                  <VideoCard
+                    key={video.bvid}
+                    video={video}
+                    showFollowedBadge={
+                      !isSearchMode && followedMidSet.has(video.owner.mid)
+                    }
+                  />
                 ))}
               </div>
 
-              <div
-                ref={sentinelRef}
-                className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"
-              >
-                {refreshing || displayLoadingMore ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {refreshing ? "正在刷新..." : "加载更多..."}
-                  </>
-                ) : displayHasMore ? (
-                  "继续下滑加载更多"
-                ) : displayVideos.length > 0 ? (
-                  "已经到底啦"
-                ) : isSearchMode ? (
-                  searchError || "没有找到相关视频"
+              {isSearchMode ? (
+                searchVideos.length > 0 ? (
+                  <PaginationBar
+                    page={searchPage}
+                    totalPages={searchTotalPages}
+                    disabled={searchLoading}
+                    disableNext={
+                      !searchHasMore && searchPage >= searchTotalPages
+                    }
+                    onPageChange={goToSearchPage}
+                    info={
+                      <>
+                        约 {searchTotal.toLocaleString()} 条结果 · 本页{" "}
+                        {searchVideos.length} 条 · 第 {searchPage} /{" "}
+                        {searchTotalPages} 页（每页 {SEARCH_PAGE_SIZE} 条）
+                      </>
+                    }
+                  />
                 ) : (
-                  "暂无推荐内容"
-                )}
-              </div>
+                  !searchLoading && (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      {searchError || "没有找到相关视频"}
+                    </p>
+                  )
+                )
+              ) : (
+                <div
+                  ref={sentinelRef}
+                  className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"
+                >
+                  {refreshing || displayLoadingMore ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {refreshing ? "正在刷新..." : "加载更多..."}
+                    </>
+                  ) : displayHasMore ? (
+                    "继续下滑加载更多"
+                  ) : displayVideos.length > 0 ? (
+                    "已经到底啦"
+                  ) : (
+                    "暂无推荐内容"
+                  )}
+                </div>
+              )}
 
               {displayError &&
                 (hydrated || isSearchMode) &&
