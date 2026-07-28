@@ -1,7 +1,8 @@
-import { Moon, RefreshCw, Sun, UserCircle2 } from "lucide-react";
+import { RefreshCw, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BiliImage } from "@/components/ui/bili-image";
 import { HomeGridLayoutPicker } from "@/components/layout/HomeGridLayoutPicker";
+import { ThemeCustomizer } from "@/components/layout/ThemeCustomizer";
 import { useAppStore } from "@/stores/app-store";
 import { useFavoritesStore } from "@/stores/favorites-store";
 import { useFollowingStore } from "@/stores/following-store";
@@ -17,7 +18,7 @@ interface TopBarProps {
 
 export function TopBar({ title, subtitle }: TopBarProps) {
   const location = useLocation();
-  const { theme, setTheme, user } = useAppStore();
+  const user = useAppStore((state) => state.user);
   const homeRefresh = useHomeFeedStore((state) => state.refresh);
   const homeRefreshing = useHomeFeedStore((state) => state.refreshing);
   const searchQuery = useHomeSearchStore((state) => state.query);
@@ -101,19 +102,7 @@ export function TopBar({ title, subtitle }: TopBarProps) {
 
       <div className="flex items-center gap-2">
         {showGridPicker && <HomeGridLayoutPicker />}
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          aria-label="切换主题"
-        >
-          {theme === "dark" ? (
-            <Sun className="h-4 w-4" />
-          ) : (
-            <Moon className="h-4 w-4" />
-          )}
-        </Button>
+        <ThemeCustomizer />
 
         {user?.isLogin ? (
           <Link to="/me">

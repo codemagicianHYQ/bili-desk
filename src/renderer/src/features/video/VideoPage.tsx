@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { VideoDetail, VideoPlayInfo } from "@shared/types";
 import { Button } from "@/components/ui/button";
-import { formatCount } from "@/lib/utils";
+import { formatCount, formatPubdate } from "@/lib/utils";
 import { BiliImage } from "@/components/ui/bili-image";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { UpOwnerCard } from "@/components/video/UpOwnerCard";
@@ -174,6 +174,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               <p className="text-xs text-muted-foreground">
                 {formatCount(video.stat.view)} 播放 ·{" "}
                 {formatCount(video.stat.danmaku)} 弹幕
+                {video.pubdate > 0 ? ` · ${formatPubdate(video.pubdate)}` : ""}
                 {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
                 {video.stat.favorite > 0
                   ? ` · ${formatCount(video.stat.favorite)} 收藏`

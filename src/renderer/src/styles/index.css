@@ -22,6 +22,68 @@
     --radius: 0.75rem;
   }
 
+  :root[data-theme-preset="rose"] {
+    --background: 345 100% 98%;
+    --card: 0 0% 100%;
+    --secondary: 345 60% 96%;
+    --muted: 345 60% 96%;
+    --border: 345 30% 90%;
+    --input: 345 30% 90%;
+    --primary: 346 87% 72%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 346 87% 72%;
+    --accent-foreground: 0 0% 100%;
+    --ring: 346 87% 72%;
+  }
+
+  :root[data-theme-preset="violet"] {
+    --background: 255 45% 98%;
+    --card: 0 0% 100%;
+    --primary: 262 83% 66%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 270 75% 72%;
+    --accent-foreground: 0 0% 100%;
+    --secondary: 260 18% 95%;
+    --muted: 260 18% 95%;
+    --ring: 262 83% 66%;
+  }
+
+  :root[data-theme-preset="ocean"] {
+    --background: 198 60% 97%;
+    --card: 0 0% 100%;
+    --primary: 198 92% 60%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 190 86% 64%;
+    --accent-foreground: 0 0% 100%;
+    --secondary: 200 35% 95%;
+    --muted: 200 35% 95%;
+    --ring: 198 92% 60%;
+  }
+
+  :root[data-theme-preset="emerald"] {
+    --background: 150 40% 97%;
+    --card: 0 0% 100%;
+    --primary: 160 84% 42%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 154 70% 48%;
+    --accent-foreground: 0 0% 100%;
+    --secondary: 150 28% 95%;
+    --muted: 150 28% 95%;
+    --ring: 160 84% 42%;
+  }
+
+  :root[data-theme-preset="amber"] {
+    --background: 42 80% 97%;
+    --card: 0 0% 100%;
+    --primary: 38 92% 50%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 30 92% 56%;
+    --accent-foreground: 0 0% 100%;
+    --secondary: 40 48% 95%;
+    --muted: 40 48% 95%;
+    --ring: 38 92% 50%;
+  }
+
   .dark {
     --background: 240 10% 8%;
     --foreground: 0 0% 96%;
@@ -38,6 +100,64 @@
     --border: 240 6% 18%;
     --input: 240 6% 18%;
     --ring: 346 87% 72%;
+  }
+
+  .dark[data-theme-preset="rose"] {
+    --background: 336 24% 9%;
+    --card: 336 18% 12%;
+    --primary: 346 87% 72%;
+    --accent: 346 87% 72%;
+    --secondary: 335 12% 16%;
+    --muted: 335 12% 16%;
+    --ring: 346 87% 72%;
+  }
+
+  .dark[data-theme-preset="violet"] {
+    --background: 252 24% 10%;
+    --card: 252 18% 13%;
+    --primary: 262 83% 70%;
+    --accent: 270 78% 74%;
+    --secondary: 255 18% 16%;
+    --muted: 255 18% 16%;
+    --border: 255 16% 20%;
+    --input: 255 16% 20%;
+    --ring: 262 83% 70%;
+  }
+
+  .dark[data-theme-preset="ocean"] {
+    --background: 206 28% 9%;
+    --card: 206 22% 12%;
+    --primary: 198 92% 64%;
+    --accent: 190 86% 64%;
+    --secondary: 205 24% 16%;
+    --muted: 205 24% 16%;
+    --border: 205 18% 20%;
+    --input: 205 18% 20%;
+    --ring: 198 92% 64%;
+  }
+
+  .dark[data-theme-preset="emerald"] {
+    --background: 164 22% 9%;
+    --card: 164 18% 12%;
+    --primary: 160 84% 46%;
+    --accent: 154 72% 50%;
+    --secondary: 160 20% 15%;
+    --muted: 160 20% 15%;
+    --border: 160 16% 19%;
+    --input: 160 16% 19%;
+    --ring: 160 84% 46%;
+  }
+
+  .dark[data-theme-preset="amber"] {
+    --background: 28 24% 9%;
+    --card: 28 20% 12%;
+    --primary: 38 92% 56%;
+    --accent: 30 92% 60%;
+    --secondary: 32 24% 15%;
+    --muted: 32 24% 15%;
+    --border: 32 16% 19%;
+    --input: 32 16% 19%;
+    --ring: 38 92% 56%;
   }
 
   * {
