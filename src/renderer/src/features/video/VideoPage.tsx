@@ -154,22 +154,22 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <UpOwnerCard
-                    mid={video.owner.mid}
-                    name={video.owner.name}
-                    face={video.owner.face}
-                  />
-                </div>
-                <WatchLaterButton
-                  aid={video.aid}
-                  bvid={video.bvid}
-                  video={video}
-                  variant="inline"
-                />
-                <VideoFavButton aid={video.aid} />
-              </div>
+              <UpOwnerCard
+                mid={video.owner.mid}
+                name={video.owner.name}
+                face={video.owner.face}
+                trailing={
+                  <>
+                    <WatchLaterButton
+                      aid={video.aid}
+                      bvid={video.bvid}
+                      video={video}
+                      variant="inline"
+                    />
+                    <VideoFavButton aid={video.aid} />
+                  </>
+                }
+              />
 
               <p className="text-xs text-muted-foreground">
                 {formatCount(video.stat.view)} 播放 ·{" "}
