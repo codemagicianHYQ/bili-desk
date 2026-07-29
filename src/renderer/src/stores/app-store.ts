@@ -44,6 +44,7 @@ export const THEME_PRESETS: Array<{
 
 const HOME_GRID_STORAGE_KEY = "bilidesk-home-grid-columns";
 const THEME_PRESET_STORAGE_KEY = "bilidesk-theme-preset";
+const INCOGNITO_STORAGE_KEY = "bilidesk-incognito-mode";
 
 function readHomeGridColumns(): HomeGridColumns {
   const raw = localStorage.getItem(HOME_GRID_STORAGE_KEY);
@@ -61,6 +62,10 @@ function readThemePreset(): ThemePreset {
   return "rose";
 }
 
+function readIncognitoMode(): boolean {
+  return localStorage.getItem(INCOGNITO_STORAGE_KEY) === "1";
+}
+
 function applyThemeAppearance(theme: Theme, preset: ThemePreset) {
   document.documentElement.classList.toggle("dark", theme === "dark");
   document.documentElement.dataset.themePreset = preset;
@@ -71,12 +76,15 @@ interface AppState {
   themePreset: ThemePreset;
   user: UserInfo | null;
   homeGridColumns: HomeGridColumns;
+  /** 无痕模式：不向 B 站同步观看历史 */
+  incognitoMode: boolean;
   setTheme: (theme: Theme) => Promise<void>;
   setThemePreset: (preset: ThemePreset) => void;
   loadTheme: () => Promise<void>;
   loadUser: () => Promise<void>;
   loadPreferences: () => void;
   setHomeGridColumns: (columns: HomeGridColumns) => void;
+  setIncognitoMode: (enabled: boolean) => void;
   setUser: (user: UserInfo | null) => void;
 }
 
@@ -85,6 +93,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   themePreset: readThemePreset(),
   user: null,
   homeGridColumns: readHomeGridColumns(),
+  incognitoMode: readIncognitoMode(),
   setTheme: async (theme) => {
     await window.biliDesk.app.setTheme(theme);
     applyThemeAppearance(theme, get().themePreset);
@@ -107,12 +116,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadPreferences: () => {
     const homeGridColumns = readHomeGridColumns();
     const themePreset = readThemePreset();
+    const incognitoMode = readIncognitoMode();
     applyThemeAppearance(get().theme, themePreset);
-    set({ homeGridColumns, themePreset });
+    set({ homeGridColumns, themePreset, incognitoMode });
   },
   setHomeGridColumns: (columns) => {
     localStorage.setItem(HOME_GRID_STORAGE_KEY, String(columns));
     set({ homeGridColumns: columns });
+  },
+  setIncognitoMode: (enabled) => {
+    localStorage.setItem(INCOGNITO_STORAGE_KEY, enabled ? "1" : "0");
+    set({ incognitoMode: enabled });
   },
   setUser: (user) => set({ user }),
 }));

@@ -16,6 +16,47 @@ export function registerBiliIpc(): void {
     (_e, bvid: string, cid: number, qn?: number) =>
       biliApi.getPlayUrl(bvid, cid, qn),
   );
+  ipcMain.handle(IPC.BILI_VIDEO_RELATION, (_e, bvid: string, aid: number) =>
+    biliApi.getVideoRelation(bvid, aid),
+  );
+  ipcMain.handle(IPC.BILI_VIDEO_LIKE, (_e, aid: number, like: boolean) =>
+    biliApi.likeVideo(aid, like),
+  );
+  ipcMain.handle(IPC.BILI_VIDEO_COIN, (_e, payload) =>
+    biliApi.addCoin(payload),
+  );
+  ipcMain.handle(IPC.BILI_VIDEO_SHARE, (_e, aid: number, bvid: string) =>
+    biliApi.shareVideo(aid, bvid),
+  );
+  ipcMain.handle(IPC.BILI_WATCH_HEARTBEAT, (_e, payload) =>
+    biliApi.reportWatchHeartbeat(payload),
+  );
+  ipcMain.handle(IPC.BILI_DANMAKU_LIST, (_e, cid: number) =>
+    biliApi.getDanmakuList(cid),
+  );
+  ipcMain.handle(IPC.BILI_DANMAKU_SEND, (_e, payload) =>
+    biliApi.sendDanmaku(payload),
+  );
+  ipcMain.handle(
+    IPC.BILI_COMMENT_LIST,
+    (_e, aid: number, page?: number, sort?: 0 | 1 | 2) =>
+      biliApi.getComments(aid, page, sort),
+  );
+  ipcMain.handle(
+    IPC.BILI_COMMENT_REPLIES,
+    (_e, aid: number, root: number, page?: number) =>
+      biliApi.getCommentReplies(aid, root, page),
+  );
+  ipcMain.handle(
+    IPC.BILI_COMMENT_ADD,
+    (_e, aid: number, message: string, root?: number, parent?: number) =>
+      biliApi.addComment(aid, message, root, parent),
+  );
+  ipcMain.handle(
+    IPC.BILI_COMMENT_LIKE,
+    (_e, aid: number, rpid: number, like: boolean) =>
+      biliApi.likeComment(aid, rpid, like),
+  );
   ipcMain.handle(IPC.BILI_FAV_FOLDERS, () => biliApi.getFavFolders());
   ipcMain.handle(IPC.BILI_VIDEO_FAV_FOLDERS, (_e, aid: number) =>
     biliApi.getVideoFavFolders(aid),

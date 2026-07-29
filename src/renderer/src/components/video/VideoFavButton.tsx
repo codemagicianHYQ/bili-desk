@@ -2,13 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { VideoFavFolder } from "@shared/types";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, formatCount } from "@/lib/utils";
 import { Bookmark, Folder, Loader2, X } from "lucide-react";
 import { useFavoritesStore } from "@/stores/favorites-store";
 
 interface VideoFavButtonProps {
   aid: number;
+  /** 展示用收藏总数；有值时按钮显示数字而非文案 */
+  count?: number;
   className?: string;
+  onCollectedChange?: (collected: boolean) => void;
 }
 
 function formatFavError(err: unknown): string {
@@ -19,7 +22,12 @@ function formatFavError(err: unknown): string {
   return message;
 }
 
-export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
+export function VideoFavButton({
+  aid,
+  count,
+  className,
+  onCollectedChange,
+}: VideoFavButtonProps) {
   const invalidateFolders = useFavoritesStore(
     (state) => state.invalidateFolders,
   );
@@ -109,6 +117,8 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
       );
       invalidateFolders();
       const nextSelected = new Set(selected);
+      const wasCollected = initialSelected.size > 0;
+      const nowCollected = nextSelected.size > 0;
       setFolders((prev) =>
         prev.map((folder) => ({
           ...folder,
@@ -116,6 +126,9 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
         })),
       );
       setInitialSelected(nextSelected);
+      if (wasCollected !== nowCollected) {
+        onCollectedChange?.(nowCollected);
+      }
       setOpen(false);
     } catch (err) {
       setError(formatFavError(err));
@@ -246,7 +259,7 @@ export function VideoFavButton({ aid, className }: VideoFavButtonProps) {
         onClick={handleOpen}
       >
         <Bookmark className={cn("h-4 w-4", isCollected && "fill-current")} />
-        {isCollected ? "已收藏" : "收藏"}
+        {count != null ? formatCount(count) : isCollected ? "已收藏" : "收藏"}
       </Button>
 
       {dialog && createPortal(dialog, document.body)}

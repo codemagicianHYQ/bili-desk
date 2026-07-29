@@ -18,7 +18,7 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
   "/following": { title: "关注", subtitle: "AI 与规则智能分组" },
   "/watch-later": { title: "稍后再看", subtitle: "同步 B 站官方列表" },
   "/me": { title: "我的", subtitle: "个人主页" },
-  "/settings": { title: "设置", subtitle: "主题与 AI 配置" },
+  "/settings": { title: "设置", subtitle: "主题、无痕与 AI 配置" },
   "/login": { title: "登录", subtitle: "扫码登录 B 站账号" },
 };
 

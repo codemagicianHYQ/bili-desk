@@ -1,4 +1,4 @@
-import { RefreshCw, UserCircle2 } from "lucide-react";
+import { Eye, EyeOff, RefreshCw, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BiliImage } from "@/components/ui/bili-image";
 import { HomeGridLayoutPicker } from "@/components/layout/HomeGridLayoutPicker";
@@ -10,6 +10,7 @@ import { useHomeFeedStore } from "@/stores/home-feed-store";
 import { useHomeSearchStore } from "@/stores/home-search-store";
 import { useWatchLaterStore } from "@/stores/watch-later-store";
 import { Link, useLocation } from "react-router-dom";
+import { cn } from "@/lib/utils";
 
 interface TopBarProps {
   title: string;
@@ -19,6 +20,8 @@ interface TopBarProps {
 export function TopBar({ title, subtitle }: TopBarProps) {
   const location = useLocation();
   const user = useAppStore((state) => state.user);
+  const incognitoMode = useAppStore((state) => state.incognitoMode);
+  const setIncognitoMode = useAppStore((state) => state.setIncognitoMode);
   const homeRefresh = useHomeFeedStore((state) => state.refresh);
   const homeRefreshing = useHomeFeedStore((state) => state.refreshing);
   const searchQuery = useHomeSearchStore((state) => state.query);
@@ -101,6 +104,34 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "gap-1.5",
+            incognitoMode
+              ? "text-primary hover:text-primary"
+              : "text-muted-foreground",
+          )}
+          onClick={() => setIncognitoMode(!incognitoMode)}
+          aria-label={incognitoMode ? "关闭无痕模式" : "开启无痕模式"}
+          title={
+            incognitoMode
+              ? "无痕模式开启中：观看不会写入 B 站历史"
+              : "开启无痕模式：本机观看不同步到 B 站历史"
+          }
+        >
+          {incognitoMode ? (
+            <EyeOff className="h-4 w-4" />
+          ) : (
+            <Eye className="h-4 w-4" />
+          )}
+          <span className="hidden sm:inline">
+            {incognitoMode ? "无痕中" : "无痕"}
+          </span>
+        </Button>
+
         {showGridPicker && <HomeGridLayoutPicker />}
         <ThemeCustomizer />
 

@@ -24,6 +24,13 @@ import type {
   VideoDetail,
   VideoItem,
   VideoPlayInfo,
+  DanmakuItem,
+  SendDanmakuPayload,
+  VideoRelation,
+  AddCoinPayload,
+  WatchHeartbeatPayload,
+  CommentItem,
+  CommentPage,
   UpVideosPage,
   UpVideosOrder,
   SearchOrder,
@@ -56,6 +63,51 @@ const TV_APPSEC = "59b43e04ad6965f34319062b478f83dd";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function colorIntToHex(color: number): string {
+  const value = Math.max(0, Math.min(0xffffff, color >>> 0));
+  return `#${value.toString(16).padStart(6, "0")}`;
+}
+
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) =>
+      String.fromCharCode(Number.parseInt(code, 10)),
+    )
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) =>
+      String.fromCharCode(Number.parseInt(code, 16)),
+    )
+    .replace(/&amp;/g, "&");
+}
+
+/** 解析经典弹幕 XML（`<d p="time,mode,size,color,...">text</d>`） */
+function parseDanmakuXml(xml: string): DanmakuItem[] {
+  const items: DanmakuItem[] = [];
+  const regex = /<d p="([^"]+)">([^<]*)<\/d>/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(xml)) != null) {
+    const attrs = match[1]?.split(",") ?? [];
+    const time = Number.parseFloat(attrs[0] ?? "0");
+    const modeNum = Number.parseInt(attrs[1] ?? "1", 10);
+    const color = Number.parseInt(attrs[3] ?? "16777215", 10);
+    const text = decodeXmlEntities(match[2] ?? "").trim();
+    if (!text || !Number.isFinite(time)) continue;
+
+    items.push({
+      text,
+      time,
+      color: colorIntToHex(Number.isFinite(color) ? color : 16777215),
+      mode: modeNum === 5 ? 1 : modeNum === 4 ? 2 : 0,
+    });
+  }
+
+  return items;
 }
 
 class BiliApiService {
@@ -582,9 +634,197 @@ class BiliApiService {
         reply: view.stat?.reply ?? 0,
         favorite: view.stat?.favorite ?? 0,
         coin: view.stat?.coin ?? 0,
+        share: view.stat?.share ?? 0,
         like: view.stat?.like ?? 0,
       },
     };
+  }
+
+  async getVideoRelation(bvid: string, aid: number): Promise<VideoRelation> {
+    await this.ensureBuvid3();
+    const res = await this.client.get("/x/web-interface/archive/relation", {
+      params: { bvid, aid },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "互动状态获取失败");
+    }
+
+    const data = res.data?.data ?? {};
+    const coin = Number(data.coin) || 0;
+    return {
+      liked: Number(data.like) === 1,
+      coined: coin > 0,
+      coin,
+      favorited: Number(data.favorite) === 1,
+    };
+  }
+
+  async likeVideo(aid: number, like: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再点赞");
+
+    const body = new URLSearchParams({
+      aid: String(aid),
+      like: like ? "1" : "2",
+      csrf,
+    });
+
+    const res = await this.client.post("/x/web-interface/archive/like", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "点赞失败");
+    }
+  }
+
+  async addCoin(payload: AddCoinPayload): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再投币");
+
+    const multiply = payload.multiply === 2 ? 2 : 1;
+    const body = new URLSearchParams({
+      aid: String(payload.aid),
+      multiply: String(multiply),
+      select_like: payload.selectLike ? "1" : "0",
+      csrf,
+    });
+
+    const res = await this.client.post("/x/web-interface/coin/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: `https://www.bilibili.com/video/${payload.bvid}`,
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "投币失败");
+    }
+  }
+
+  async shareVideo(aid: number, bvid: string): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再分享");
+
+    const body = new URLSearchParams({
+      aid: String(aid),
+      eabee: "",
+      csrf,
+    });
+
+    const res = await this.client.post("/x/web-interface/share/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: `https://www.bilibili.com/video/${bvid}`,
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "分享失败");
+    }
+  }
+
+  /**
+   * 上报观看心跳 + 历史进度，同步到账号历史记录（官方客户端可见）
+   */
+  async reportWatchHeartbeat(payload: WatchHeartbeatPayload): Promise<void> {
+    if (!isLoggedIn()) return;
+
+    const csrf = getCsrf();
+    if (!csrf) return;
+
+    const playedTime = Math.floor(payload.playedTime);
+    const realtime = Math.max(
+      0,
+      Math.floor(payload.realtime ?? Math.max(0, playedTime)),
+    );
+    const referer = `https://www.bilibili.com/video/${payload.bvid}`;
+    const mid = this.getAuthStatus().mid;
+
+    const heartbeatBody = new URLSearchParams({
+      aid: String(payload.aid),
+      bvid: payload.bvid,
+      cid: String(payload.cid),
+      mid: String(mid || 0),
+      played_time: String(playedTime),
+      realtime: String(realtime),
+      real_played_time: String(realtime),
+      start_ts: String(payload.startTs),
+      type: "3",
+      dt: "2",
+      play_type: String(payload.playType),
+      csrf,
+    });
+    if (payload.quality != null) {
+      heartbeatBody.set("quality", String(payload.quality));
+    }
+
+    const heartbeatRes = await this.client.post(
+      "/x/click-interface/web/heartbeat",
+      heartbeatBody,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: referer,
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    // 历史写入不阻塞播放；失败时尽量走专用 report 兜底
+    const historyProgress = playedTime < 0 ? 0 : Math.max(0, playedTime);
+    const historyBody = new URLSearchParams({
+      aid: String(payload.aid),
+      cid: String(payload.cid),
+      progress: String(historyProgress),
+      csrf,
+    });
+
+    const historyRes = await this.client.post(
+      "/x/v2/history/report",
+      historyBody,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: referer,
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    const heartbeatOk =
+      heartbeatRes.status !== 412 &&
+      heartbeatRes.data?.code !== -412 &&
+      heartbeatRes.data?.code === 0;
+    const historyOk =
+      historyRes.status !== 412 &&
+      historyRes.data?.code !== -412 &&
+      historyRes.data?.code === 0;
+
+    if (!heartbeatOk && !historyOk) {
+      // 静默失败，避免打断播放或刷 IPC 错误日志
+      return;
+    }
   }
 
   async getPlayUrl(bvid: string, cid: number, qn = 64): Promise<VideoPlayInfo> {
@@ -637,6 +877,252 @@ class BiliApiService {
     }
 
     return dashPlay;
+  }
+
+  async getDanmakuList(cid: number): Promise<DanmakuItem[]> {
+    await this.ensureBuvid3();
+
+    const res = await this.client.get("/x/v1/dm/list.so", {
+      params: { oid: cid },
+      responseType: "text",
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+
+    const xml =
+      typeof res.data === "string" ? res.data : String(res.data ?? "");
+    return parseDanmakuXml(xml);
+  }
+
+  async sendDanmaku(payload: SendDanmakuPayload): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再发送弹幕");
+
+    const message = payload.message.trim();
+    if (!message) throw new Error("弹幕内容不能为空");
+    if (message.length > 100) throw new Error("弹幕最多 100 个字");
+
+    const body = new URLSearchParams({
+      type: "1",
+      oid: String(payload.cid),
+      msg: message,
+      mode: String(payload.mode ?? 1),
+      fontsize: String(payload.fontsize ?? 25),
+      color: String(payload.color ?? 16777215),
+      progress: String(Math.max(0, Math.floor(payload.progress))),
+      bvid: payload.bvid,
+      rnd: String(Date.now() * 1000),
+      csrf,
+    });
+
+    const res = await this.client.post("/x/v2/dm/post", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: `https://www.bilibili.com/video/${payload.bvid}`,
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "发送弹幕失败");
+    }
+  }
+
+  async getComments(
+    aid: number,
+    page = 1,
+    sort: 0 | 1 | 2 = 0,
+  ): Promise<CommentPage> {
+    await this.ensureBuvid3();
+    const pageSize = 20;
+    // 经典接口：sort=2 热度，sort=0 时间
+    const apiSort = sort === 2 ? 0 : 2;
+
+    const res = await this.client.get("/x/v2/reply", {
+      params: {
+        type: 1,
+        oid: aid,
+        pn: page,
+        ps: pageSize,
+        sort: apiSort,
+      },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "评论加载失败");
+    }
+
+    return this.normalizeCommentPage(res.data?.data, page, pageSize);
+  }
+
+  async getCommentReplies(
+    aid: number,
+    root: number,
+    page = 1,
+  ): Promise<CommentPage> {
+    await this.ensureBuvid3();
+    const pageSize = 10;
+
+    const res = await this.client.get("/x/v2/reply/reply", {
+      params: {
+        type: 1,
+        oid: aid,
+        root,
+        pn: page,
+        ps: pageSize,
+      },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "楼中楼加载失败");
+    }
+
+    return this.normalizeCommentPage(res.data?.data, page, pageSize);
+  }
+
+  async addComment(
+    aid: number,
+    message: string,
+    root = 0,
+    parent = 0,
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再发表评论");
+
+    const text = message.trim();
+    if (!text) throw new Error("评论内容不能为空");
+
+    const body = new URLSearchParams({
+      type: "1",
+      oid: String(aid),
+      message: text,
+      csrf,
+    });
+    if (root > 0) body.set("root", String(root));
+    if (parent > 0) body.set("parent", String(parent));
+
+    const res = await this.client.post("/x/v2/reply/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "发表评论失败");
+    }
+  }
+
+  async likeComment(aid: number, rpid: number, like: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再点赞");
+
+    const body = new URLSearchParams({
+      type: "1",
+      oid: String(aid),
+      rpid: String(rpid),
+      action: like ? "1" : "0",
+      csrf,
+    });
+
+    const res = await this.client.post("/x/v2/reply/action", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "点赞失败");
+    }
+  }
+
+  private normalizeCommentPage(
+    data: Record<string, unknown> | undefined,
+    page: number,
+    pageSize: number,
+  ): CommentPage {
+    const replies = (data?.replies ?? []) as Record<string, unknown>[];
+    const pageInfo = data?.page as
+      | { num?: number; size?: number; count?: number; acount?: number }
+      | undefined;
+    const count = pageInfo?.count ?? replies.length;
+    const acount = pageInfo?.acount ?? count;
+
+    const comments = replies
+      .map((item) => this.normalizeCommentItem(item))
+      .filter((item): item is CommentItem => item != null);
+
+    return {
+      comments,
+      page,
+      pageSize,
+      count,
+      acount,
+      hasMore: page * pageSize < count,
+    };
+  }
+
+  private normalizeCommentItem(
+    item: Record<string, unknown>,
+  ): CommentItem | null {
+    const rpid = Number(item.rpid);
+    if (!Number.isFinite(rpid) || rpid <= 0) return null;
+
+    const member = (item.member ?? {}) as Record<string, unknown>;
+    const content = (item.content ?? {}) as Record<string, unknown>;
+    const nested = (item.replies ?? []) as Record<string, unknown>[];
+
+    return {
+      rpid,
+      oid: Number(item.oid) || 0,
+      mid: Number(item.mid) || Number(member.mid) || 0,
+      root: Number(item.root) || 0,
+      parent: Number(item.parent) || 0,
+      content: String(content.message ?? ""),
+      like: Number(item.like) || 0,
+      action: Number(item.action) || 0,
+      ctime: Number(item.ctime) || 0,
+      rcount: Number(item.rcount) || 0,
+      member: {
+        mid: Number(member.mid) || 0,
+        name: String(member.uname || member.name || "用户"),
+        face: this.normalizeBfsUrl(String(member.avatar || member.face || "")),
+        level: Number(
+          (member.level_info as { current_level?: number } | undefined)
+            ?.current_level,
+        ),
+        sex: String(member.sex || ""),
+      },
+      replies: nested
+        .map((reply) => this.normalizeCommentItem(reply))
+        .filter((reply): reply is CommentItem => reply != null),
+    };
   }
 
   private buildPlayInfoFromDurl(
@@ -1420,10 +1906,6 @@ class BiliApiService {
   ): Promise<UpVideosPage> {
     await this.ensureBuvid3();
 
-    if (!isLoggedIn()) {
-      throw new Error("请先登录后查看 UP 主投稿");
-    }
-
     const sort = order === "click" ? "click" : "pubdate";
     const currentUser = this.getAuthStatus();
     // 创作中心「我的投稿」接口不支持按播放量排序，统一走空间投稿列表
@@ -1438,6 +1920,19 @@ class BiliApiService {
     try {
       return await this.fetchSpaceArcList(mid, page, sort);
     } catch (primaryError) {
+      const rateLimited =
+        primaryError instanceof Error &&
+        primaryError.message.includes("过于频繁");
+
+      if (rateLimited) {
+        await sleep(2500);
+        try {
+          return await this.fetchSpaceArcList(mid, page, sort);
+        } catch {
+          // fall through to search fallback
+        }
+      }
+
       try {
         const profile = await this.getUpProfile(mid);
         const fallback = await this.fetchUpVideosBySearch(
@@ -1563,18 +2058,25 @@ class BiliApiService {
     page: number,
     order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
-    const referer = "https://www.bilibili.com/";
+    const referer = `https://space.bilibili.com/${mid}/video`;
 
     for (let attempt = 1; attempt <= 3; attempt++) {
-      const res = await this.client.get("/x/space/arc/search", {
-        params: {
-          mid,
-          pn: page,
-          ps: 30,
-          tid: 0,
-          keyword: "",
-          order,
-        },
+      await this.waitSpaceArcGate();
+
+      const params = await signParams({
+        mid,
+        pn: page,
+        ps: 30,
+        tid: 0,
+        keyword: "",
+        order,
+        platform: "web",
+        web_location: "1550101",
+        order_avoided: "true",
+      });
+
+      const res = await this.client.get("/x/space/wbi/arc/search", {
+        params,
         headers: { Referer: referer },
         validateStatus: () => true,
       });
@@ -1599,18 +2101,54 @@ class BiliApiService {
         };
       }
 
-      if ((code === -799 || code === -412) && attempt < 3) {
-        await sleep(1000 * attempt);
+      const retryable =
+        code === -799 || code === -412 || code === -352 || res.status === 412;
+
+      if (retryable && attempt < 3) {
+        await sleep(1500 * attempt + 500);
         continue;
       }
 
       if (code === -799) {
         throw new Error("请求过于频繁，请稍后再试");
       }
-      throw new Error("投稿列表获取失败，请稍后重试");
+      if (code === -352) {
+        throw new Error("投稿接口触发风控，请稍后重试或重新登录");
+      }
+      if (code === -412 || res.status === 412) {
+        throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+      }
+
+      const apiMessage =
+        typeof payload?.message === "string" && payload.message.trim()
+          ? payload.message.trim()
+          : "";
+      throw new Error(
+        apiMessage
+          ? `投稿列表获取失败：${apiMessage}`
+          : "投稿列表获取失败，请稍后重试",
+      );
     }
 
     throw new Error("投稿列表获取失败，请稍后重试");
+  }
+
+  private spaceArcGate: Promise<void> = Promise.resolve();
+  private lastSpaceArcAt = 0;
+
+  /** 串行化空间投稿请求，避免短时间并发触发 -799 */
+  private waitSpaceArcGate(): Promise<void> {
+    const minIntervalMs = 450;
+    const run = this.spaceArcGate.then(async () => {
+      const wait = Math.max(
+        0,
+        minIntervalMs - (Date.now() - this.lastSpaceArcAt),
+      );
+      if (wait > 0) await sleep(wait);
+      this.lastSpaceArcAt = Date.now();
+    });
+    this.spaceArcGate = run.catch(() => undefined);
+    return run;
   }
 
   private async fetchMyArchives(page: number): Promise<UpVideosPage> {
@@ -1798,7 +2336,7 @@ class BiliApiService {
       aid: (item.aid as number) ?? 0,
       title: item.title as string,
       cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
-      duration: (item.length as number) ?? 0,
+      duration: this.parseSpaceDuration(item.length),
       play: (item.play as number) ?? 0,
       danmaku: (item.video_review as number) ?? 0,
       owner: {
@@ -1808,6 +2346,19 @@ class BiliApiService {
       },
       pubdate: (item.created as number) ?? 0,
     };
+  }
+
+  private parseSpaceDuration(length: unknown): number {
+    if (typeof length === "number" && Number.isFinite(length)) {
+      return Math.max(0, Math.floor(length));
+    }
+    if (typeof length !== "string") return 0;
+    const parts = length
+      .split(":")
+      .map((part) => Number(part))
+      .filter((n) => Number.isFinite(n));
+    if (parts.length === 0) return 0;
+    return parts.reduce((total, part) => total * 60 + part, 0);
   }
 
   async getToViewList(): Promise<ToViewList> {

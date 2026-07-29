@@ -3,9 +3,17 @@ import type { AiConfig } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { THEME_PRESETS, useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
+import { Eye, EyeOff } from "lucide-react";
 
 export function SettingsPage() {
-  const { theme, themePreset, setTheme, setThemePreset } = useAppStore();
+  const {
+    theme,
+    themePreset,
+    setTheme,
+    setThemePreset,
+    incognitoMode,
+    setIncognitoMode,
+  } = useAppStore();
   const [ai, setAi] = useState<AiConfig>({
     baseUrl: "",
     apiKey: "",
@@ -79,6 +87,27 @@ export function SettingsPage() {
             })}
           </div>
         </div>
+      </section>
+
+      <section className="space-y-4 rounded-xl border border-border bg-card p-5">
+        <h3 className="font-medium">观看隐私</h3>
+        <p className="text-sm text-muted-foreground">
+          登录后默认会把播放进度同步到 B
+          站历史记录，官方客户端也能看到。开启无痕后，本机观看不再上报历史。
+        </p>
+        <Button
+          type="button"
+          variant={incognitoMode ? "default" : "outline"}
+          className="gap-2"
+          onClick={() => setIncognitoMode(!incognitoMode)}
+        >
+          {incognitoMode ? (
+            <EyeOff className="h-4 w-4" />
+          ) : (
+            <Eye className="h-4 w-4" />
+          )}
+          {incognitoMode ? "无痕模式已开启" : "开启无痕模式"}
+        </Button>
       </section>
 
       <section className="space-y-4 rounded-xl border border-border bg-card p-5">

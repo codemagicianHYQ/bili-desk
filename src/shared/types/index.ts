@@ -23,8 +23,97 @@ export interface VideoDetail extends VideoItem {
     reply: number;
     favorite: number;
     coin: number;
+    share: number;
     like: number;
   };
+}
+
+/** 播放器弹幕（对齐 artplayer-plugin-danmuku） */
+export interface DanmakuItem {
+  text: string;
+  time: number;
+  color?: string;
+  border?: boolean;
+  /** 0=滚动 1=顶部 2=底部 */
+  mode?: 0 | 1 | 2;
+}
+
+export interface SendDanmakuPayload {
+  cid: number;
+  bvid: string;
+  /** 进度，毫秒 */
+  progress: number;
+  message: string;
+  /** 1=滚动 4=底 5=顶 */
+  mode?: number;
+  color?: number;
+  fontsize?: number;
+}
+
+/** 用户对本稿的互动状态 */
+export interface VideoRelation {
+  liked: boolean;
+  coined: boolean;
+  /** 已投币数量 0/1/2 */
+  coin: number;
+  favorited: boolean;
+}
+
+export interface AddCoinPayload {
+  aid: number;
+  bvid: string;
+  /** 1 或 2 */
+  multiply: 1 | 2;
+  /** 投币同时点赞 */
+  selectLike?: boolean;
+}
+
+/** 同步观看历史 / 播放心跳 */
+export interface WatchHeartbeatPayload {
+  aid: number;
+  bvid: string;
+  cid: number;
+  /** 当前进度（秒）；播完可传 -1 */
+  playedTime: number;
+  /** 0 播放中 / 1 开始 / 2 暂停 / 3 继续 */
+  playType: 0 | 1 | 2 | 3;
+  /** 本轮会话开始时间戳（秒） */
+  startTs: number;
+  /** 本轮真实播放时长（秒） */
+  realtime?: number;
+  quality?: number;
+}
+
+export interface CommentMember {
+  mid: number;
+  name: string;
+  face: string;
+  level?: number;
+  sex?: string;
+}
+
+export interface CommentItem {
+  rpid: number;
+  oid: number;
+  mid: number;
+  root: number;
+  parent: number;
+  content: string;
+  like: number;
+  action: number;
+  ctime: number;
+  rcount: number;
+  member: CommentMember;
+  replies: CommentItem[];
+}
+
+export interface CommentPage {
+  comments: CommentItem[];
+  page: number;
+  pageSize: number;
+  count: number;
+  acount: number;
+  hasMore: boolean;
 }
 
 export interface VideoPagePart {
@@ -416,6 +505,30 @@ export interface BiliDeskApi {
       cid: number,
       qn?: number,
     ) => Promise<VideoPlayInfo>;
+    getVideoRelation: (bvid: string, aid: number) => Promise<VideoRelation>;
+    likeVideo: (aid: number, like: boolean) => Promise<void>;
+    addCoin: (payload: AddCoinPayload) => Promise<void>;
+    shareVideo: (aid: number, bvid: string) => Promise<void>;
+    reportWatchHeartbeat: (payload: WatchHeartbeatPayload) => Promise<void>;
+    getDanmakuList: (cid: number) => Promise<DanmakuItem[]>;
+    sendDanmaku: (payload: SendDanmakuPayload) => Promise<void>;
+    getComments: (
+      aid: number,
+      page?: number,
+      sort?: 0 | 1 | 2,
+    ) => Promise<CommentPage>;
+    getCommentReplies: (
+      aid: number,
+      root: number,
+      page?: number,
+    ) => Promise<CommentPage>;
+    addComment: (
+      aid: number,
+      message: string,
+      root?: number,
+      parent?: number,
+    ) => Promise<void>;
+    likeComment: (aid: number, rpid: number, like: boolean) => Promise<void>;
     getFavFolders: () => Promise<FavFolder[]>;
     getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
     setVideoFavFolders: (

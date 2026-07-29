@@ -5,9 +5,10 @@ import { formatCount, formatPubdate } from "@/lib/utils";
 import { BiliImage } from "@/components/ui/bili-image";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { UpOwnerCard } from "@/components/video/UpOwnerCard";
-import { VideoFavButton } from "@/components/video/VideoFavButton";
+import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
+import { VideoCommentSection } from "@/features/video/VideoCommentSection";
 import { RefreshCw } from "lucide-react";
 
 interface VideoPageProps {
@@ -109,6 +110,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
             {playInfo && selectedCid ? (
               <VideoPlayer
                 playInfo={playInfo}
+                aid={video.aid}
                 bvid={bvid}
                 cid={selectedCid}
                 poster={video.cover}
@@ -159,26 +161,22 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                 name={video.owner.name}
                 face={video.owner.face}
                 trailing={
-                  <>
-                    <WatchLaterButton
-                      aid={video.aid}
-                      bvid={video.bvid}
-                      video={video}
-                      variant="inline"
-                    />
-                    <VideoFavButton aid={video.aid} />
-                  </>
+                  <WatchLaterButton
+                    aid={video.aid}
+                    bvid={video.bvid}
+                    video={video}
+                    variant="inline"
+                  />
                 }
               />
+
+              <VideoActionBar video={video} />
 
               <p className="text-xs text-muted-foreground">
                 {formatCount(video.stat.view)} 播放 ·{" "}
                 {formatCount(video.stat.danmaku)} 弹幕
                 {video.pubdate > 0 ? ` · ${formatPubdate(video.pubdate)}` : ""}
                 {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
-                {video.stat.favorite > 0
-                  ? ` · ${formatCount(video.stat.favorite)} 收藏`
-                  : ""}
               </p>
               <p className="text-sm leading-relaxed text-muted-foreground">
                 {video.desc || "暂无简介"}
@@ -188,6 +186,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               )}
             </div>
           </div>
+
+          <VideoCommentSection aid={video.aid} replyCount={video.stat.reply} />
         </div>
       </div>
     </div>

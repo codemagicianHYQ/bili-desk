@@ -3,6 +3,9 @@ import { IPC } from "@shared/ipc-channels";
 import type {
   AiConfig,
   SearchOrder,
+  AddCoinPayload,
+  SendDanmakuPayload,
+  WatchHeartbeatPayload,
   Theme,
   UpGroupSelection,
   UpGroupTreeNode,
@@ -29,6 +32,39 @@ const api = {
     getVideo: (bvid: string) => ipcRenderer.invoke(IPC.BILI_VIDEO, bvid),
     getPlayUrl: (bvid: string, cid: number, qn?: number) =>
       ipcRenderer.invoke(IPC.BILI_PLAY_URL, bvid, cid, qn),
+    getVideoRelation: (bvid: string, aid: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_RELATION, bvid, aid),
+    likeVideo: (aid: number, like: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_LIKE, aid, like),
+    addCoin: (payload: AddCoinPayload) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_COIN, payload),
+    shareVideo: (aid: number, bvid: string) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_SHARE, aid, bvid),
+    reportWatchHeartbeat: (payload: WatchHeartbeatPayload) =>
+      ipcRenderer.invoke(IPC.BILI_WATCH_HEARTBEAT, payload),
+    getDanmakuList: (cid: number) =>
+      ipcRenderer.invoke(IPC.BILI_DANMAKU_LIST, cid),
+    sendDanmaku: (payload: SendDanmakuPayload) =>
+      ipcRenderer.invoke(IPC.BILI_DANMAKU_SEND, payload),
+    getComments: (aid: number, page?: number, sort?: 0 | 1 | 2) =>
+      ipcRenderer.invoke(IPC.BILI_COMMENT_LIST, aid, page ?? 1, sort ?? 0),
+    getCommentReplies: (aid: number, root: number, page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_COMMENT_REPLIES, aid, root, page ?? 1),
+    addComment: (
+      aid: number,
+      message: string,
+      root?: number,
+      parent?: number,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_COMMENT_ADD,
+        aid,
+        message,
+        root ?? 0,
+        parent ?? 0,
+      ),
+    likeComment: (aid: number, rpid: number, like: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_COMMENT_LIKE, aid, rpid, like),
     getFavFolders: () => ipcRenderer.invoke(IPC.BILI_FAV_FOLDERS),
     getVideoFavFolders: (aid: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_FOLDERS, aid),
