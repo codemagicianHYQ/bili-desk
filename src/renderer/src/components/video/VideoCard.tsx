@@ -61,7 +61,14 @@ export function VideoCard({
             <span>{formatPubdate(video.pubdate) || "—"}</span>
           ) : (
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-              <span className="truncate">{video.owner.name}</span>
+              <span
+                className={cn(
+                  "truncate",
+                  showFollowedBadge && "font-medium text-primary",
+                )}
+              >
+                {video.owner.name}
+              </span>
               {showFollowedBadge && (
                 <Badge
                   variant="default"

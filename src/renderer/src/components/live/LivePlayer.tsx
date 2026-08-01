@@ -10,6 +10,8 @@ interface LivePlayerProps {
   className?: string;
   onQualityChange: (qn: number) => void;
   onError?: (message: string) => void;
+  /** 首连 NetworkError 重试耗尽后，请父组件换新流地址 */
+  onRequestReload?: () => void;
 }
 
 function playerThemeColor(): string {
@@ -57,27 +59,136 @@ function destroyFlvPlayer(
   }
 }
 
+function isTransientNetworkError(
+  errorType: unknown,
+  errorDetail: unknown,
+): boolean {
+  const type = String(errorType ?? "").toLowerCase();
+  const detail = String(errorDetail ?? "").toLowerCase();
+  return (
+    type.includes("network") ||
+    detail.includes("network") ||
+    detail.includes("exception") ||
+    detail.includes("unreachable") ||
+    detail.includes("timeout") ||
+    detail.includes("http")
+  );
+}
+
 export function LivePlayer({
   playInfo,
   poster,
   className,
   onQualityChange,
   onError,
+  onRequestReload,
 }: LivePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const artRef = useRef<Artplayer | null>(null);
   const flvRef = useRef<flvjs.Player | null>(null);
   const onQualityChangeRef = useRef(onQualityChange);
   const onErrorRef = useRef(onError);
+  const onRequestReloadRef = useRef(onRequestReload);
 
   onQualityChangeRef.current = onQualityChange;
   onErrorRef.current = onError;
+  onRequestReloadRef.current = onRequestReload;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let localRetry = 0;
+    const maxLocalRetry = 2;
+
+    const clearRetryTimer = () => {
+      if (!retryTimer) return;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    };
+
+    const bindFlv = (
+      video: HTMLVideoElement,
+      url: string,
+      player: Artplayer,
+    ) => {
+      if (!flvjs.isSupported()) {
+        onErrorRef.current?.("当前环境不支持 FLV 直播播放");
+        return;
+      }
+
+      destroyFlvPlayer(flvRef.current, video);
+      flvRef.current = null;
+
+      const flvPlayer = flvjs.createPlayer(
+        {
+          type: "flv",
+          url,
+          isLive: true,
+          hasAudio: true,
+          hasVideo: true,
+          cors: true,
+          withCredentials: false,
+        },
+        {
+          enableWorker: false,
+          enableStashBuffer: true,
+          stashInitialSize: 384,
+          lazyLoad: false,
+          autoCleanupSourceBuffer: true,
+          fixAudioTimestampGap: true,
+        },
+      );
+
+      flvRef.current = flvPlayer;
+
+      flvPlayer.on(flvjs.Events.ERROR, (errorType, errorDetail) => {
+        if (disposed) return;
+
+        // 首连 CDN/握手偶发失败：同址重连一两次（用户二次进房往往就好）
+        if (
+          localRetry < maxLocalRetry &&
+          isTransientNetworkError(errorType, errorDetail)
+        ) {
+          localRetry += 1;
+          clearRetryTimer();
+          retryTimer = setTimeout(() => {
+            if (disposed) return;
+            bindFlv(video, url, player);
+          }, 400 * localRetry);
+          return;
+        }
+
+        // 本地重试耗尽：请父级换新签名流地址
+        if (isTransientNetworkError(errorType, errorDetail)) {
+          onRequestReloadRef.current?.();
+          return;
+        }
+
+        onErrorRef.current?.(
+          `直播流异常（${String(errorType)}: ${String(errorDetail)}），请切换清晰度或刷新`,
+        );
+      });
+
+      flvPlayer.attachMediaElement(video);
+      flvPlayer.load();
+
+      const tryPlay = () => {
+        if (disposed) return;
+        void video.play().catch(() => undefined);
+      };
+      video.addEventListener("loadedmetadata", tryPlay, { once: true });
+      video.addEventListener("canplay", tryPlay, { once: true });
+
+      player.on("destroy", () => {
+        if (flvRef.current === flvPlayer) {
+          flvRef.current = null;
+        }
+        destroyFlvPlayer(flvPlayer, video);
+      });
+    };
 
     const art = new Artplayer({
       container,
@@ -99,58 +210,7 @@ export function LivePlayer({
       type: playInfo.format === "flv" ? "flv" : "m3u8",
       customType: {
         flv(video, url, player) {
-          if (!flvjs.isSupported()) {
-            onErrorRef.current?.("当前环境不支持 FLV 直播播放");
-            return;
-          }
-
-          // 先清掉可能残留的旧实例，避免叠音
-          destroyFlvPlayer(flvRef.current, video);
-          flvRef.current = null;
-
-          const flvPlayer = flvjs.createPlayer(
-            {
-              type: "flv",
-              url,
-              isLive: true,
-              hasAudio: true,
-              hasVideo: true,
-              cors: true,
-            },
-            {
-              enableWorker: false,
-              enableStashBuffer: false,
-              stashInitialSize: 128,
-              lazyLoad: false,
-              autoCleanupSourceBuffer: true,
-            },
-          );
-
-          flvRef.current = flvPlayer;
-
-          flvPlayer.on(flvjs.Events.ERROR, (errorType, errorDetail) => {
-            if (disposed) return;
-            onErrorRef.current?.(
-              `直播流异常（${String(errorType)}: ${String(errorDetail)}），请切换清晰度或刷新`,
-            );
-          });
-
-          flvPlayer.attachMediaElement(video);
-          flvPlayer.load();
-
-          const tryPlay = () => {
-            if (disposed) return;
-            void video.play().catch(() => undefined);
-          };
-          video.addEventListener("loadedmetadata", tryPlay, { once: true });
-          video.addEventListener("canplay", tryPlay, { once: true });
-
-          player.on("destroy", () => {
-            if (flvRef.current === flvPlayer) {
-              flvRef.current = null;
-            }
-            destroyFlvPlayer(flvPlayer, video);
-          });
+          bindFlv(video, url, player);
         },
       },
       settings: [
@@ -174,6 +234,15 @@ export function LivePlayer({
 
     art.on("error", () => {
       if (!disposed) {
+        if (localRetry < maxLocalRetry) {
+          localRetry += 1;
+          clearRetryTimer();
+          retryTimer = setTimeout(() => {
+            if (disposed) return;
+            onRequestReloadRef.current?.();
+          }, 400 * localRetry);
+          return;
+        }
         onErrorRef.current?.("直播播放失败，请尝试切换清晰度或刷新");
       }
     });
@@ -182,6 +251,7 @@ export function LivePlayer({
 
     return () => {
       disposed = true;
+      clearRetryTimer();
       const video = art.video as HTMLVideoElement | undefined;
       const flvPlayer = flvRef.current;
       flvRef.current = null;
@@ -199,7 +269,6 @@ export function LivePlayer({
         // ignore
       }
 
-      // destroy 事件若未触发，这里兜底杀掉 flv / 静音源
       destroyFlvPlayer(flvPlayer, video);
     };
   }, [playInfo.url, playInfo.quality, playInfo.format, poster]);

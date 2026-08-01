@@ -349,6 +349,36 @@ export interface SearchUsersPage {
   total: number;
 }
 
+export type SearchArticleOrder =
+  | "totalrank"
+  | "click"
+  | "pubdate"
+  | "attention"
+  | "scores";
+
+export interface SearchArticleItem {
+  id: number;
+  title: string;
+  desc: string;
+  cover: string;
+  covers: string[];
+  mid: number;
+  author: string;
+  view: number;
+  like: number;
+  reply: number;
+  pubTime: number;
+  categoryName?: string;
+  url: string;
+}
+
+export interface SearchArticlesPage {
+  articles: SearchArticleItem[];
+  page: number;
+  hasMore: boolean;
+  total: number;
+}
+
 export interface SearchTypeCounts {
   video: number;
   bangumi: number;
@@ -744,6 +774,11 @@ export interface BiliDeskApi {
       order?: SearchUserOrder,
       userType?: SearchUserTypeFilter,
     ) => Promise<SearchUsersPage>;
+    searchArticles: (
+      keyword: string,
+      page?: number,
+      order?: SearchArticleOrder,
+    ) => Promise<SearchArticlesPage>;
     getSearchTypeCounts: (keyword: string) => Promise<SearchTypeCounts>;
     getToViewList: () => Promise<ToViewList>;
     addToView: (aid: number, bvid: string) => Promise<void>;

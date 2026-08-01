@@ -40,6 +40,9 @@ import type {
   SearchUserOrder,
   SearchUserTypeFilter,
   SearchTypeCounts,
+  SearchArticleItem,
+  SearchArticlesPage,
+  SearchArticleOrder,
   ToViewItem,
   ToViewList,
   SpaceDynamicItem,
@@ -2761,7 +2764,9 @@ class BiliApiService {
     let total = 0;
     let apiHasMore = true;
     let scans = 0;
-    const maxScans = 100;
+    // 相关性过滤后可能空页；限制扫描次数，避免一次搜索打上百次接口卡住转圈
+    const maxScans = Math.min(6, Math.max(2, Math.ceil(targetSize / 10) + 2));
+    let emptyFilteredStreak = 0;
 
     while (videos.length < targetSize && apiHasMore && scans < maxScans) {
       const batch = await this.fetchSearchApiPage(trimmed, apiPage, order);
@@ -2771,8 +2776,15 @@ class BiliApiService {
       }
       apiHasMore = batch.hasMore;
 
-      if (batch.videos.length === 0 && !apiHasMore) break;
+      if (batch.videos.length === 0) {
+        emptyFilteredStreak += 1;
+        // 连续空页基本说明关键词匹配极少，及时停止
+        if (!apiHasMore || emptyFilteredStreak >= 2) break;
+        apiPage += 1;
+        continue;
+      }
 
+      emptyFilteredStreak = 0;
       for (const video of batch.videos) {
         if (seen.has(video.bvid)) continue;
         seen.add(video.bvid);
@@ -2786,10 +2798,101 @@ class BiliApiService {
     return {
       videos,
       page,
-      hasMore: apiHasMore,
+      hasMore: apiHasMore && videos.length >= targetSize,
       total,
       nextApiPage: apiPage,
     };
+  }
+
+  async searchArticles(
+    keyword: string,
+    page = 1,
+    order: SearchArticleOrder = "totalrank",
+  ): Promise<SearchArticlesPage> {
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      return { articles: [], page: 1, hasMore: false, total: 0 };
+    }
+
+    await this.ensureBuvid3();
+
+    const apiPageSize = 20;
+    // 部分排序在专栏接口会直接空结果（如 pubdate）；失败时回退综合排序
+    const orderCandidates: SearchArticleOrder[] =
+      order === "totalrank" ? ["totalrank"] : [order, "totalrank"];
+
+    let lastError = "搜索专栏失败";
+    for (const tryOrder of orderCandidates) {
+      const baseParams: Record<string, string | number> = {
+        search_type: "article",
+        keyword: trimmed,
+        page,
+        page_size: apiPageSize,
+        order: tryOrder,
+        platform: "pc",
+      };
+
+      // 先走 wbi，再降级普通 type 接口（登录态下偶发 wbi 空包）
+      const attempts: Array<"wbi" | "plain"> = ["wbi", "plain"];
+      for (const mode of attempts) {
+        try {
+          const params =
+            mode === "wbi" ? await signParams(baseParams) : baseParams;
+          const url =
+            mode === "wbi"
+              ? "/x/web-interface/wbi/search/type"
+              : "/x/web-interface/search/type";
+          const res = await this.client.get(url, {
+            params,
+            headers: { Referer: "https://search.bilibili.com/" },
+            validateStatus: () => true,
+          });
+
+          if (res.status === 412 || res.data?.code === -412) {
+            lastError = "请求被 B 站安全策略拦截，请稍后重试";
+            continue;
+          }
+          if (res.data?.code !== 0) {
+            lastError = String(res.data?.message ?? lastError);
+            continue;
+          }
+
+          const data = res.data?.data as Record<string, unknown> | undefined;
+          const rawResults = Array.isArray(data?.result)
+            ? (data.result as Record<string, unknown>[])
+            : [];
+          const total = Number(data?.numResults ?? rawResults.length) || 0;
+          const articles = rawResults
+            .map((item) => this.normalizeSearchArticle(item))
+            .filter((item): item is SearchArticleItem => item != null);
+
+          // 有统计但本页解析为空时，继续尝试降级；都失败再返回空
+          if (articles.length === 0 && total > 0 && rawResults.length > 0) {
+            lastError = "专栏结果解析失败";
+            continue;
+          }
+          if (
+            articles.length === 0 &&
+            total === 0 &&
+            tryOrder !== "totalrank"
+          ) {
+            // 当前排序无结果，试下一个 order
+            break;
+          }
+
+          return {
+            articles,
+            page,
+            hasMore: rawResults.length > 0 && page * apiPageSize < total,
+            total: Math.max(total, articles.length),
+          };
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : lastError;
+        }
+      }
+    }
+
+    throw new Error(lastError);
   }
 
   async searchUsers(
@@ -2941,6 +3044,37 @@ class BiliApiService {
       roomId: Number.isFinite(roomId) && roomId > 0 ? roomId : undefined,
       officialDesc: String(official.desc ?? "") || undefined,
       isFollowing: false,
+    };
+  }
+
+  private normalizeSearchArticle(
+    item: Record<string, unknown>,
+  ): SearchArticleItem | null {
+    const id = Number(item.id);
+    if (!Number.isFinite(id) || id <= 0) return null;
+
+    const images = Array.isArray(item.image_urls)
+      ? (item.image_urls as unknown[])
+          .map((url) => this.normalizeHttps(String(url ?? "")))
+          .filter(Boolean)
+      : [];
+
+    return {
+      id,
+      title: this.stripHtml(String(item.title ?? "未命名专栏")),
+      desc: this.stripHtml(String(item.desc ?? "")),
+      cover: images[0] || "",
+      covers: images,
+      mid: Number(item.mid ?? 0) || 0,
+      author: this.stripHtml(
+        String(item.author ?? item.uname ?? item.name ?? ""),
+      ),
+      view: Number(item.view ?? 0) || 0,
+      like: Number(item.like ?? 0) || 0,
+      reply: Number(item.reply ?? 0) || 0,
+      pubTime: Number(item.pub_time ?? 0) || 0,
+      categoryName: String(item.category_name ?? "") || undefined,
+      url: `https://www.bilibili.com/read/cv${id}`,
     };
   }
 

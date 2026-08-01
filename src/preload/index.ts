@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC } from "@shared/ipc-channels";
 import type {
   AiConfig,
+  SearchArticleOrder,
   SearchOrder,
   SearchUserOrder,
   SearchUserTypeFilter,
@@ -160,6 +161,17 @@ const api = {
         page ?? 1,
         order,
         userType ?? 0,
+      ),
+    searchArticles: (
+      keyword: string,
+      page?: number,
+      order?: SearchArticleOrder,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_SEARCH_ARTICLES,
+        keyword,
+        page ?? 1,
+        order ?? "totalrank",
       ),
     getSearchTypeCounts: (keyword: string) =>
       ipcRenderer.invoke(IPC.BILI_SEARCH_TYPE_COUNTS, keyword),

@@ -16,6 +16,7 @@ app.whenReady().then(() => {
     "*://*.bilivideo.com/*",
     "*://*.bilivideo.cn/*",
     "*://*.mcdn.bilivideo.cn/*",
+    "*://*.akamaized.net/*",
   ];
 
   session.defaultSession.webRequest.onBeforeSendHeaders(

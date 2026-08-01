@@ -14,6 +14,7 @@ import { VideoCard } from "@/components/video/VideoCard";
 import { LiveCard } from "@/components/live/LiveCard";
 import { FollowingLiveList } from "@/components/live/FollowingLiveList";
 import { SearchUserPanel } from "@/features/home/SearchUserPanel";
+import { SearchArticlePanel } from "@/features/home/SearchArticlePanel";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { Loader2, Search as SearchIcon, ArrowUp, X } from "lucide-react";
@@ -69,6 +70,7 @@ export function HomePage() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const liveSentinelRef = useRef<HTMLDivElement>(null);
   const searchLoadSeqRef = useRef(0);
+  const searchCountsSeqRef = useRef(0);
   const searchPageCacheRef = useRef(new Map<number, VideoItem[]>());
   const searchNextApiPageRef = useRef(new Map<number, number>());
   const searchStableTotalRef = useRef(0);
@@ -122,8 +124,12 @@ export function HomePage() {
   const isVideoSearchCategory =
     searchCategory === "all" || searchCategory === "video";
   const isUserSearchCategory = searchCategory === "user";
+  const isArticleSearchCategory = searchCategory === "article";
   const isPendingSearchCategory =
-    isSearchMode && !isVideoSearchCategory && !isUserSearchCategory;
+    isSearchMode &&
+    !isVideoSearchCategory &&
+    !isUserSearchCategory &&
+    !isArticleSearchCategory;
 
   useEffect(() => {
     void fetchInitial();
@@ -273,10 +279,17 @@ export function HomePage() {
       if (scrollRef.current) scrollRef.current.scrollTop = 0;
       setShowBackToTop(false);
       void loadSearchPage(trimmed, nextOrder, 1, true, SEARCH_PAGE_SIZE);
+      const countsSeq = ++searchCountsSeqRef.current;
       void window.biliDesk.bili
         .getSearchTypeCounts(trimmed)
-        .then(setSearchTypeCounts)
-        .catch(() => setSearchTypeCounts(null));
+        .then((counts) => {
+          if (countsSeq !== searchCountsSeqRef.current) return;
+          setSearchTypeCounts(counts);
+        })
+        .catch(() => {
+          if (countsSeq !== searchCountsSeqRef.current) return;
+          setSearchTypeCounts(null);
+        });
     },
     [loadSearchPage],
   );
@@ -342,6 +355,21 @@ export function HomePage() {
     }
     runSearch(query, nextOrder);
   };
+
+  const handleArticleTotalChange = useCallback((total: number) => {
+    setSearchTypeCounts((prev) =>
+      prev
+        ? { ...prev, article: total }
+        : {
+            video: 0,
+            bangumi: 0,
+            media: 0,
+            live: 0,
+            article: total,
+            user: 0,
+          },
+    );
+  }, []);
 
   const handleCategoryChange = (next: SearchCategory) => {
     if (next === searchCategory) return;
@@ -530,7 +558,7 @@ export function HomePage() {
                     >
                       <span className="inline-flex items-center gap-1.5">
                         {tab.label}
-                        {typeof count === "number" && (
+                        {typeof count === "number" && count > 0 && (
                           <span
                             className={cn(
                               "rounded px-1 text-[10px] leading-4",
@@ -667,12 +695,18 @@ export function HomePage() {
             </p>
           ) : isUserSearchCategory && isSearchMode ? (
             <SearchUserPanel keyword={query} active />
+          ) : isArticleSearchCategory && isSearchMode ? (
+            <SearchArticlePanel
+              keyword={query}
+              active
+              onTotalChange={handleArticleTotalChange}
+            />
           ) : isPendingSearchCategory ? (
             <p className="py-16 text-center text-sm text-muted-foreground">
               「
               {SEARCH_CATEGORY_TABS.find((t) => t.id === searchCategory)
                 ?.label ?? "该分类"}
-              」搜索即将支持，可先查看「综合 / 视频 / 用户」
+              」搜索即将支持，可先查看「综合 / 视频 / 专栏 / 用户」
             </p>
           ) : isSearchMode &&
             isVideoSearchCategory &&

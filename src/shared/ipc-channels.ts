@@ -40,6 +40,7 @@ export const IPC = {
   BILI_UP_VIDEOS: "bili:up-videos",
   BILI_SEARCH: "bili:search",
   BILI_SEARCH_USERS: "bili:search-users",
+  BILI_SEARCH_ARTICLES: "bili:search-articles",
   BILI_SEARCH_TYPE_COUNTS: "bili:search-type-counts",
   BILI_TOVIEW_LIST: "bili:toview-list",
   BILI_TOVIEW_ADD: "bili:toview-add",

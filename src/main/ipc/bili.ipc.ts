@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import { IPC } from "@shared/ipc-channels";
 import type {
+  SearchArticleOrder,
   SearchOrder,
   SearchUserOrder,
   SearchUserTypeFilter,
@@ -146,6 +147,11 @@ export function registerBiliIpc(): void {
       order?: SearchUserOrder,
       userType?: SearchUserTypeFilter,
     ) => biliApi.searchUsers(keyword, page, order, userType),
+  );
+  handleIpc(
+    IPC.BILI_SEARCH_ARTICLES,
+    (_e, keyword: string, page?: number, order?: SearchArticleOrder) =>
+      biliApi.searchArticles(keyword, page, order),
   );
   handleIpc(IPC.BILI_SEARCH_TYPE_COUNTS, (_e, keyword: string) =>
     biliApi.getSearchTypeCounts(keyword),

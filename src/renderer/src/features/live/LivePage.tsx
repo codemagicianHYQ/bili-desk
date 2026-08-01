@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { LivePlayInfo, LiveRoomDetail } from "@shared/types";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
   const [error, setError] = useState("");
   const [playError, setPlayError] = useState("");
   const [loading, setLoading] = useState(true);
+  const autoReloadSeqRef = useRef(0);
+  const autoReloadUsedRef = useRef(false);
 
   const fetchPlayUrl = useCallback((id: number, qn?: number) => {
     setPlayError("");
@@ -32,6 +34,29 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
       .catch((e: Error) => setPlayError(e.message));
   }, []);
 
+  const reloadPlayUrl = useCallback(() => {
+    if (!room || room.liveStatus !== 1) return;
+    if (autoReloadUsedRef.current) {
+      setPlayError("直播流异常，请切换清晰度或刷新");
+      return;
+    }
+    autoReloadUsedRef.current = true;
+    const seq = ++autoReloadSeqRef.current;
+    const id = room.roomId || roomId;
+    void window.biliDesk.bili
+      .getLivePlayUrl(id, quality)
+      .then((info) => {
+        if (seq !== autoReloadSeqRef.current) return;
+        setPlayError("");
+        setPlayInfo(info);
+        setQuality(info.quality);
+      })
+      .catch((e: Error) => {
+        if (seq !== autoReloadSeqRef.current) return;
+        setPlayError(e.message || "直播流异常，请刷新重试");
+      });
+  }, [quality, room, roomId]);
+
   const loadRoom = useCallback(
     (id: number) => {
       setLoading(true);
@@ -39,6 +64,8 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
       setPlayError("");
       setPlayInfo(null);
       setRoom(null);
+      autoReloadUsedRef.current = false;
+      autoReloadSeqRef.current += 1;
 
       window.biliDesk.bili
         .getLiveRoom(id)
@@ -46,7 +73,6 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
           setRoom(detail);
           setLoading(false);
           if (detail.liveStatus === 1) {
-            // 短号进房后用真实 roomId 拉流，避免 getRoomPlayInfo 空流
             void fetchPlayUrl(detail.roomId || id);
           } else {
             setPlayError(
@@ -64,6 +90,7 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
 
   useEffect(() => {
     if (!roomId) return;
+    autoReloadUsedRef.current = false;
     loadRoom(roomId);
   }, [roomId, loadRoom]);
 
@@ -119,10 +146,12 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
             playInfo={playInfo}
             poster={room.cover}
             onQualityChange={(qn) => {
+              autoReloadUsedRef.current = false;
               setQuality(qn);
               void fetchPlayUrl(room.roomId || roomId, qn);
             }}
             onError={setPlayError}
+            onRequestReload={reloadPlayUrl}
           />
         ) : playInfo && !active ? (
           <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-black">
@@ -154,9 +183,10 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() =>
-                        void fetchPlayUrl(room.roomId || roomId, quality)
-                      }
+                      onClick={() => {
+                        autoReloadUsedRef.current = false;
+                        void fetchPlayUrl(room.roomId || roomId, quality);
+                      }}
                     >
                       重新加载直播流
                     </Button>
