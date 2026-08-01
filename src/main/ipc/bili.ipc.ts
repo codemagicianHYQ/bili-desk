@@ -6,6 +6,7 @@ import type {
   SearchUserOrder,
   SearchUserTypeFilter,
   UpVideosOrder,
+  UserRelationListType,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
 import { handleIpc } from "./safe-handler";
@@ -104,6 +105,11 @@ export function registerBiliIpc(): void {
     IPC.BILI_FOLLOW_TAG_MEMBERS,
     (_e, tagId: number, page?: number) =>
       biliApi.getFollowingsInTag(tagId, page),
+  );
+  handleIpc(
+    IPC.BILI_USER_RELATION_LIST,
+    (_e, mid: number, type: UserRelationListType, page?: number) =>
+      biliApi.getUserRelationList(mid, type, page),
   );
   ipcMain.handle(IPC.BILI_FOLLOW_USER_TAGS, (_e, mid: number) =>
     biliApi.getUserFollowTags(mid),

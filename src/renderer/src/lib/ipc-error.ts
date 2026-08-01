@@ -30,11 +30,19 @@ export function formatUserSpaceError(err: unknown): string {
   if (
     raw.includes("隐私") ||
     raw.includes("不可见") ||
+    raw.includes("隐藏了") ||
+    (raw.includes("无权访问") && raw.includes("隐私"))
+  ) {
+    return "该用户已设置隐私，无法查看主页内容";
+  }
+
+  if (
+    raw.includes("访问权限不足") ||
     raw.includes("无权访问") ||
     raw.includes("没有权限") ||
     /(?:^|[^\d])-403(?:[^\d]|$)/.test(raw)
   ) {
-    return "该用户已设置隐私，无法查看主页内容";
+    return "投稿列表暂时无法访问，请稍后重试或重新登录";
   }
 
   if (raw.includes("过于频繁") || raw.includes("-799")) {

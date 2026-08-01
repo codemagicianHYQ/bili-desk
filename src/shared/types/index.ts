@@ -199,6 +199,8 @@ export interface FollowingUp {
   special?: boolean;
   /** 是否互相关注 */
   mutual?: boolean;
+  /** 当前登录用户是否已关注该用户 */
+  isFollowing?: boolean;
 }
 
 export interface FollowTag {
@@ -213,6 +215,16 @@ export interface FollowingsPage {
   hasMore: boolean;
 }
 
+/** 指定用户的关注 / 粉丝列表分页 */
+export interface UserRelationListPage {
+  users: FollowingUp[];
+  page: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export type UserRelationListType = "followings" | "followers";
+
 export interface UpProfile {
   mid: number;
   name: string;
@@ -221,6 +233,16 @@ export interface UpProfile {
   fans: number;
   following: number;
   videos: number;
+  /** 用户等级 0-6 */
+  level?: number;
+  /** 认证/官方称号 */
+  officialDesc?: string;
+  /** 获赞数 */
+  likes?: number;
+  /** 稿件总播放 */
+  archiveViews?: number;
+  /** 公开收藏夹数量 */
+  favourites?: number;
   topPhoto?: string;
 }
 
@@ -751,6 +773,11 @@ export interface BiliDeskApi {
       tagId: number,
       page?: number,
     ) => Promise<FollowingsPage>;
+    getUserRelationList: (
+      mid: number,
+      type: UserRelationListType,
+      page?: number,
+    ) => Promise<UserRelationListPage>;
     getUserFollowTags: (mid: number) => Promise<number[]>;
     setUserFollowTags: (mid: number, tagIds: number[]) => Promise<void>;
     getUpProfile: (mid: number) => Promise<UpProfile>;

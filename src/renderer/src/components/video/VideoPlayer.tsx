@@ -58,6 +58,8 @@ function colorHexToInt(color?: string): number {
 const SAVE_INTERVAL_MS = 3000;
 const HEARTBEAT_INTERVAL_MS = 15000;
 const RESUME_TIP_MS = 5000;
+/** 首帧缓冲超时：DASH CDN 偶发卡住且不触发 video:error */
+const STALL_TIMEOUT_MS = 12000;
 
 export function VideoPlayer({
   playInfo,
@@ -186,6 +188,11 @@ export function VideoPlayer({
     const trySeekToProgress = (art: Artplayer) => {
       if (hasSeekedRef.current || pendingSeek == null) return;
       if (!art.duration || art.duration <= 0) return;
+      // 缓冲不足时强行 seek 容易一直转圈
+      const media = art.video as HTMLVideoElement | undefined;
+      if (media && media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+        return;
+      }
 
       // 已接近片尾则从头播，避免“已看完”又卡在最后几秒
       if (pendingSeek >= art.duration - 15) {
@@ -250,10 +257,36 @@ export function VideoPlayer({
           dashPlayer.updateSettings({
             streaming: {
               abr: { autoSwitchBitrate: { video: false, audio: false } },
+              retryAttempts: {
+                MediaSegment: 3,
+                InitializationSegment: 3,
+                IndexSegment: 3,
+                BitstreamSwitchingSegment: 2,
+                FragmentInfoSegment: 2,
+              },
+              retryIntervals: {
+                MediaSegment: 800,
+                InitializationSegment: 800,
+                IndexSegment: 800,
+                BitstreamSwitchingSegment: 800,
+                FragmentInfoSegment: 800,
+              },
             },
           });
+
+          const onDashError = () => {
+            onErrorRef.current?.("视频流加载失败，可点刷新重试或切换清晰度");
+          };
+          dashPlayer.on(dashjs.MediaPlayer.events.ERROR, onDashError);
           dashPlayer.initialize(video, url, player.option.autoplay);
-          player.on("destroy", () => dashPlayer.reset());
+          player.on("destroy", () => {
+            try {
+              dashPlayer.off(dashjs.MediaPlayer.events.ERROR, onDashError);
+            } catch {
+              // ignore
+            }
+            dashPlayer.reset();
+          });
         },
       },
       settings: [
@@ -333,11 +366,25 @@ export function VideoPlayer({
       trySeekToProgress(art);
     });
 
-    art.on("video:loadedmetadata", () => {
-      trySeekToProgress(art);
+    const stallTimer = window.setTimeout(() => {
+      const media = art.video as HTMLVideoElement | undefined;
+      const stuck =
+        !media ||
+        (media.currentTime < 0.2 &&
+          media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
+      if (stuck) {
+        onErrorRef.current?.("视频缓冲超时，可点右上角刷新或切换清晰度后重试");
+      }
+    }, STALL_TIMEOUT_MS);
+
+    art.on("video:playing", () => {
+      window.clearTimeout(stallTimer);
     });
 
     art.on("video:timeupdate", () => {
+      if (art.currentTime > 0.2) {
+        window.clearTimeout(stallTimer);
+      }
       const now = Date.now();
       if (now - lastSaveAtRef.current < SAVE_INTERVAL_MS) return;
       lastSaveAtRef.current = now;
@@ -374,6 +421,7 @@ export function VideoPlayer({
     artRef.current = art;
 
     return () => {
+      window.clearTimeout(stallTimer);
       accumulateRealtime();
       stopHeartbeat();
       savePlaybackProgress(bvid, cid, art.currentTime, art.duration);

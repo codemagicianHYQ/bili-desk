@@ -28,11 +28,19 @@ app.whenReady().then(() => {
       const referer = isLiveMedia
         ? "https://live.bilibili.com/"
         : "https://www.bilibili.com/";
-      const origin = isLiveMedia
-        ? "https://live.bilibili.com"
-        : "https://www.bilibili.com";
       details.requestHeaders.Referer = referer;
-      details.requestHeaders.Origin = origin;
+      // bilivideo CDN 对 Origin 敏感，强行带 Origin 易 403 导致一直缓冲
+      if (
+        details.url.includes("bilivideo.com") ||
+        details.url.includes("bilivideo.cn") ||
+        details.url.includes("akamaized.net")
+      ) {
+        delete details.requestHeaders.Origin;
+      } else {
+        details.requestHeaders.Origin = isLiveMedia
+          ? "https://live.bilibili.com"
+          : "https://www.bilibili.com";
+      }
       if (!details.requestHeaders["User-Agent"]) {
         details.requestHeaders["User-Agent"] =
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";

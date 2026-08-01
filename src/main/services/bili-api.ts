@@ -17,6 +17,7 @@ import type {
   FollowTag,
   FollowingUp,
   FollowingsPage,
+  UserRelationListPage,
   QrLoginResult,
   UpProfile,
   UpRelation,
@@ -1442,30 +1443,8 @@ class BiliApiService {
   async getPlayUrl(bvid: string, cid: number, qn = 64): Promise<VideoPlayInfo> {
     await this.ensureBuvid3();
 
-    const mp4Params = await signParams({
-      bvid,
-      cid,
-      qn,
-      fnval: 1,
-      fnver: 0,
-      fourk: 0,
-    });
-
-    const mp4Res = await this.client.get("/x/player/wbi/playurl", {
-      params: mp4Params,
-    });
-    if (mp4Res.data?.code !== 0) {
-      throw new Error(mp4Res.data?.message || "播放地址获取失败");
-    }
-
-    const mp4Data = mp4Res.data?.data;
-    const mp4Stream = mp4Data?.durl?.[0] as
-      | { url?: string; format?: string }
-      | undefined;
-    if (mp4Stream?.url) {
-      return this.buildPlayInfoFromDurl(mp4Data, mp4Stream, qn);
-    }
-
+    const referer = `https://www.bilibili.com/video/${bvid}`;
+    // 优先 DASH+AVC：现代稿件常无稳定 MP4，MP4 偶发拿到却播不动
     const dashParams = await signParams({
       bvid,
       cid,
@@ -1473,22 +1452,54 @@ class BiliApiService {
       fnval: 16,
       fnver: 0,
       fourk: 0,
+      platform: "pc",
+      high_quality: 1,
     });
 
     const dashRes = await this.client.get("/x/player/wbi/playurl", {
       params: dashParams,
+      headers: { Referer: referer },
+      validateStatus: () => true,
     });
-    if (dashRes.data?.code !== 0) {
-      throw new Error(dashRes.data?.message || "播放地址获取失败");
+    if (dashRes.data?.code === 0) {
+      const dashPlay = this.buildPlayInfoFromDash(dashRes.data?.data, qn);
+      if (dashPlay) return dashPlay;
     }
 
-    const dashData = dashRes.data?.data;
-    const dashPlay = this.buildPlayInfoFromDash(dashData, qn);
-    if (!dashPlay) {
-      throw new Error("该视频暂不支持在线播放，可能为付费或受限内容");
+    const mp4Params = await signParams({
+      bvid,
+      cid,
+      qn,
+      fnval: 1,
+      fnver: 0,
+      fourk: 0,
+      platform: "pc",
+    });
+
+    const mp4Res = await this.client.get("/x/player/wbi/playurl", {
+      params: mp4Params,
+      headers: { Referer: referer },
+      validateStatus: () => true,
+    });
+    if (mp4Res.data?.code === 0) {
+      const mp4Data = mp4Res.data?.data;
+      const mp4Stream = mp4Data?.durl?.[0] as
+        | { url?: string; format?: string; backup_url?: string[] }
+        | undefined;
+      if (mp4Stream?.url) {
+        return this.buildPlayInfoFromDurl(mp4Data, mp4Stream, qn);
+      }
     }
 
-    return dashPlay;
+    const dashMessage =
+      typeof dashRes.data?.message === "string" ? dashRes.data.message : "";
+    const mp4Message =
+      typeof mp4Res.data?.message === "string" ? mp4Res.data.message : "";
+    throw new Error(
+      dashMessage ||
+        mp4Message ||
+        "该视频暂不支持在线播放，可能为付费或受限内容",
+    );
   }
 
   async getDanmakuList(cid: number): Promise<DanmakuItem[]> {
@@ -1873,6 +1884,8 @@ class BiliApiService {
       id: number;
       baseUrl?: string;
       base_url?: string;
+      backupUrl?: string[];
+      backup_url?: string[];
       bandwidth: number;
       mimeType?: string;
       mime_type?: string;
@@ -1899,11 +1912,19 @@ class BiliApiService {
       )[0];
     };
 
+    const collectBackupUrls = (item: DashStream): string[] => {
+      const raw = item.backupUrl ?? item.backup_url ?? [];
+      return raw.filter(
+        (url): url is string => typeof url === "string" && !!url,
+      );
+    };
+
     const video = pickByQn(videos, requestedQn);
     const audios = (dash.audio as DashStream[] | undefined) ?? [];
     const audio =
       audios.find((item) => item.id === 30280) ??
       audios.find((item) => item.id === 30232) ??
+      audios.find((item) => item.id === 30216) ??
       audios[0];
     if (!audio) return null;
 
@@ -1929,7 +1950,7 @@ class BiliApiService {
     const avcQnSet = new Set(videos.map((item) => item.id));
     const qualities = acceptQuality
       .filter((value) => avcQnSet.has(value))
-      .map((value, index) => ({
+      .map((value) => ({
         qn: value,
         label: acceptDescription[acceptQuality.indexOf(value)] ?? `${value}P`,
       }));
@@ -1946,6 +1967,7 @@ class BiliApiService {
       video: {
         id: video.id,
         baseUrl: videoUrl,
+        backupUrls: collectBackupUrls(video),
         bandwidth: video.bandwidth,
         mimeType: video.mimeType ?? video.mime_type ?? "video/mp4",
         codecs: video.codecs,
@@ -1960,6 +1982,7 @@ class BiliApiService {
       audio: {
         id: audio.id,
         baseUrl: audioUrl,
+        backupUrls: collectBackupUrls(audio),
         bandwidth: audio.bandwidth,
         mimeType: audio.mimeType ?? audio.mime_type ?? "audio/mp4",
         codecs: audio.codecs,
@@ -2432,6 +2455,73 @@ class BiliApiService {
     return list.map((u: Record<string, unknown>) => this.mapFollowingUser(u));
   }
 
+  /** 查看指定用户的关注 / 粉丝列表（含隐私校验） */
+  async getUserRelationList(
+    mid: number,
+    type: "followings" | "followers",
+    page = 1,
+  ): Promise<UserRelationListPage> {
+    await this.ensureBuvid3();
+
+    const pageSize = 24;
+    const path =
+      type === "followers" ? "/x/relation/followers" : "/x/relation/followings";
+
+    const res = await this.client.get(path, {
+      params: {
+        vmid: String(mid),
+        pn: Math.max(1, page),
+        ps: pageSize,
+        order: "desc",
+        order_type: "",
+      },
+      headers: {
+        Referer: `https://space.bilibili.com/${mid}/fans/${type === "followers" ? "fans" : "follow"}`,
+      },
+      validateStatus: () => true,
+    });
+
+    const code = res.data?.code as number | undefined;
+    const message = String(res.data?.message ?? "");
+
+    if (
+      code === 22115 ||
+      code === 22116 ||
+      message.includes("隐私") ||
+      message.includes("不可见") ||
+      message.includes("隐藏")
+    ) {
+      throw new Error(
+        type === "followers"
+          ? "由于该用户隐私设置，粉丝列表不可见"
+          : "由于该用户隐私设置，关注列表不可见",
+      );
+    }
+
+    if (code === -101 || message.includes("未登录")) {
+      throw new Error("请先登录后再查看");
+    }
+
+    if (code !== 0) {
+      throw new Error(
+        message ||
+          (type === "followers" ? "粉丝列表获取失败" : "关注列表获取失败"),
+      );
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const list = (data?.list ?? []) as Record<string, unknown>[];
+    const users = list.map((u) => this.mapFollowingUser(u));
+    const total = Number(data?.total ?? users.length) || 0;
+
+    return {
+      users,
+      page: Math.max(1, page),
+      total,
+      hasMore: users.length >= pageSize && page * pageSize < total,
+    };
+  }
+
   async getAllFollowings(): Promise<FollowingUp[]> {
     const all: FollowingUp[] = [];
     let page = 1;
@@ -2522,6 +2612,7 @@ class BiliApiService {
       },
       special: (u.special as number) === 1,
       mutual: attribute === 6,
+      isFollowing: attribute === 1 || attribute === 2 || attribute === 6,
     };
   }
 
@@ -2599,12 +2690,30 @@ class BiliApiService {
   async getUpProfile(mid: number): Promise<UpProfile> {
     await this.ensureBuvid3();
 
-    const accParams = await signParams({ mid });
-    const [cardRes, statRes, accRes] = await Promise.all([
+    const accParams = await signParams({ mid: String(mid) });
+    const [cardRes, statRes, upstatRes, navnumRes, accRes] = await Promise.all([
       this.client.get("/x/web-interface/card", {
-        params: { mid, photo: true },
+        params: { mid: String(mid), photo: true },
+        validateStatus: () => true,
       }),
-      this.client.get("/x/relation/stat", { params: { vmid: mid } }),
+      this.client.get("/x/relation/stat", {
+        params: { vmid: String(mid) },
+        validateStatus: () => true,
+      }),
+      this.client
+        .get("/x/space/upstat", {
+          params: { mid: String(mid) },
+          headers: { Referer: `https://space.bilibili.com/${mid}` },
+          validateStatus: () => true,
+        })
+        .catch(() => null),
+      this.client
+        .get("/x/space/navnum", {
+          params: { mid: String(mid) },
+          headers: { Referer: `https://space.bilibili.com/${mid}` },
+          validateStatus: () => true,
+        })
+        .catch(() => null),
       this.client
         .get("/x/space/wbi/acc/info", {
           params: accParams,
@@ -2626,25 +2735,73 @@ class BiliApiService {
 
     const payload = cardRes.data?.data as Record<string, unknown> | undefined;
     const card = payload?.card as Record<string, unknown> | undefined;
+    const levelInfo = card?.level_info as
+      | { current_level?: number }
+      | undefined;
+    const official = (card?.Official ?? card?.official) as
+      | { title?: string; desc?: string; type?: number }
+      | undefined;
+    const officialVerify = card?.official_verify as
+      | { desc?: string; type?: number }
+      | undefined;
+
     const stat = statRes.data?.data as Record<string, unknown> | undefined;
+    const upstat =
+      upstatRes && (upstatRes as AxiosResponse).data?.code === 0
+        ? ((upstatRes as AxiosResponse).data?.data as Record<string, unknown>)
+        : undefined;
+    const archiveStat = upstat?.archive as { view?: number } | undefined;
+    const navnum =
+      navnumRes && (navnumRes as AxiosResponse).data?.code === 0
+        ? ((navnumRes as AxiosResponse).data?.data as Record<string, unknown>)
+        : undefined;
     const accData =
       accRes && (accRes as AxiosResponse).data?.code === 0
         ? ((accRes as AxiosResponse).data?.data as Record<string, unknown>)
         : undefined;
 
+    const officialDesc =
+      (typeof official?.title === "string" && official.title.trim()) ||
+      (typeof official?.desc === "string" && official.desc.trim()) ||
+      (typeof officialVerify?.desc === "string" &&
+        officialVerify.desc.trim()) ||
+      "";
+
+    const videos = Number(payload?.archive_count ?? navnum?.video ?? 0) || 0;
+
+    // navnum.favourite 是 { master, guest }，不是数字
+    const favRaw = navnum?.favourite as
+      | number
+      | { master?: number; guest?: number }
+      | undefined;
+    const favourites =
+      typeof favRaw === "number"
+        ? favRaw
+        : Number(favRaw?.guest ?? favRaw?.master ?? 0) || 0;
+
     return {
       mid,
       name: (card?.name as string) ?? "",
       face: (card?.face as string) ?? "",
-      sign: (card?.sign as string) ?? "",
+      sign: (card?.sign as string) ?? (accData?.sign as string) ?? "",
       fans:
         (stat?.follower as number) ??
         (payload?.follower as number) ??
         (card?.fans as number) ??
         0,
-      following: (stat?.following as number) ?? 0,
-      videos: (payload?.archive_count as number) ?? 0,
-      topPhoto: this.normalizeBfsUrl((accData?.top_photo as string) ?? ""),
+      following: (stat?.following as number) ?? (card?.friend as number) ?? 0,
+      videos,
+      level: Number(levelInfo?.current_level ?? accData?.level ?? 0) || 0,
+      officialDesc: officialDesc || undefined,
+      likes: Number(payload?.like_num ?? upstat?.likes ?? 0) || 0,
+      archiveViews: Number(archiveStat?.view ?? 0) || 0,
+      favourites,
+      topPhoto: this.normalizeBfsUrl(
+        (accData?.top_photo as string) ??
+          ((payload?.space as { l_img?: string } | undefined)
+            ?.l_img as string) ??
+          "",
+      ),
     };
   }
 
@@ -2708,37 +2865,36 @@ class BiliApiService {
       }
     }
 
+    // 1) APP 游标（登录 Cookie 下较稳）
+    try {
+      return await this.fetchSpaceArchiveCursor(mid, page, sort);
+    } catch {
+      // continue
+    }
+
+    // 2) web 空间投稿
     try {
       return await this.fetchSpaceArcList(mid, page, sort);
-    } catch (primaryError) {
-      const rateLimited =
-        primaryError instanceof Error &&
-        primaryError.message.includes("过于频繁");
-
-      if (rateLimited) {
-        await sleep(2500);
-        try {
-          return await this.fetchSpaceArcList(mid, page, sort);
-        } catch {
-          // fall through to search fallback
-        }
-      }
-
+    } catch (spaceError) {
+      // 3) 搜索累积分页：web 翻页常 -403，用昵称搜索 + mid 过滤撑起页码
       try {
         const profile = await this.getUpProfile(mid);
-        const fallback = await this.fetchUpVideosBySearch(
+        const fallback = await this.fetchUpVideosBySearchPaged(
           mid,
           profile.name,
           page,
           sort,
+          profile.videos,
         );
-        if (fallback.videos.length > 0) return fallback;
+        if (fallback.videos.length > 0 || page === 1) {
+          return fallback;
+        }
       } catch {
-        // use primary error below
+        // use space error
       }
 
-      throw primaryError instanceof Error
-        ? primaryError
+      throw spaceError instanceof Error
+        ? spaceError
         : new Error("投稿列表获取失败，请稍后重试");
     }
   }
@@ -3144,76 +3300,256 @@ class BiliApiService {
     order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
     const referer = `https://space.bilibili.com/${mid}/video`;
+    const pageSize = 30;
+    const baseParams: Record<string, string | number> = {
+      mid: String(mid),
+      pn: page,
+      ps: pageSize,
+      tid: 0,
+      keyword: "",
+      order,
+      platform: "web",
+      web_location: "1550101",
+      order_avoided: "true",
+    };
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await this.waitSpaceArcGate();
+    // wbi 优先：plain 翻页极易 -403
+    const modes: Array<"wbi" | "plain"> = ["wbi", "plain"];
+    let lastError: Error | null = null;
 
-      const params = await signParams({
-        mid,
-        pn: page,
-        ps: 30,
-        tid: 0,
-        keyword: "",
-        order,
-        platform: "web",
-        web_location: "1550101",
-        order_avoided: "true",
-      });
+    for (const mode of modes) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        await this.waitSpaceArcGate();
 
-      const res = await this.client.get("/x/space/wbi/arc/search", {
-        params,
-        headers: { Referer: referer },
-        validateStatus: () => true,
-      });
+        let params: Record<string, string | number> = baseParams;
+        if (mode === "wbi") {
+          try {
+            params = await signParams(baseParams);
+          } catch (err) {
+            lastError =
+              err instanceof Error
+                ? err
+                : new Error("投稿接口签名失败，请稍后重试");
+            break;
+          }
+        }
 
-      const payload = res.data;
-      const code = payload?.code as number | undefined;
-      if (code === 0) {
-        const vlist = (payload?.data?.list?.vlist ?? []) as Record<
-          string,
-          unknown
-        >[];
-        const pageInfo = payload?.data?.page as
-          | { count?: number; pn?: number; ps?: number }
-          | undefined;
-        const total = pageInfo?.count ?? vlist.length;
-        const pageSize = pageInfo?.ps ?? 30;
-        return {
-          videos: vlist.map((item) => this.normalizeSpaceVideo(item, mid)),
-          page,
-          total,
-          hasMore: page * pageSize < total,
-        };
+        const url =
+          mode === "wbi" ? "/x/space/wbi/arc/search" : "/x/space/arc/search";
+
+        const res = await this.client.get(url, {
+          params,
+          headers: { Referer: referer },
+          validateStatus: () => true,
+          timeout: 10000,
+        });
+
+        const payload = res.data;
+        const code = payload?.code as number | undefined;
+        if (code === 0) {
+          const vlist = (payload?.data?.list?.vlist ?? []) as Record<
+            string,
+            unknown
+          >[];
+          const pageInfo = payload?.data?.page as
+            | { count?: number; pn?: number; ps?: number }
+            | undefined;
+          const total = Number(pageInfo?.count ?? vlist.length) || 0;
+          const ps = Number(pageInfo?.ps ?? pageSize) || pageSize;
+          return {
+            videos: vlist.map((item) => this.normalizeSpaceVideo(item, mid)),
+            page,
+            total,
+            hasMore: vlist.length >= ps || page * ps < total,
+          };
+        }
+
+        const retryable = code === -799 || code === -412 || res.status === 412;
+        if (retryable && attempt < 2) {
+          await sleep(mode === "wbi" ? 700 : 500);
+          continue;
+        }
+
+        if (code === -799) {
+          lastError = new Error("请求过于频繁，请稍后再试");
+          break;
+        }
+        if (code === -352) {
+          lastError = new Error("投稿接口触发风控，请稍后重试或重新登录");
+          break;
+        }
+        if (code === -412 || res.status === 412) {
+          lastError = new Error("请求被 B 站安全策略拦截，请稍后重试");
+          break;
+        }
+
+        lastError = new Error(
+          this.formatUserSpaceApiError(
+            code,
+            payload?.message,
+            "投稿列表获取失败，请稍后重试",
+          ),
+        );
+        break;
       }
-
-      const retryable =
-        code === -799 || code === -412 || code === -352 || res.status === 412;
-
-      if (retryable && attempt < 3) {
-        await sleep(1500 * attempt + 500);
-        continue;
-      }
-
-      if (code === -799) {
-        throw new Error("请求过于频繁，请稍后再试");
-      }
-      if (code === -352) {
-        throw new Error("投稿接口触发风控，请稍后重试或重新登录");
-      }
-      if (code === -412 || res.status === 412) {
-        throw new Error("请求被 B 站安全策略拦截，请稍后重试");
-      }
-
-      throw new Error(
-        this.formatUserSpaceApiError(
-          code,
-          payload?.message,
-          "投稿列表获取失败，请稍后重试",
-        ),
-      );
     }
 
-    throw new Error("投稿列表获取失败，请稍后重试");
+    throw lastError ?? new Error("投稿列表获取失败，请稍后重试");
+  }
+
+  /** UP 投稿游标缓存：支持页码跳转时按链拉取 */
+  private upVideoCursorCache = new Map<
+    string,
+    {
+      total: number;
+      pages: Map<number, VideoItem[]>;
+      hasNext: Map<number, boolean>;
+      lastAid: Map<number, number>;
+    }
+  >();
+
+  private async fetchSpaceArchiveCursor(
+    mid: number,
+    page: number,
+    order: UpVideosOrder = "pubdate",
+  ): Promise<UpVideosPage> {
+    const pageSize = 30;
+    const targetPage = Math.max(1, page);
+    const cacheKey = `${mid}:${order}`;
+
+    if (targetPage === 1) {
+      this.upVideoCursorCache.delete(cacheKey);
+    }
+
+    let cache = this.upVideoCursorCache.get(cacheKey);
+    if (!cache) {
+      cache = {
+        total: 0,
+        pages: new Map(),
+        hasNext: new Map(),
+        lastAid: new Map(),
+      };
+      this.upVideoCursorCache.set(cacheKey, cache);
+    }
+
+    for (let p = 1; p <= targetPage; p++) {
+      if (cache.pages.has(p)) continue;
+
+      if (p > 1 && !cache.lastAid.has(p - 1)) {
+        throw new Error("翻页状态失效，请回到第 1 页后重试");
+      }
+
+      await this.waitSpaceArcGate();
+
+      const params: Record<string, string | number> = {
+        vmid: String(mid),
+        ps: pageSize,
+        order,
+        platform: "web",
+        mobi_app: "web",
+      };
+      if (p > 1) {
+        params.aid = cache.lastAid.get(p - 1)!;
+      }
+
+      const hosts = [
+        "https://app.bilibili.com/x/v2/space/archive/cursor",
+        "https://app.biliapi.com/x/v2/space/archive/cursor",
+      ];
+
+      let payload: Record<string, unknown> | null = null;
+      let lastError: Error | null = null;
+
+      for (const url of hosts) {
+        const res = await axios.get(url, {
+          params,
+          headers: {
+            ...defaultHeaders(),
+            Cookie: getCookieString(),
+            Referer: `https://space.bilibili.com/${mid}/video`,
+            Origin: "https://space.bilibili.com",
+          },
+          validateStatus: () => true,
+          timeout: 12000,
+        });
+
+        if (res.data?.code === 0 && res.data?.data) {
+          payload = res.data.data as Record<string, unknown>;
+          break;
+        }
+
+        lastError = new Error(
+          this.formatUserSpaceApiError(
+            res.data?.code,
+            res.data?.message,
+            "投稿列表获取失败，请稍后重试",
+          ),
+        );
+      }
+
+      if (!payload) {
+        throw lastError ?? new Error("投稿列表获取失败，请稍后重试");
+      }
+
+      const rawItems = (payload.item ?? []) as Record<string, unknown>[];
+      const videos = rawItems
+        .map((item) => this.normalizeCursorSpaceVideo(item, mid))
+        .filter((item): item is VideoItem => item != null);
+
+      const total = Number(payload.count ?? cache.total) || cache.total || 0;
+      const hasNext = Boolean(payload.has_next);
+
+      cache.total = total;
+      cache.pages.set(p, videos);
+      cache.hasNext.set(p, hasNext);
+
+      const last = videos[videos.length - 1];
+      if (last?.aid) {
+        cache.lastAid.set(p, last.aid);
+      } else if (hasNext) {
+        // 没有 aid 无法继续翻
+        cache.hasNext.set(p, false);
+      }
+    }
+
+    const videos = cache.pages.get(targetPage) ?? [];
+    const hasMore =
+      cache.hasNext.get(targetPage) ??
+      (cache.total > 0 && targetPage * pageSize < cache.total);
+
+    return {
+      videos,
+      page: targetPage,
+      total: cache.total,
+      hasMore: Boolean(hasMore) && videos.length > 0,
+    };
+  }
+
+  private normalizeCursorSpaceVideo(
+    item: Record<string, unknown>,
+    mid: number,
+  ): VideoItem | null {
+    const bvid = String(item.bvid ?? "");
+    if (!bvid) return null;
+    // 课堂等非普通投稿没有可靠 bvid 播放链路，跳过
+    if (item.goto && String(item.goto) !== "av") return null;
+
+    const aid = Number(item.param ?? item.aid ?? 0) || 0;
+    return {
+      bvid,
+      aid,
+      title: String(item.title ?? ""),
+      cover: this.normalizeVideoCoverUrl(String(item.cover ?? "")),
+      duration: Number(item.duration ?? 0) || 0,
+      play: Number(item.play ?? 0) || 0,
+      danmaku: Number(item.danmaku ?? 0) || 0,
+      owner: {
+        mid,
+        name: String(item.author ?? ""),
+        face: "",
+      },
+      pubdate: Number(item.ctime ?? 0) || 0,
+    };
   }
 
   private formatUserSpaceApiError(
@@ -3236,12 +3572,20 @@ class BiliApiService {
     }
 
     if (
-      numericCode === -403 ||
       text.includes("隐私") ||
       text.includes("不可见") ||
-      text.includes("无权访问")
+      (numericCode === -403 &&
+        (text.includes("隐私") ||
+          text.includes("不可见") ||
+          text.includes("隐藏")))
     ) {
       return "该用户已设置隐私，无法查看主页内容";
+    }
+
+    if (numericCode === -403) {
+      return text
+        ? `投稿列表暂时无法访问：${text}`
+        : "投稿列表暂时无法访问，请稍后重试或重新登录";
     }
 
     if (text) {
@@ -3262,7 +3606,7 @@ class BiliApiService {
 
   /** 串行化空间投稿请求，避免短时间并发触发 -799 */
   private waitSpaceArcGate(): Promise<void> {
-    const minIntervalMs = 450;
+    const minIntervalMs = 320;
     const run = this.spaceArcGate.then(async () => {
       const wait = Math.max(
         0,
@@ -3371,41 +3715,129 @@ class BiliApiService {
     page: number,
     order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
+    return this.fetchUpVideosBySearchPaged(mid, upName, page, order, 0);
+  }
+
+  /** 搜索结果按 mid 过滤后的投稿缓存（空间接口翻页失败时使用） */
+  private upSearchVideoCache = new Map<
+    string,
+    {
+      videos: VideoItem[];
+      searchPage: number;
+      searchTotal: number;
+      exhausted: boolean;
+    }
+  >();
+
+  private async fetchUpVideosBySearchPaged(
+    mid: number,
+    upName: string,
+    page: number,
+    order: UpVideosOrder = "pubdate",
+    knownTotal = 0,
+  ): Promise<UpVideosPage> {
     if (!upName.trim()) {
       return { videos: [], page, hasMore: false, total: 0 };
     }
 
-    const params = await signParams({
-      search_type: "video",
-      keyword: upName,
-      page,
-      page_size: 30,
-      order,
-      platform: "pc",
-      single_column: 0,
-      source: "",
-    });
+    const pageSize = 30;
+    const targetPage = Math.max(1, page);
+    const cacheKey = `${mid}:${order}:${upName}`;
 
-    const res = await this.client.get("/x/web-interface/wbi/search/type", {
-      params,
-      headers: { Referer: "https://www.bilibili.com/" },
-      validateStatus: () => true,
-    });
-
-    if (res.data?.code !== 0) {
-      return { videos: [], page, hasMore: false, total: 0 };
+    if (targetPage === 1) {
+      this.upSearchVideoCache.delete(cacheKey);
     }
 
-    const results = (res.data?.data?.result ?? []) as Record<string, unknown>[];
-    const videos = results
-      .filter((item) => item.mid === mid)
-      .map((item) => this.normalizeSearchVideo(item));
+    let cache = this.upSearchVideoCache.get(cacheKey);
+    if (!cache) {
+      cache = {
+        videos: [],
+        searchPage: 1,
+        searchTotal: 0,
+        exhausted: false,
+      };
+      this.upSearchVideoCache.set(cacheKey, cache);
+    }
+
+    const needed = targetPage * pageSize;
+    let emptyStreak = 0;
+    const maxScans = 20;
+
+    while (
+      cache.videos.length < needed &&
+      !cache.exhausted &&
+      cache.searchPage <= maxScans
+    ) {
+      const params = await signParams({
+        search_type: "video",
+        keyword: upName,
+        page: cache.searchPage,
+        page_size: pageSize,
+        order,
+        platform: "pc",
+        single_column: 0,
+        source: "",
+      });
+
+      const res = await this.client.get("/x/web-interface/wbi/search/type", {
+        params,
+        headers: { Referer: "https://search.bilibili.com/" },
+        validateStatus: () => true,
+        timeout: 10000,
+      });
+
+      if (res.data?.code !== 0) {
+        cache.exhausted = true;
+        break;
+      }
+
+      const data = res.data?.data as Record<string, unknown> | undefined;
+      const results = (data?.result ?? []) as Record<string, unknown>[];
+      if (!cache.searchTotal) {
+        cache.searchTotal = Number(data?.numResults ?? 0) || 0;
+      }
+
+      const seen = new Set(cache.videos.map((v) => v.bvid));
+      let added = 0;
+      for (const item of results) {
+        if (String(item.mid ?? "") !== String(mid)) continue;
+        const video = this.normalizeSearchVideo(item);
+        if (!video.bvid || seen.has(video.bvid)) continue;
+        seen.add(video.bvid);
+        cache.videos.push(video);
+        added += 1;
+      }
+
+      if (results.length < pageSize) {
+        cache.exhausted = true;
+      } else if (
+        cache.searchTotal > 0 &&
+        cache.searchPage * pageSize >= cache.searchTotal
+      ) {
+        cache.exhausted = true;
+      } else if (added === 0) {
+        emptyStreak += 1;
+        if (emptyStreak >= 3) cache.exhausted = true;
+      } else {
+        emptyStreak = 0;
+      }
+
+      cache.searchPage += 1;
+    }
+
+    const start = (targetPage - 1) * pageSize;
+    const videos = cache.videos.slice(start, start + pageSize);
+    const total = Math.max(knownTotal, cache.videos.length);
+    const hasMore =
+      cache.videos.length > start + videos.length ||
+      (!cache.exhausted && videos.length >= pageSize) ||
+      (total > 0 && start + videos.length < total && videos.length > 0);
 
     return {
       videos,
-      page,
-      total: videos.length,
-      hasMore: videos.length >= 30,
+      page: targetPage,
+      total,
+      hasMore: Boolean(hasMore),
     };
   }
 

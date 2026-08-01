@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import type {
   UpProfile,
   UpRelation,
   UpVideosOrder,
+  UserRelationListType,
   VideoItem,
 } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 import { FollowButton } from "@/components/video/FollowButton";
 import { VideoCard } from "@/components/video/VideoCard";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
+import { UpRelationListPanel } from "@/features/up/UpRelationListPanel";
 import { cn, formatCount } from "@/lib/utils";
 import { formatUserSpaceError } from "@/lib/ipc-error";
 import { useAppStore } from "@/stores/app-store";
@@ -27,32 +31,12 @@ const ORDER_OPTIONS: Array<{ value: UpVideosOrder; label: string }> = [
   { value: "click", label: "按播放量" },
 ];
 
+const PAGE_SIZE = 30;
+
 function parseMid(value: string | undefined): number {
   if (!value) return 0;
   const mid = Number(value);
   return Number.isFinite(mid) && mid > 0 ? mid : 0;
-}
-
-function normalizeUpVideosPage(data: unknown): {
-  videos: VideoItem[];
-  page: number;
-  hasMore: boolean;
-} {
-  if (Array.isArray(data)) {
-    return { videos: data, page: 1, hasMore: data.length >= 30 };
-  }
-
-  const payload = data as {
-    videos?: VideoItem[];
-    page?: number;
-    hasMore?: boolean;
-  };
-  const videos = payload?.videos ?? [];
-  return {
-    videos,
-    page: payload?.page ?? 1,
-    hasMore: payload?.hasMore ?? videos.length >= 30,
-  };
 }
 
 export function UpSpacePage() {
@@ -60,23 +44,77 @@ export function UpSpacePage() {
   const mid = parseMid(midParam);
   const homeGridColumns = useAppStore((state) => state.homeGridColumns);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadSeqRef = useRef(0);
   const [profile, setProfile] = useState<UpProfile | null>(null);
   const [relation, setRelation] = useState<UpRelation | null>(null);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [order, setOrder] = useState<UpVideosOrder>("pubdate");
   const [loadingFollow, setLoadingFollow] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [videosError, setVideosError] = useState("");
   const [videosLoading, setVideosLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [relationPanel, setRelationPanel] =
+    useState<UserRelationListType | null>(null);
+  const [toast, setToast] = useState("");
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(""), 2600);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const totalPages = useMemo(() => {
+    if (total > 0) return Math.max(1, Math.ceil(total / PAGE_SIZE));
+    if (hasMore) return Math.max(page + 1, 1);
+    return Math.max(page, 1);
+  }, [total, hasMore, page]);
+
+  const loadVideos = useCallback(
+    async (targetMid: number, nextPage: number, nextOrder: UpVideosOrder) => {
+      const seq = ++loadSeqRef.current;
+      setVideosLoading(true);
+      setVideosError("");
+
+      try {
+        const result = await window.biliDesk.bili.getUpVideos(
+          targetMid,
+          nextPage,
+          nextOrder,
+        );
+        if (seq !== loadSeqRef.current) return;
+
+        setVideos(result.videos ?? []);
+        setPage(result.page ?? nextPage);
+        setTotal((prev) => Math.max(result.total ?? 0, prev));
+        setHasMore(Boolean(result.hasMore));
+        setVideosError("");
+        scrollRef.current?.scrollTo({ top: 0 });
+      } catch (e) {
+        if (seq !== loadSeqRef.current) return;
+        // 翻页失败时保留当前页内容，避免整页被清空
+        setVideosError(formatUserSpaceError(e));
+      } finally {
+        if (seq === loadSeqRef.current) setVideosLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!mid) return;
 
     let cancelled = false;
+    loadSeqRef.current += 1;
     setProfileError("");
     setVideosError("");
     setVideosLoading(true);
@@ -84,38 +122,49 @@ export function UpSpacePage() {
     setRelation(null);
     setVideos([]);
     setPage(1);
+    setTotal(0);
     setHasMore(false);
     setOrder("pubdate");
+    setRelationPanel(null);
 
     void (async () => {
-      let loadedProfile: UpProfile | null = null;
       try {
-        const upProfile = await window.biliDesk.bili.getUpProfile(mid);
-        loadedProfile = upProfile;
-        if (cancelled) return;
-        setProfile(upProfile);
-
-        const upRelation = await window.biliDesk.bili
+        const profilePromise = window.biliDesk.bili.getUpProfile(mid);
+        const videosPromise = window.biliDesk.bili.getUpVideos(
+          mid,
+          1,
+          "pubdate",
+        );
+        const relationPromise = window.biliDesk.bili
           .getUpRelation(mid)
           .catch(() => ({ isFollowing: false, attribute: 0 }) as UpRelation);
-        if (cancelled) return;
-        setRelation(upRelation);
 
-        const upVideos = normalizeUpVideosPage(
-          await window.biliDesk.bili.getUpVideos(mid, 1, "pubdate"),
-        );
+        const upProfile = await profilePromise;
         if (cancelled) return;
-        setVideos(upVideos.videos);
-        setPage(upVideos.page);
-        setHasMore(upVideos.hasMore);
+        setProfile(upProfile);
+        setTotal(upProfile.videos || 0);
+
+        void relationPromise.then((upRelation) => {
+          if (!cancelled) setRelation(upRelation);
+        });
+
+        try {
+          const result = await videosPromise;
+          if (cancelled) return;
+          setVideos(result.videos ?? []);
+          setPage(result.page ?? 1);
+          setTotal(Math.max(result.total ?? 0, upProfile.videos || 0));
+          setHasMore(Boolean(result.hasMore));
+          setVideosError("");
+        } catch (videoErr) {
+          if (cancelled) return;
+          setVideos([]);
+          setHasMore(false);
+          setVideosError(formatUserSpaceError(videoErr));
+        }
       } catch (e) {
         if (cancelled) return;
-        const message = formatUserSpaceError(e);
-        if (loadedProfile) {
-          setVideosError(message);
-        } else {
-          setProfileError(message);
-        }
+        setProfileError(formatUserSpaceError(e));
       } finally {
         if (!cancelled) setVideosLoading(false);
       }
@@ -126,75 +175,17 @@ export function UpSpacePage() {
     };
   }, [mid]);
 
-  const loadVideos = useCallback(
-    async (nextOrder: UpVideosOrder, nextPage: number, append: boolean) => {
-      if (!mid) return;
-
-      if (append) {
-        setLoadingMore(true);
-      } else {
-        setVideosLoading(true);
-        setVideos([]);
-        setPage(1);
-        setHasMore(false);
-        scrollRef.current?.scrollTo({ top: 0 });
-      }
-      setVideosError("");
-
-      try {
-        const result = normalizeUpVideosPage(
-          await window.biliDesk.bili.getUpVideos(mid, nextPage, nextOrder),
-        );
-        setVideos((prev) => {
-          if (!append) return result.videos;
-          const safePrev = prev ?? [];
-          const seen = new Set(safePrev.map((v) => v.bvid));
-          const merged = [...safePrev];
-          for (const item of result.videos) {
-            if (!seen.has(item.bvid)) merged.push(item);
-          }
-          return merged;
-        });
-        setPage(result.page);
-        setHasMore(result.hasMore);
-      } catch (e) {
-        setVideosError(formatUserSpaceError(e));
-      } finally {
-        setVideosLoading(false);
-        setLoadingMore(false);
-      }
-    },
-    [mid],
-  );
-
   const handleOrderChange = (nextOrder: UpVideosOrder) => {
-    if (nextOrder === order) return;
+    if (!mid || nextOrder === order || videosLoading) return;
     setOrder(nextOrder);
-    void loadVideos(nextOrder, 1, false);
+    void loadVideos(mid, 1, nextOrder);
   };
 
-  const loadMore = useCallback(async () => {
-    if (!mid || !hasMore || loadingMore || videosLoading) return;
-    await loadVideos(order, page + 1, true);
-  }, [hasMore, loadVideos, loadingMore, mid, order, page, videosLoading]);
-
-  useEffect(() => {
-    const root = scrollRef.current;
-    const target = sentinelRef.current;
-    if (!root || !target || !hasMore) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          void loadMore();
-        }
-      },
-      { root, rootMargin: "200px" },
-    );
-
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [hasMore, loadMore]);
+  const goToPage = (nextPage: number) => {
+    if (!mid || videosLoading || nextPage < 1) return;
+    if (nextPage > totalPages && !hasMore) return;
+    void loadVideos(mid, nextPage, order);
+  };
 
   const handleFollow = async () => {
     if (!relation) return;
@@ -207,6 +198,10 @@ export function UpSpacePage() {
     } finally {
       setLoadingFollow(false);
     }
+  };
+
+  const openRelationList = (type: UserRelationListType) => {
+    setRelationPanel(type);
   };
 
   if (!mid) {
@@ -240,32 +235,141 @@ export function UpSpacePage() {
     <div className="flex h-full flex-col overflow-hidden">
       <PageBackHeader />
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-6 p-6 pt-4">
-          <div className="mx-auto flex max-w-5xl flex-col gap-4 rounded-2xl border border-border bg-card p-6 sm:flex-row sm:items-center">
-            <BiliImage
-              src={profile.face}
-              alt={profile.name}
-              className="h-20 w-20 rounded-full object-cover ring-2 ring-primary/30"
-            />
-            <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-semibold">{profile.name}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {formatCount(profile.fans)} 粉丝 ·{" "}
-                {formatCount(profile.following)} 关注 ·{" "}
-                {formatCount(profile.videos)} 投稿
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {profile.sign || "这个人很懒，什么都没有写~"}
-              </p>
+          <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl border border-border bg-card">
+            {profile.topPhoto ? (
+              <div className="relative h-36 w-full overflow-hidden sm:h-44">
+                <BiliImage
+                  src={profile.topPhoto}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
+              </div>
+            ) : null}
+
+            <div className="relative space-y-4 p-6 pt-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <BiliImage
+                  src={profile.face}
+                  alt={profile.name}
+                  className={cn(
+                    "h-20 w-20 shrink-0 rounded-full object-cover ring-2 ring-primary/30",
+                    profile.topPhoto && "-mt-12 h-24 w-24 border-4 border-card",
+                  )}
+                />
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-2xl font-semibold">{profile.name}</h1>
+                    {profile.level != null && profile.level > 0 && (
+                      <span
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-[11px] font-semibold text-white",
+                          profile.level >= 6
+                            ? "bg-red-500"
+                            : profile.level >= 4
+                              ? "bg-orange-500"
+                              : "bg-slate-400",
+                        )}
+                      >
+                        Lv{profile.level}
+                      </span>
+                    )}
+                    {profile.officialDesc && (
+                      <span className="truncate text-sm text-primary">
+                        {profile.officialDesc}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    UID {profile.mid}
+                  </p>
+
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    {profile.sign || "这个人很懒，什么都没有写~"}
+                  </p>
+                </div>
+
+                <FollowButton
+                  size="default"
+                  isFollowing={relation?.isFollowing ?? false}
+                  loading={loadingFollow}
+                  disabled={!relation}
+                  onClick={() => void handleFollow()}
+                  className="shrink-0 self-start"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {(
+                  [
+                    {
+                      label: "关注",
+                      value: profile.following,
+                      clickable: true as const,
+                      type: "followings" as const,
+                    },
+                    {
+                      label: "粉丝",
+                      value: profile.fans,
+                      clickable: true as const,
+                      type: "followers" as const,
+                    },
+                    { label: "获赞", value: profile.likes ?? 0 },
+                    { label: "播放", value: profile.archiveViews ?? 0 },
+                    { label: "投稿", value: profile.videos },
+                    { label: "收藏", value: profile.favourites ?? 0 },
+                  ] as const
+                ).map((item) => {
+                  const clickable = "clickable" in item && item.clickable;
+                  const content = (
+                    <>
+                      <div
+                        className={cn(
+                          "text-base font-semibold tabular-nums",
+                          clickable && "text-primary",
+                        )}
+                      >
+                        {formatCount(item.value)}
+                      </div>
+                      <div
+                        className={cn(
+                          "mt-0.5 text-xs",
+                          clickable ? "text-primary" : "text-muted-foreground",
+                        )}
+                      >
+                        {item.label}
+                      </div>
+                    </>
+                  );
+
+                  if (clickable) {
+                    return (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => openRelationList(item.type)}
+                        className="rounded-xl bg-secondary/40 px-3 py-2.5 text-center transition-colors hover:bg-secondary/70"
+                      >
+                        {content}
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={item.label}
+                      className="rounded-xl bg-secondary/40 px-3 py-2.5 text-center"
+                    >
+                      {content}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <FollowButton
-              size="default"
-              isFollowing={relation?.isFollowing ?? false}
-              loading={loadingFollow}
-              disabled={!relation}
-              onClick={() => void handleFollow()}
-            />
           </div>
 
           {profileError && (
@@ -294,40 +398,80 @@ export function UpSpacePage() {
             {videosLoading && videos.length === 0 ? (
               <p className="text-sm text-muted-foreground">加载投稿中...</p>
             ) : videosError && videos.length === 0 ? (
-              <p className="text-sm text-red-400">{videosError}</p>
+              <div className="space-y-2">
+                <p className="text-sm text-red-400">{videosError}</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void loadVideos(mid, page, order)}
+                >
+                  重新加载
+                </Button>
+              </div>
             ) : videos.length > 0 ? (
-              <>
-                <div
-                  className={cn(
-                    "grid gap-4",
-                    GRID_COLS_CLASS[homeGridColumns],
-                    videosLoading && "opacity-60",
-                  )}
-                >
-                  {videos.map((video) => (
-                    <VideoCard key={video.bvid} video={video} />
-                  ))}
-                </div>
-                <div
-                  ref={sentinelRef}
-                  className="py-6 text-center text-sm text-muted-foreground"
-                >
-                  {loadingMore
-                    ? "加载更多..."
-                    : hasMore
-                      ? "继续下滑加载更多"
-                      : "已经到底啦"}
-                </div>
-                {videosError && (
-                  <p className="text-sm text-red-400">{videosError}</p>
+              <div
+                className={cn(
+                  "grid gap-4",
+                  GRID_COLS_CLASS[homeGridColumns],
+                  videosLoading && "opacity-60",
                 )}
-              </>
+              >
+                {videos.map((video) => (
+                  <VideoCard key={video.bvid} video={video} />
+                ))}
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">暂无投稿</p>
+            )}
+
+            {videosError && videos.length > 0 && (
+              <p className="mt-3 text-sm text-red-400">{videosError}</p>
             )}
           </section>
         </div>
       </div>
+
+      {(totalPages > 1 || hasMore || page > 1) && (
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          disabled={videosLoading}
+          disableNext={!hasMore && page >= totalPages}
+          openEnded={total <= 0 && hasMore}
+          onPageChange={goToPage}
+          info={
+            total > 0 ? (
+              <>
+                共 {total.toLocaleString()} 个投稿 · 第 {page} / {totalPages} 页
+              </>
+            ) : (
+              <>
+                第 {page} 页 · 本页 {videos.length} 个
+              </>
+            )
+          }
+        />
+      )}
+
+      {relationPanel && (
+        <UpRelationListPanel
+          mid={mid}
+          type={relationPanel}
+          ownerName={profile.name}
+          onClose={() => setRelationPanel(null)}
+          onPrivacyBlocked={showToast}
+        />
+      )}
+
+      {toast &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="pointer-events-none fixed left-1/2 top-1/2 z-[10000] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border/40 bg-black/85 px-5 py-3 text-sm font-semibold text-white shadow-2xl">
+            {toast}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -84,12 +84,30 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
           />
 
           <div className="min-w-0 text-left">
-            <p className="truncate font-medium">{displayName}</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <p className="truncate font-medium">{displayName}</p>
+              {profile?.level != null && profile.level > 0 && (
+                <span
+                  className={
+                    profile.level >= 6
+                      ? "rounded px-1 py-0.5 text-[10px] font-semibold text-white bg-red-500"
+                      : profile.level >= 4
+                        ? "rounded px-1 py-0.5 text-[10px] font-semibold text-white bg-orange-500"
+                        : "rounded px-1 py-0.5 text-[10px] font-semibold text-white bg-slate-400"
+                  }
+                >
+                  Lv{profile.level}
+                </span>
+              )}
+            </div>
 
             <p className="text-xs text-muted-foreground">
               {profile ? `${formatCount(profile.fans)} 粉丝` : "加载中..."}
 
               {profile ? ` · ${formatCount(profile.videos)} 投稿` : ""}
+              {profile?.likes != null && profile.likes > 0
+                ? ` · ${formatCount(profile.likes)} 获赞`
+                : ""}
             </p>
           </div>
         </Link>

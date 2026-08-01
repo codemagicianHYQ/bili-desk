@@ -264,7 +264,18 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                   {video.desc || "暂无简介"}
                 </p>
                 {playError && playInfo && (
-                  <p className="text-sm text-red-400">{playError}</p>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-red-400">
+                    <span>{playError}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      onClick={handleRefresh}
+                    >
+                      刷新播放器
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>

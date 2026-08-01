@@ -118,6 +118,11 @@ const api = {
       page != null
         ? ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_MEMBERS, tagId, page)
         : ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_MEMBERS, tagId),
+    getUserRelationList: (
+      mid: number,
+      type: "followings" | "followers",
+      page?: number,
+    ) => ipcRenderer.invoke(IPC.BILI_USER_RELATION_LIST, mid, type, page ?? 1),
     getUserFollowTags: (mid: number) =>
       ipcRenderer.invoke(IPC.BILI_FOLLOW_USER_TAGS, mid),
     setUserFollowTags: (mid: number, tagIds: number[]) =>
