@@ -35,6 +35,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [playError, setPlayError] = useState("");
   const [resumeCancelled, setResumeCancelled] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const playRequestIdRef = useRef(0);
 
   const resumeCid = useMemo(
     () => parsePositiveInt(searchParams.get("cid")),
@@ -61,11 +62,18 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
   const fetchPlayUrl = useCallback(
     (targetBvid: string, cid: number, qn?: number) => {
+      const requestId = ++playRequestIdRef.current;
       setPlayError("");
       return window.biliDesk.bili
         .getPlayUrl(targetBvid, cid, qn)
-        .then(setPlayInfo)
-        .catch((e: Error) => setPlayError(e.message));
+        .then((info) => {
+          if (requestId !== playRequestIdRef.current) return;
+          setPlayInfo(info);
+        })
+        .catch((e: Error) => {
+          if (requestId !== playRequestIdRef.current) return;
+          setPlayError(e.message);
+        });
     },
     [],
   );
@@ -77,6 +85,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     setPlayError("");
     setPlayInfo(null);
     setReloadKey(0);
+    playRequestIdRef.current += 1;
 
     window.biliDesk.bili
       .getVideo(bvid)
@@ -98,7 +107,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   }, [bvid, selectedCid, quality, fetchPlayUrl]);
 
   const handleQualityChange = useCallback((qn: number) => {
-    setQuality(qn);
+    setQuality((prev) => (prev === qn ? prev : qn));
   }, []);
 
   const handleRefresh = useCallback(() => {
@@ -107,6 +116,10 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     setReloadKey((key) => key + 1);
     void fetchPlayUrl(bvid, selectedCid, quality);
   }, [bvid, selectedCid, quality, fetchPlayUrl]);
+
+  const handlePlayerError = useCallback((message: string) => {
+    setPlayError(message);
+  }, []);
 
   const handleWatchFromStart = useCallback(() => {
     setResumeCancelled(true);
@@ -193,7 +206,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     initialTime={initialTime}
                     reloadKey={reloadKey}
                     onQualityChange={handleQualityChange}
-                    onError={setPlayError}
+                    onError={handlePlayerError}
                     onWatchFromStart={handleWatchFromStart}
                   />
                 </div>

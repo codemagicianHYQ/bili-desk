@@ -30,6 +30,8 @@ export function UpRelationListPanel({
 }: UpRelationListPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadSeqRef = useRef(0);
+  const onCloseRef = useRef(onClose);
+  const onPrivacyBlockedRef = useRef(onPrivacyBlocked);
   const [users, setUsers] = useState<FollowingUp[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -38,6 +40,9 @@ export function UpRelationListPanel({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [followPendingMid, setFollowPendingMid] = useState<number | null>(null);
+
+  onCloseRef.current = onClose;
+  onPrivacyBlockedRef.current = onPrivacyBlocked;
 
   const title =
     type === "followers" ? `${ownerName} 的粉丝` : `${ownerName} 的关注`;
@@ -59,6 +64,17 @@ export function UpRelationListPanel({
         );
         if (seq !== loadSeqRef.current) return;
 
+        if (result.privacyBlocked) {
+          onPrivacyBlockedRef.current(
+            result.message ||
+              (type === "followers"
+                ? "由于该用户隐私设置，粉丝列表不可见"
+                : "由于该用户隐私设置，关注列表不可见"),
+          );
+          onCloseRef.current();
+          return;
+        }
+
         setUsers((prev) =>
           append ? [...prev, ...result.users] : result.users,
         );
@@ -70,8 +86,8 @@ export function UpRelationListPanel({
         if (seq !== loadSeqRef.current) return;
         const message = formatListError(err);
         if (message.includes("隐私")) {
-          onPrivacyBlocked(message);
-          onClose();
+          onPrivacyBlockedRef.current(message);
+          onCloseRef.current();
           return;
         }
         setError(message);
@@ -83,7 +99,7 @@ export function UpRelationListPanel({
         }
       }
     },
-    [mid, type, onClose, onPrivacyBlocked],
+    [mid, type],
   );
 
   useEffect(() => {
@@ -92,11 +108,11 @@ export function UpRelationListPanel({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -132,7 +148,7 @@ export function UpRelationListPanel({
   return createPortal(
     <div
       className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
-      onClick={onClose}
+      onClick={() => onCloseRef.current()}
     >
       <div
         className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
@@ -152,7 +168,7 @@ export function UpRelationListPanel({
             size="sm"
             variant="ghost"
             className="h-8 w-8 p-0"
-            onClick={onClose}
+            onClick={() => onCloseRef.current()}
             aria-label="关闭"
           >
             <X className="h-4 w-4" />
@@ -194,7 +210,7 @@ export function UpRelationListPanel({
                   <Link
                     to={`/up/${user.mid}`}
                     className="shrink-0"
-                    onClick={onClose}
+                    onClick={() => onCloseRef.current()}
                   >
                     <BiliImage
                       src={user.face}
@@ -206,7 +222,7 @@ export function UpRelationListPanel({
                     <Link
                       to={`/up/${user.mid}`}
                       className="truncate font-medium hover:text-primary"
-                      onClick={onClose}
+                      onClick={() => onCloseRef.current()}
                     >
                       {user.uname}
                     </Link>

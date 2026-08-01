@@ -47,8 +47,12 @@ const api = {
         ? ipcRenderer.invoke(IPC.BILI_LIVE_PLAY_URL, roomId)
         : ipcRenderer.invoke(IPC.BILI_LIVE_PLAY_URL, roomId, qn),
     getVideo: (bvid: string) => ipcRenderer.invoke(IPC.BILI_VIDEO, bvid),
-    getPlayUrl: (bvid: string, cid: number, qn?: number) =>
-      ipcRenderer.invoke(IPC.BILI_PLAY_URL, bvid, cid, qn),
+    getPlayUrl: (
+      bvid: string,
+      cid: number,
+      qn?: number,
+      options?: { preferMp4?: boolean },
+    ) => ipcRenderer.invoke(IPC.BILI_PLAY_URL, bvid, cid, qn, options),
     getVideoRelation: (bvid: string, aid: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_RELATION, bvid, aid),
     likeVideo: (aid: number, like: boolean) =>

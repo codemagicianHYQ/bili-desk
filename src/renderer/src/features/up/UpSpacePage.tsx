@@ -93,12 +93,18 @@ export function UpSpacePage() {
         );
         if (seq !== loadSeqRef.current) return;
 
-        setVideos(result.videos ?? []);
-        setPage(result.page ?? nextPage);
-        setTotal((prev) => Math.max(result.total ?? 0, prev));
-        setHasMore(Boolean(result.hasMore));
-        setVideosError("");
-        scrollRef.current?.scrollTo({ top: 0 });
+        const list = result.videos ?? [];
+        if (list.length > 0) {
+          setVideos(list);
+          setPage(result.page ?? nextPage);
+          setTotal((prev) => Math.max(result.total ?? 0, prev));
+          setHasMore(Boolean(result.hasMore));
+          setVideosError("");
+          scrollRef.current?.scrollTo({ top: 0 });
+        } else {
+          // 空成功不覆盖当前页，避免「有时有、有时暂无」
+          setVideosError("本页投稿暂时无法获取，请稍后重试");
+        }
       } catch (e) {
         if (seq !== loadSeqRef.current) return;
         // 翻页失败时保留当前页内容，避免整页被清空
@@ -151,11 +157,23 @@ export function UpSpacePage() {
         try {
           const result = await videosPromise;
           if (cancelled) return;
-          setVideos(result.videos ?? []);
+          const list = result.videos ?? [];
+          setVideos(list);
           setPage(result.page ?? 1);
-          setTotal(Math.max(result.total ?? 0, upProfile.videos || 0));
-          setHasMore(Boolean(result.hasMore));
-          setVideosError("");
+          // 列表为空时不要用资料页投稿数撑分页，否则会出现「暂无投稿 + 共 N 页」
+          if (list.length > 0) {
+            setTotal(Math.max(result.total ?? 0, upProfile.videos || 0));
+            setHasMore(Boolean(result.hasMore));
+            setVideosError("");
+          } else if ((upProfile.videos || 0) > 0) {
+            setTotal(upProfile.videos || 0);
+            setHasMore(false);
+            setVideosError("投稿列表暂时无法获取，请点击重新加载");
+          } else {
+            setTotal(0);
+            setHasMore(false);
+            setVideosError("");
+          }
         } catch (videoErr) {
           if (cancelled) return;
           setVideos([]);
@@ -200,9 +218,13 @@ export function UpSpacePage() {
     }
   };
 
-  const openRelationList = (type: UserRelationListType) => {
+  const openRelationList = useCallback((type: UserRelationListType) => {
     setRelationPanel(type);
-  };
+  }, []);
+
+  const closeRelationList = useCallback(() => {
+    setRelationPanel(null);
+  }, []);
 
   if (!mid) {
     return (
@@ -421,6 +443,20 @@ export function UpSpacePage() {
                   <VideoCard key={video.bvid} video={video} />
                 ))}
               </div>
+            ) : (profile.videos ?? 0) > 0 ? (
+              <div className="space-y-2">
+                <p className="text-sm text-red-400">
+                  投稿列表暂时无法获取，请点击重新加载
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void loadVideos(mid, 1, order)}
+                >
+                  重新加载
+                </Button>
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">暂无投稿</p>
             )}
@@ -432,7 +468,7 @@ export function UpSpacePage() {
         </div>
       </div>
 
-      {(totalPages > 1 || hasMore || page > 1) && (
+      {videos.length > 0 && (totalPages > 1 || hasMore || page > 1) && (
         <PaginationBar
           page={page}
           totalPages={totalPages}
@@ -459,7 +495,7 @@ export function UpSpacePage() {
           mid={mid}
           type={relationPanel}
           ownerName={profile.name}
-          onClose={() => setRelationPanel(null)}
+          onClose={closeRelationList}
           onPrivacyBlocked={showToast}
         />
       )}

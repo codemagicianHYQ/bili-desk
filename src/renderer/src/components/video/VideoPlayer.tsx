@@ -58,8 +58,8 @@ function colorHexToInt(color?: string): number {
 const SAVE_INTERVAL_MS = 3000;
 const HEARTBEAT_INTERVAL_MS = 15000;
 const RESUME_TIP_MS = 5000;
-/** 首帧缓冲超时：DASH CDN 偶发卡住且不触发 video:error */
-const STALL_TIMEOUT_MS = 12000;
+/** 仅提示，不再自动拆掉播放器重载（那会白白多等几秒） */
+const STALL_TIMEOUT_MS = 8000;
 
 export function VideoPlayer({
   playInfo,
@@ -299,10 +299,12 @@ export function VideoPlayer({
           })),
           onSelect(item) {
             const qn = item.qn as number;
-            if (qn !== playInfo.quality) {
-              saveCurrentProgress();
-              onQualityChangeRef.current(qn);
+            // 初始化时 Artplayer 可能回传默认项；仅用户切换到其他清晰度才请求新流
+            if (!Number.isFinite(qn) || qn === playInfo.quality) {
+              return item.html;
             }
+            saveCurrentProgress();
+            onQualityChangeRef.current(qn);
             return item.html;
           },
         },
@@ -310,6 +312,8 @@ export function VideoPlayer({
       plugins: [
         artplayerPluginDanmuku({
           danmuku: async () => {
+            // 先让视频抢带宽开播，弹幕稍后再拉
+            await new Promise((resolve) => window.setTimeout(resolve, 800));
             try {
               return await window.biliDesk.bili.getDanmakuList(cid);
             } catch (error) {
@@ -362,10 +366,7 @@ export function VideoPlayer({
       onErrorRef.current?.("视频加载失败，可点刷新重试或切换清晰度");
     });
 
-    art.on("video:canplay", () => {
-      trySeekToProgress(art);
-    });
-
+    // 不在 canplay 立刻续播 seek：缓冲未稳时一 seek 就会一直转圈
     const stallTimer = window.setTimeout(() => {
       const media = art.video as HTMLVideoElement | undefined;
       const stuck =
@@ -379,6 +380,7 @@ export function VideoPlayer({
 
     art.on("video:playing", () => {
       window.clearTimeout(stallTimer);
+      window.setTimeout(() => trySeekToProgress(art), 400);
     });
 
     art.on("video:timeupdate", () => {

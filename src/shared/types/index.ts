@@ -221,6 +221,9 @@ export interface UserRelationListPage {
   page: number;
   total: number;
   hasMore: boolean;
+  /** 对方隐私设置导致不可见（业务结果，不是异常） */
+  privacyBlocked?: boolean;
+  message?: string;
 }
 
 export type UserRelationListType = "followings" | "followers";
@@ -724,6 +727,7 @@ export interface BiliDeskApi {
       bvid: string,
       cid: number,
       qn?: number,
+      options?: { preferMp4?: boolean },
     ) => Promise<VideoPlayInfo>;
     getVideoRelation: (bvid: string, aid: number) => Promise<VideoRelation>;
     likeVideo: (aid: number, like: boolean) => Promise<void>;

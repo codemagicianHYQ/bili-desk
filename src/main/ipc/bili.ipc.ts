@@ -30,8 +30,13 @@ export function registerBiliIpc(): void {
   ipcMain.handle(IPC.BILI_VIDEO, (_e, bvid: string) => biliApi.getVideo(bvid));
   ipcMain.handle(
     IPC.BILI_PLAY_URL,
-    (_e, bvid: string, cid: number, qn?: number) =>
-      biliApi.getPlayUrl(bvid, cid, qn),
+    (
+      _e,
+      bvid: string,
+      cid: number,
+      qn?: number,
+      options?: { preferMp4?: boolean },
+    ) => biliApi.getPlayUrl(bvid, cid, qn, options),
   );
   ipcMain.handle(IPC.BILI_VIDEO_RELATION, (_e, bvid: string, aid: number) =>
     biliApi.getVideoRelation(bvid, aid),
