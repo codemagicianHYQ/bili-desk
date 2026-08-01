@@ -12,6 +12,7 @@ import { FollowButton } from "@/components/video/FollowButton";
 import { VideoCard } from "@/components/video/VideoCard";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { cn, formatCount } from "@/lib/utils";
+import { formatUserSpaceError } from "@/lib/ipc-error";
 import { useAppStore } from "@/stores/app-store";
 
 const GRID_COLS_CLASS = {
@@ -25,14 +26,6 @@ const ORDER_OPTIONS: Array<{ value: UpVideosOrder; label: string }> = [
   { value: "pubdate", label: "按时间" },
   { value: "click", label: "按播放量" },
 ];
-
-function formatPageError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "加载失败";
-  if (message.startsWith("Error invoking remote method")) {
-    return "加载失败，请稍后重试";
-  }
-  return message;
-}
 
 function parseMid(value: string | undefined): number {
   if (!value) return 0;
@@ -117,7 +110,7 @@ export function UpSpacePage() {
         setHasMore(upVideos.hasMore);
       } catch (e) {
         if (cancelled) return;
-        const message = formatPageError(e);
+        const message = formatUserSpaceError(e);
         if (loadedProfile) {
           setVideosError(message);
         } else {
@@ -165,7 +158,7 @@ export function UpSpacePage() {
         setPage(result.page);
         setHasMore(result.hasMore);
       } catch (e) {
-        setVideosError(formatPageError(e));
+        setVideosError(formatUserSpaceError(e));
       } finally {
         setVideosLoading(false);
         setLoadingMore(false);
@@ -210,7 +203,7 @@ export function UpSpacePage() {
       await window.biliDesk.bili.modifyFollow(mid, !relation.isFollowing);
       setRelation({ ...relation, isFollowing: !relation.isFollowing });
     } catch (e) {
-      setProfileError(formatPageError(e));
+      setProfileError(formatUserSpaceError(e));
     } finally {
       setLoadingFollow(false);
     }
@@ -226,8 +219,11 @@ export function UpSpacePage() {
 
   if (profileError && !profile) {
     return (
-      <div className="flex h-full items-center justify-center text-red-400">
-        {profileError}
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+        <p className="text-sm text-red-400">{profileError}</p>
+        <p className="text-xs text-muted-foreground">
+          可能是账号已注销、不存在，或暂时无法访问
+        </p>
       </div>
     );
   }

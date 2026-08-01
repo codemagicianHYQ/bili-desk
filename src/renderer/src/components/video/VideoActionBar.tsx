@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { VideoDetail, VideoRelation } from "@shared/types";
-import { Button } from "@/components/ui/button";
 import { cn, formatCount } from "@/lib/utils";
+import {
+  ActionCelebrate,
+  type CelebrateKind,
+} from "@/components/video/ActionCelebrate";
+import { CoinTossDialog } from "@/components/video/CoinTossDialog";
 import { VideoFavButton } from "@/components/video/VideoFavButton";
-import { Coins, Loader2, Share2, ThumbsUp, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 interface VideoActionBarProps {
   video: VideoDetail;
@@ -19,6 +23,70 @@ function formatActionError(err: unknown): string {
   return message;
 }
 
+function LikeGlyph({ filled }: { filled?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" className="bili-toolbar-icon h-6 w-6" aria-hidden>
+      <path
+        d="M7.5 10.2V20H5.2A1.7 1.7 0 0 1 3.5 18.3v-6.4A1.7 1.7 0 0 1 5.2 10.2h2.3Zm2.1-.1 3.2-5.5a1.9 1.9 0 0 1 3.4 1.4l-.7 3.3h4.3a2.3 2.3 0 0 1 2.2 2.8l-1.3 6.1A2.7 2.7 0 0 1 17.9 20H9.6V10.1Z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth={filled ? 0 : 1.7}
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CoinGlyph({ filled }: { filled?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" className="bili-toolbar-icon h-6 w-6" aria-hidden>
+      <circle
+        cx="12"
+        cy="12"
+        r="8.2"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.7"
+        opacity={filled ? 0.22 : 1}
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="8.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <text
+        x="12"
+        y="15.5"
+        textAnchor="middle"
+        fontSize="10"
+        fontWeight="700"
+        fill="currentColor"
+      >
+        币
+      </text>
+    </svg>
+  );
+}
+
+function ShareGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="bili-toolbar-icon h-6 w-6" aria-hidden>
+      <circle cx="18" cy="5.5" r="2.3" fill="currentColor" />
+      <circle cx="18" cy="18.5" r="2.3" fill="currentColor" />
+      <circle cx="6" cy="12" r="2.3" fill="currentColor" />
+      <path
+        d="M8.1 11.1 15.7 6.7M8.1 12.9l7.6 4.4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function VideoActionBar({ video, className }: VideoActionBarProps) {
   const [relation, setRelation] = useState<VideoRelation | null>(null);
   const [likeCount, setLikeCount] = useState(video.stat.like);
@@ -30,6 +98,9 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
   const [selectLike, setSelectLike] = useState(true);
   const [hint, setHint] = useState("");
   const [error, setError] = useState("");
+  const [celebrate, setCelebrate] = useState<CelebrateKind | null>(null);
+  const [popLike, setPopLike] = useState(false);
+  const [popCoin, setPopCoin] = useState(false);
 
   useEffect(() => {
     setLikeCount(video.stat.like);
@@ -39,6 +110,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
     setRelation(null);
     setError("");
     setHint("");
+    setCelebrate(null);
   }, [video.aid, video.stat]);
 
   const loadRelation = useCallback(async () => {
@@ -57,20 +129,22 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
     void loadRelation();
   }, [loadRelation]);
 
-  useEffect(() => {
-    if (!coinOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && busy !== "coin") setCoinOpen(false);
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [coinOpen, busy]);
-
   const showHint = (message: string) => {
     setHint(message);
     window.setTimeout(() => {
       setHint((prev) => (prev === message ? "" : prev));
     }, 2200);
+  };
+
+  const triggerPop = (kind: CelebrateKind) => {
+    setCelebrate(kind);
+    if (kind === "like") {
+      setPopLike(true);
+      window.setTimeout(() => setPopLike(false), 560);
+    } else {
+      setPopCoin(true);
+      window.setTimeout(() => setPopCoin(false), 560);
+    }
   };
 
   const handleLike = async () => {
@@ -87,6 +161,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
         favorited: prev?.favorited ?? false,
       }));
       setLikeCount((count) => Math.max(0, count + (nextLiked ? 1 : -1)));
+      if (nextLiked) triggerPop("like");
     } catch (err) {
       setError(formatActionError(err));
     } finally {
@@ -123,7 +198,12 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
         favorited: prev?.favorited ?? false,
       }));
       setCoinCount((count) => count + multiply);
-      if (willLike) setLikeCount((count) => count + 1);
+      if (willLike) {
+        setLikeCount((count) => count + 1);
+        setPopLike(true);
+        window.setTimeout(() => setPopLike(false), 560);
+      }
+      triggerPop("coin");
       setCoinOpen(false);
       showHint(`已投币 ${multiply} 枚`);
     } catch (err) {
@@ -158,127 +238,65 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
   const coined = (relation?.coin ?? 0) > 0;
   const remainingCoins = Math.max(0, 2 - (relation?.coin ?? 0));
 
-  const coinDialog = coinOpen
-    ? createPortal(
-        <div
-          className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
-          onClick={() => {
-            if (busy !== "coin") setCoinOpen(false);
-          }}
-        >
-          <div
-            className="relative z-[10000] w-full max-w-sm rounded-2xl border border-border bg-card shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">给 UP 主投币</p>
-                <p className="text-xs text-muted-foreground">
-                  {remainingCoins > 0
-                    ? `本视频还可投 ${remainingCoins} 枚`
-                    : "本视频已投满"}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={busy === "coin"}
-                onClick={() => setCoinOpen(false)}
-                className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 p-4">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-primary"
-                  checked={selectLike}
-                  disabled={liked || busy === "coin"}
-                  onChange={(event) => setSelectLike(event.target.checked)}
-                />
-                <span className={cn(liked && "text-muted-foreground")}>
-                  {liked ? "已点赞" : "同时点赞"}
-                </span>
-              </label>
-
-              {error && <p className="text-xs text-red-400">{error}</p>}
-
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="flex-1"
-                  disabled={busy === "coin" || remainingCoins < 1}
-                  onClick={() => void handleCoin(1)}
-                >
-                  {busy === "coin" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    "投 1 币"
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  className="flex-1"
-                  disabled={busy === "coin" || remainingCoins < 2}
-                  onClick={() => void handleCoin(2)}
-                >
-                  投 2 币
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )
-    : null;
-
   return (
     <div className={cn("space-y-2", className)}>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
+      <div className="flex flex-wrap items-center gap-1 sm:gap-3">
+        <button
           type="button"
-          size="sm"
-          variant="outline"
           disabled={busy === "like"}
           className={cn(
-            "gap-1.5",
-            liked ? "bili-action-btn-active" : "bili-action-btn",
+            "bili-toolbar-action",
+            liked && "is-active",
+            popLike && "is-pop",
           )}
           onClick={() => void handleLike()}
+          title={liked ? "取消点赞" : "点赞"}
         >
+          <ActionCelebrate
+            kind="like"
+            open={celebrate === "like"}
+            onDone={() =>
+              setCelebrate((prev) => (prev === "like" ? null : prev))
+            }
+          />
           {busy === "like" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-6 w-6 animate-spin" />
           ) : (
-            <ThumbsUp className={cn("h-4 w-4", liked && "fill-current")} />
+            <LikeGlyph filled={liked} />
           )}
-          {formatCount(likeCount)}
-        </Button>
+          <span className="bili-toolbar-count">{formatCount(likeCount)}</span>
+        </button>
 
-        <Button
+        <button
           type="button"
-          size="sm"
-          variant="outline"
           disabled={busy === "coin"}
           className={cn(
-            "gap-1.5",
-            coined ? "bili-action-btn-active" : "bili-action-btn",
+            "bili-toolbar-action",
+            coined && "is-coin-active",
+            popCoin && "is-pop",
           )}
           onClick={() => {
             setError("");
             setSelectLike(!liked);
             setCoinOpen(true);
           }}
+          title="投币"
         >
-          <Coins className="h-4 w-4" />
-          {formatCount(coinCount)}
-        </Button>
+          <ActionCelebrate
+            kind="coin"
+            open={celebrate === "coin"}
+            onDone={() =>
+              setCelebrate((prev) => (prev === "coin" ? null : prev))
+            }
+          />
+          <CoinGlyph filled={coined} />
+          <span className="bili-toolbar-count">{formatCount(coinCount)}</span>
+        </button>
 
         <VideoFavButton
           aid={video.aid}
           count={favoriteCount}
+          appearance="toolbar"
           onCollectedChange={(collected) => {
             setFavoriteCount((count) =>
               Math.max(0, count + (collected ? 1 : -1)),
@@ -286,21 +304,20 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
           }}
         />
 
-        <Button
+        <button
           type="button"
-          size="sm"
-          variant="outline"
           disabled={busy === "share"}
-          className="bili-action-btn gap-1.5"
+          className="bili-toolbar-action"
           onClick={() => void handleShare()}
+          title="分享"
         >
           {busy === "share" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-6 w-6 animate-spin" />
           ) : (
-            <Share2 className="h-4 w-4" />
+            <ShareGlyph />
           )}
-          {formatCount(shareCount)}
-        </Button>
+          <span className="bili-toolbar-count">{formatCount(shareCount)}</span>
+        </button>
       </div>
 
       {(hint || (error && !coinOpen)) && (
@@ -314,7 +331,22 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
         </p>
       )}
 
-      {coinDialog}
+      {createPortal(
+        <CoinTossDialog
+          open={coinOpen}
+          remainingCoins={remainingCoins}
+          liked={liked}
+          selectLike={selectLike}
+          loading={busy === "coin"}
+          error={coinOpen ? error : ""}
+          onSelectLikeChange={setSelectLike}
+          onConfirm={(multiply) => void handleCoin(multiply)}
+          onClose={() => {
+            if (busy !== "coin") setCoinOpen(false);
+          }}
+        />,
+        document.body,
+      )}
     </div>
   );
 }

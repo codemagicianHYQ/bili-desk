@@ -67,3 +67,9 @@ export function savePlaybackProgress(
   };
   saveMap(map);
 }
+
+export function clearPlaybackProgress(bvid: string, cid: number): void {
+  const map = loadMap();
+  delete map[progressKey(bvid, cid)];
+  saveMap(map);
+}

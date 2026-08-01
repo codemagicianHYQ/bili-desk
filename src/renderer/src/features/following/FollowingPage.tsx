@@ -44,6 +44,7 @@ export function FollowingPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadSeqRef = useRef(0);
+  const classifyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const followTags = useFollowingStore((state) => state.followTags);
   const sidebarReady = useFollowingStore((state) => state.sidebarReady);
@@ -172,6 +173,15 @@ export function FollowingPage() {
   }, [sidebarMode, selectedTagId, localSelection]);
 
   useEffect(() => {
+    return () => {
+      if (classifyPollRef.current) {
+        clearInterval(classifyPollRef.current);
+        classifyPollRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       await refreshSidebar();
       const { followTags: tags, upGroupTree: tree } =
@@ -265,17 +275,22 @@ export function FollowingPage() {
     setTaskMessage("正在启动智能分组...");
     const { taskId } = await window.biliDesk.ai.runUpClassification();
 
+    if (classifyPollRef.current) clearInterval(classifyPollRef.current);
     const poll = setInterval(async () => {
       const task = await window.biliDesk.ai.getTaskStatus(taskId);
       if (!task) return;
       setTaskMessage(task.message);
       if (task.status === "done" || task.status === "failed") {
         clearInterval(poll);
+        if (classifyPollRef.current === poll) {
+          classifyPollRef.current = null;
+        }
         invalidateSidebar();
         await refreshSidebar({ force: true });
         void loadLocalGroupMembers(localSelection);
       }
     }, 1000);
+    classifyPollRef.current = poll;
   };
 
   const reloadCurrentList = useCallback(async () => {

@@ -11,6 +11,8 @@ interface VideoFavButtonProps {
   /** 展示用收藏总数；有值时按钮显示数字而非文案 */
   count?: number;
   className?: string;
+  /** toolbar：视频页互动栏样式 */
+  appearance?: "default" | "toolbar";
   onCollectedChange?: (collected: boolean) => void;
 }
 
@@ -26,6 +28,7 @@ export function VideoFavButton({
   aid,
   count,
   className,
+  appearance = "default",
   onCollectedChange,
 }: VideoFavButtonProps) {
   const invalidateFolders = useFavoritesStore(
@@ -247,20 +250,47 @@ export function VideoFavButton({
 
   return (
     <>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className={cn(
-          "gap-1.5",
-          isCollected ? "bili-action-btn-active" : "bili-action-btn",
-          className,
-        )}
-        onClick={handleOpen}
-      >
-        <Bookmark className={cn("h-4 w-4", isCollected && "fill-current")} />
-        {count != null ? formatCount(count) : isCollected ? "已收藏" : "收藏"}
-      </Button>
+      {appearance === "toolbar" ? (
+        <button
+          type="button"
+          className={cn(
+            "bili-toolbar-action",
+            isCollected && "is-fav-active",
+            className,
+          )}
+          onClick={handleOpen}
+          title={isCollected ? "已收藏" : "收藏"}
+        >
+          <Bookmark
+            className={cn(
+              "bili-toolbar-icon h-6 w-6",
+              isCollected && "fill-current",
+            )}
+          />
+          <span className="bili-toolbar-count">
+            {count != null
+              ? formatCount(count)
+              : isCollected
+                ? "已收藏"
+                : "收藏"}
+          </span>
+        </button>
+      ) : (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className={cn(
+            "gap-1.5",
+            isCollected ? "bili-action-btn-active" : "bili-action-btn",
+            className,
+          )}
+          onClick={handleOpen}
+        >
+          <Bookmark className={cn("h-4 w-4", isCollected && "fill-current")} />
+          {count != null ? formatCount(count) : isCollected ? "已收藏" : "收藏"}
+        </Button>
+      )}
 
       {dialog && createPortal(dialog, document.body)}
     </>

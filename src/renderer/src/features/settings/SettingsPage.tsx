@@ -32,7 +32,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-8 p-6">
+    <div className="mx-auto max-w-2xl space-y-8 p-6 pb-10">
       <section className="space-y-4 rounded-xl border border-border bg-card p-5">
         <h3 className="font-medium">外观</h3>
         <div className="flex gap-2">
@@ -61,10 +61,10 @@ export function SettingsPage() {
                   type="button"
                   onClick={() => setThemePreset(preset.id)}
                   className={cn(
-                    "flex items-center justify-between rounded-xl border px-3 py-2 text-left transition-colors",
+                    "flex items-center justify-between rounded-xl border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40",
                     active
-                      ? "border-primary/50 bg-primary/10"
-                      : "border-border hover:bg-secondary/60",
+                      ? "border-primary bg-primary/10"
+                      : "border-transparent bg-secondary/20 hover:bg-secondary/60",
                   )}
                 >
                   <div>

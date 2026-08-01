@@ -109,6 +109,8 @@
     --accent: 346 87% 72%;
     --secondary: 335 12% 16%;
     --muted: 335 12% 16%;
+    --border: 336 14% 20%;
+    --input: 336 14% 20%;
     --ring: 346 87% 72%;
   }
 
@@ -249,6 +251,130 @@
 
   .bili-action-btn-active {
     @apply border-primary/60 bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary;
+  }
+
+  /* 视频页互动栏（参考官方：图标 + 数字，轻量无边框块） */
+  .bili-toolbar-action {
+    @apply relative inline-flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-muted-foreground outline-none transition-all;
+    @apply hover:bg-secondary/60 hover:text-foreground;
+    @apply focus-visible:ring-2 focus-visible:ring-primary/30;
+  }
+
+  .bili-toolbar-action:active {
+    transform: scale(0.94);
+  }
+
+  .bili-toolbar-action.is-active {
+    @apply text-primary;
+  }
+
+  .bili-toolbar-action.is-coin-active {
+    color: #e2a00b;
+  }
+
+  .bili-toolbar-action.is-fav-active {
+    color: #f0b429;
+  }
+
+  .bili-toolbar-action .bili-toolbar-icon {
+    @apply transition-transform duration-200;
+  }
+
+  .bili-toolbar-action:hover .bili-toolbar-icon {
+    transform: translateY(-1px) scale(1.06);
+  }
+
+  .bili-toolbar-action.is-pop .bili-toolbar-icon {
+    animation: bili-action-bounce 0.55s cubic-bezier(0.22, 1.35, 0.36, 1);
+  }
+
+  .bili-toolbar-count {
+    @apply min-w-[2ch] font-medium tabular-nums tracking-tight;
+  }
+
+  @keyframes bili-action-bounce {
+    0% {
+      transform: scale(1);
+    }
+    35% {
+      transform: scale(1.28) rotate(-8deg);
+    }
+    60% {
+      transform: scale(0.92) rotate(4deg);
+    }
+    100% {
+      transform: scale(1) rotate(0deg);
+    }
+  }
+
+  @keyframes bili-celebrate-pop {
+    0% {
+      opacity: 0;
+      transform: translateY(18px) scale(0.45);
+    }
+    18% {
+      opacity: 1;
+      transform: translateY(0) scale(1.08);
+    }
+    32% {
+      transform: translateY(-4px) scale(1);
+    }
+    78% {
+      opacity: 1;
+      transform: translateY(-6px) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-16px) scale(0.92);
+    }
+  }
+
+  @keyframes bili-star-twinkle {
+    0%,
+    100% {
+      opacity: 0.25;
+      transform: scale(0.7) rotate(0deg);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.15) rotate(18deg);
+    }
+  }
+
+  @keyframes bili-coin-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-5px);
+    }
+  }
+
+  @keyframes bili-coin-card-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 hsl(var(--primary) / 0.2);
+    }
+    50% {
+      box-shadow: 0 0 0 4px hsl(var(--primary) / 0.12);
+    }
+  }
+
+  @keyframes bili-coin-toss {
+    0% {
+      transform: translateY(0) scale(1) rotate(0deg);
+    }
+    35% {
+      transform: translateY(-18px) scale(1.08) rotate(-6deg);
+    }
+    70% {
+      transform: translateY(-6px) scale(1.02) rotate(4deg);
+    }
+    100% {
+      transform: translateY(-28px) scale(0.9) rotate(0deg);
+      opacity: 0.35;
+    }
   }
 
   .bili-speed-control {

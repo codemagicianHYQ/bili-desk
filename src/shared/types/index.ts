@@ -92,6 +92,12 @@ export interface CommentMember {
   sex?: string;
 }
 
+export interface CommentPicture {
+  src: string;
+  width: number;
+  height: number;
+}
+
 export interface CommentItem {
   rpid: number;
   oid: number;
@@ -99,6 +105,12 @@ export interface CommentItem {
   root: number;
   parent: number;
   content: string;
+  /** 评论里出现的表情：`[doge]` → 图片 URL */
+  emotes?: Record<string, string>;
+  /** 评论附图 */
+  pictures?: CommentPicture[];
+  /** IP 属地，如「江苏」 */
+  location?: string;
   like: number;
   action: number;
   ctime: number;
@@ -233,7 +245,79 @@ export interface RecommendPage {
   hasMore: boolean;
 }
 
+/** 直播间卡片（推荐 / 关注中） */
+export interface LiveRoomItem {
+  roomId: number;
+  title: string;
+  cover: string;
+  online: number;
+  onlineText?: string;
+  areaName: string;
+  parentAreaName?: string;
+  uid: number;
+  uname: string;
+  face: string;
+  /** 1 直播中 / 0 未开播 / 2 轮播 */
+  liveStatus: number;
+  keyframe?: string;
+}
+
+export interface LiveRecommendPage {
+  rooms: LiveRoomItem[];
+  page: number;
+  hasMore: boolean;
+}
+
+export interface FollowingLivePage {
+  rooms: LiveRoomItem[];
+  count: number;
+}
+
+export interface LiveRoomDetail {
+  roomId: number;
+  shortId?: number;
+  title: string;
+  cover: string;
+  online: number;
+  areaName: string;
+  parentAreaName?: string;
+  liveStatus: number;
+  liveStartTime?: number;
+  description?: string;
+  uid: number;
+  uname: string;
+  face: string;
+}
+
+export interface LivePlayInfo {
+  url: string;
+  format: "flv" | "hls";
+  quality: number;
+  qualityLabel: string;
+  qualities: Array<{ qn: number; label: string }>;
+}
+
 export type SearchOrder = "totalrank" | "click" | "pubdate" | "dm" | "stow";
+
+export type SearchCategory =
+  | "all"
+  | "video"
+  | "bangumi"
+  | "media"
+  | "live"
+  | "article"
+  | "user";
+
+/** 用户搜索排序：默认 / 粉丝高低 / 等级高低 */
+export type SearchUserOrder =
+  | "default"
+  | "fans_desc"
+  | "fans_asc"
+  | "level_desc"
+  | "level_asc";
+
+/** 用户分类：全部 / UP主 / 普通 / 认证 */
+export type SearchUserTypeFilter = 0 | 1 | 2 | 3;
 
 export interface SearchVideosPage {
   videos: VideoItem[];
@@ -241,6 +325,37 @@ export interface SearchVideosPage {
   hasMore: boolean;
   total: number;
   nextApiPage?: number;
+}
+
+export interface SearchUserItem {
+  mid: number;
+  name: string;
+  face: string;
+  sign: string;
+  fans: number;
+  videos: number;
+  level: number;
+  isUp: boolean;
+  isLive: boolean;
+  roomId?: number;
+  officialDesc?: string;
+  isFollowing: boolean;
+}
+
+export interface SearchUsersPage {
+  users: SearchUserItem[];
+  page: number;
+  hasMore: boolean;
+  total: number;
+}
+
+export interface SearchTypeCounts {
+  video: number;
+  bangumi: number;
+  media: number;
+  live: number;
+  article: number;
+  user: number;
 }
 
 export interface ToViewItem extends VideoItem {
@@ -257,17 +372,24 @@ export interface ToViewList {
 export interface SpaceDynamicItem {
   id: string;
   type: string;
-  kind: "video" | "opus" | "text" | "forward";
+  kind: "video" | "opus" | "text" | "draw" | "live" | "forward";
   text: string;
   pubTime: number;
   pubTimeLabel?: string;
   pubAction?: string;
+  authorMid?: number;
   authorName?: string;
   authorFace?: string;
   cover?: string;
+  /** 图文多图 */
+  images?: string[];
   bvid?: string;
   title?: string;
   duration?: number;
+  /** 直播间号 / 跳转 */
+  liveRoomId?: number;
+  liveUrl?: string;
+  liveState?: number;
   stats?: {
     view?: number;
     like?: number;
@@ -276,9 +398,51 @@ export interface SpaceDynamicItem {
   };
 }
 
+export type DynamicFeedType = "all" | "video" | "article";
+
 export interface SpaceDynamicPage {
   items: SpaceDynamicItem[];
   offset: string;
+  hasMore: boolean;
+  updateBaseline?: string;
+  updateNum?: number;
+}
+
+/** 历史记录分类（对应接口 type） */
+export type HistoryFeedType = "all" | "archive" | "live" | "article";
+
+export interface HistoryCursor {
+  max: number;
+  viewAt: number;
+  business: string;
+}
+
+export interface HistoryItem {
+  id: string;
+  kid: number;
+  title: string;
+  cover: string;
+  covers?: string[];
+  authorName: string;
+  authorFace: string;
+  authorMid: number;
+  viewAt: number;
+  progress: number;
+  duration: number;
+  showTitle?: string;
+  badge?: string;
+  tagName?: string;
+  liveStatus?: number;
+  business: string;
+  bvid?: string;
+  oid: number;
+  cid?: number;
+  uri?: string;
+}
+
+export interface HistoryPage {
+  items: HistoryItem[];
+  cursor: HistoryCursor;
   hasMore: boolean;
 }
 
@@ -499,6 +663,10 @@ export interface BiliDeskApi {
       freshIdx1h?: number;
       ps?: number;
     }) => Promise<RecommendPage>;
+    getLiveRecommend: (page?: number) => Promise<LiveRecommendPage>;
+    getFollowingLives: () => Promise<FollowingLivePage>;
+    getLiveRoom: (roomId: number) => Promise<LiveRoomDetail>;
+    getLivePlayUrl: (roomId: number, qn?: number) => Promise<LivePlayInfo>;
     getVideo: (bvid: string) => Promise<VideoDetail>;
     getPlayUrl: (
       bvid: string,
@@ -529,6 +697,7 @@ export interface BiliDeskApi {
       parent?: number,
     ) => Promise<void>;
     likeComment: (aid: number, rpid: number, like: boolean) => Promise<void>;
+    getReplyEmotes: () => Promise<Record<string, string>>;
     getFavFolders: () => Promise<FavFolder[]>;
     getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
     setVideoFavFolders: (
@@ -540,6 +709,12 @@ export interface BiliDeskApi {
       mediaId: number,
       page?: number,
     ) => Promise<FavResourcesPage>;
+    removeFavResources: (mediaId: number, aids: number[]) => Promise<void>;
+    moveFavResources: (
+      srcMediaId: number,
+      tarMediaId: number,
+      aids: number[],
+    ) => Promise<void>;
     getFollowings: (page?: number) => Promise<FollowingUp[]>;
     getFollowTags: () => Promise<FollowTag[]>;
     getFollowingsInTag: (
@@ -563,6 +738,13 @@ export interface BiliDeskApi {
       apiStartPage?: number,
       pageSize?: number,
     ) => Promise<SearchVideosPage>;
+    searchUsers: (
+      keyword: string,
+      page?: number,
+      order?: SearchUserOrder,
+      userType?: SearchUserTypeFilter,
+    ) => Promise<SearchUsersPage>;
+    getSearchTypeCounts: (keyword: string) => Promise<SearchTypeCounts>;
     getToViewList: () => Promise<ToViewList>;
     addToView: (aid: number, bvid: string) => Promise<void>;
     removeFromToView: (aid: number) => Promise<void>;
@@ -570,6 +752,20 @@ export interface BiliDeskApi {
       mid: number,
       offset?: string,
     ) => Promise<SpaceDynamicPage>;
+    getFollowDynamics: (
+      offset?: string,
+      type?: DynamicFeedType,
+    ) => Promise<SpaceDynamicPage>;
+    getWatchHistory: (
+      type?: HistoryFeedType,
+      cursor?: HistoryCursor,
+    ) => Promise<HistoryPage>;
+    deleteWatchHistory: (item: {
+      business: string;
+      oid: number;
+      kid?: number;
+    }) => Promise<void>;
+    clearWatchHistory: () => Promise<void>;
     getUserCollections: (
       mid: number,
       page?: number,

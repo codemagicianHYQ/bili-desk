@@ -6,6 +6,7 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { VideoCard } from "@/components/video/VideoCard";
 import { cn, formatCount } from "@/lib/utils";
+import { formatUserSpaceError } from "@/lib/ipc-error";
 import { MyCheesePanel } from "./MyCheesePanel";
 import { MyCollectionsPanel } from "./MyCollectionsPanel";
 import { MyDynamicsPanel } from "./MyDynamicsPanel";
@@ -33,14 +34,6 @@ type MyTab =
   | "favorites"
   | "follow"
   | "cheese";
-
-function formatPageError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "加载失败";
-  if (message.startsWith("Error invoking remote method")) {
-    return "加载失败，请稍后重试";
-  }
-  return message;
-}
 
 function normalizeUpVideosPage(data: unknown): {
   videos: VideoItem[];
@@ -108,7 +101,7 @@ export function MyPage() {
         if (!cancelled) setProfile(data);
       })
       .catch((err) => {
-        if (!cancelled) setProfileError(formatPageError(err));
+        if (!cancelled) setProfileError(formatUserSpaceError(err));
       })
       .finally(() => {
         if (!cancelled) setProfileLoading(false);
@@ -143,7 +136,7 @@ export function MyPage() {
         setVideoPage(result.page);
         setVideoHasMore(result.hasMore);
       } catch (err) {
-        setVideosError(formatPageError(err));
+        setVideosError(formatUserSpaceError(err));
       } finally {
         setVideosLoading(false);
         setLoadingMore(false);

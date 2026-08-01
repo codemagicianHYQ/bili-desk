@@ -8,6 +8,8 @@ import {
   LogIn,
   LogOut,
   UserCircle2,
+  Radio,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -17,9 +19,11 @@ import { BiliImage } from "@/components/ui/bili-image";
 
 const navItems = [
   { to: "/", icon: Home, label: "首页" },
+  { to: "/dynamics", icon: Radio, label: "动态" },
   { to: "/me", icon: UserCircle2, label: "我的" },
   { to: "/favorites", icon: Bookmark, label: "收藏" },
   { to: "/following", icon: Users, label: "关注" },
+  { to: "/history", icon: History, label: "历史记录" },
   { to: "/watch-later", icon: Clock, label: "稍后再看" },
   { to: "/settings", icon: Settings, label: "设置" },
 ];
@@ -37,24 +41,46 @@ export function Sidebar() {
   const watchLaterKeepAlive = useNavigationStore(
     (state) => state.watchLaterKeepAlive,
   );
+  const dynamicsKeepAlive = useNavigationStore(
+    (state) => state.dynamicsKeepAlive,
+  );
+  const historyKeepAlive = useNavigationStore(
+    (state) => state.historyKeepAlive,
+  );
 
   const path = location.pathname;
   const inFollowingFlow =
     followingKeepAlive &&
     (path === "/following" ||
       path.startsWith("/up/") ||
-      (path.startsWith("/video/") &&
+      ((path.startsWith("/video/") || path.startsWith("/live/")) &&
         !favoritesKeepAlive &&
-        !watchLaterKeepAlive));
+        !watchLaterKeepAlive &&
+        !dynamicsKeepAlive &&
+        !historyKeepAlive));
   const inFavoritesFlow =
     favoritesKeepAlive &&
     (path === "/favorites" ||
       path.startsWith("/video/") ||
+      path.startsWith("/live/") ||
       path.startsWith("/up/"));
   const inWatchLaterFlow =
     watchLaterKeepAlive &&
     (path === "/watch-later" ||
       path.startsWith("/video/") ||
+      path.startsWith("/live/") ||
+      path.startsWith("/up/"));
+  const inDynamicsFlow =
+    dynamicsKeepAlive &&
+    (path === "/dynamics" ||
+      path.startsWith("/video/") ||
+      path.startsWith("/live/") ||
+      path.startsWith("/up/"));
+  const inHistoryFlow =
+    historyKeepAlive &&
+    (path === "/history" ||
+      path.startsWith("/video/") ||
+      path.startsWith("/live/") ||
       path.startsWith("/up/"));
 
   const handleLogout = async () => {
@@ -82,7 +108,9 @@ export function Sidebar() {
             (to !== "/" && location.pathname.startsWith(to)) ||
             (to === "/following" && inFollowingFlow) ||
             (to === "/favorites" && inFavoritesFlow) ||
-            (to === "/watch-later" && inWatchLaterFlow);
+            (to === "/watch-later" && inWatchLaterFlow) ||
+            (to === "/dynamics" && inDynamicsFlow) ||
+            (to === "/history" && inHistoryFlow);
           return (
             <Link
               key={to}

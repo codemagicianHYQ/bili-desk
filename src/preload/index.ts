@@ -3,10 +3,15 @@ import { IPC } from "@shared/ipc-channels";
 import type {
   AiConfig,
   SearchOrder,
+  SearchUserOrder,
+  SearchUserTypeFilter,
   AddCoinPayload,
   SendDanmakuPayload,
   WatchHeartbeatPayload,
   Theme,
+  DynamicFeedType,
+  HistoryCursor,
+  HistoryFeedType,
   UpGroupSelection,
   UpGroupTreeNode,
   UpVideosOrder,
@@ -29,6 +34,17 @@ const api = {
       options
         ? ipcRenderer.invoke(IPC.BILI_RECOMMEND, options)
         : ipcRenderer.invoke(IPC.BILI_RECOMMEND),
+    getLiveRecommend: (page?: number) =>
+      page == null
+        ? ipcRenderer.invoke(IPC.BILI_LIVE_RECOMMEND)
+        : ipcRenderer.invoke(IPC.BILI_LIVE_RECOMMEND, page),
+    getFollowingLives: () => ipcRenderer.invoke(IPC.BILI_LIVE_FOLLOWING),
+    getLiveRoom: (roomId: number) =>
+      ipcRenderer.invoke(IPC.BILI_LIVE_ROOM, roomId),
+    getLivePlayUrl: (roomId: number, qn?: number) =>
+      qn == null
+        ? ipcRenderer.invoke(IPC.BILI_LIVE_PLAY_URL, roomId)
+        : ipcRenderer.invoke(IPC.BILI_LIVE_PLAY_URL, roomId, qn),
     getVideo: (bvid: string) => ipcRenderer.invoke(IPC.BILI_VIDEO, bvid),
     getPlayUrl: (bvid: string, cid: number, qn?: number) =>
       ipcRenderer.invoke(IPC.BILI_PLAY_URL, bvid, cid, qn),
@@ -65,6 +81,7 @@ const api = {
       ),
     likeComment: (aid: number, rpid: number, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_COMMENT_LIKE, aid, rpid, like),
+    getReplyEmotes: () => ipcRenderer.invoke(IPC.BILI_REPLY_EMOTES),
     getFavFolders: () => ipcRenderer.invoke(IPC.BILI_FAV_FOLDERS),
     getVideoFavFolders: (aid: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_FOLDERS, aid),
@@ -78,6 +95,19 @@ const api = {
       page != null
         ? ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId, page)
         : ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId),
+    removeFavResources: (mediaId: number, aids: number[]) =>
+      ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES_REMOVE, mediaId, aids),
+    moveFavResources: (
+      srcMediaId: number,
+      tarMediaId: number,
+      aids: number[],
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_FAV_RESOURCES_MOVE,
+        srcMediaId,
+        tarMediaId,
+        aids,
+      ),
     getFollowings: (page?: number) =>
       page != null
         ? ipcRenderer.invoke(IPC.BILI_FOLLOWINGS, page)
@@ -118,6 +148,21 @@ const api = {
         apiStartPage ?? 1,
         pageSize ?? 30,
       ),
+    searchUsers: (
+      keyword: string,
+      page?: number,
+      order?: SearchUserOrder,
+      userType?: SearchUserTypeFilter,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_SEARCH_USERS,
+        keyword,
+        page ?? 1,
+        order,
+        userType ?? 0,
+      ),
+    getSearchTypeCounts: (keyword: string) =>
+      ipcRenderer.invoke(IPC.BILI_SEARCH_TYPE_COUNTS, keyword),
     getToViewList: () => ipcRenderer.invoke(IPC.BILI_TOVIEW_LIST),
     addToView: (aid: number, bvid: string) =>
       ipcRenderer.invoke(IPC.BILI_TOVIEW_ADD, aid, bvid),
@@ -125,6 +170,16 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_TOVIEW_REMOVE, aid),
     getSpaceDynamics: (mid: number, offset?: string) =>
       ipcRenderer.invoke(IPC.BILI_SPACE_DYNAMICS, mid, offset ?? ""),
+    getFollowDynamics: (offset?: string, type?: DynamicFeedType) =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_DYNAMICS, offset ?? "", type ?? "all"),
+    getWatchHistory: (type?: HistoryFeedType, cursor?: HistoryCursor) =>
+      ipcRenderer.invoke(IPC.BILI_WATCH_HISTORY, type ?? "all", cursor),
+    deleteWatchHistory: (item: {
+      business: string;
+      oid: number;
+      kid?: number;
+    }) => ipcRenderer.invoke(IPC.BILI_WATCH_HISTORY_DELETE, item),
+    clearWatchHistory: () => ipcRenderer.invoke(IPC.BILI_WATCH_HISTORY_CLEAR),
     getUserCollections: (mid: number, page?: number) =>
       ipcRenderer.invoke(IPC.BILI_USER_COLLECTIONS, mid, page ?? 1),
     getSeasonArchives: (mid: number, seasonId: number, page?: number) =>

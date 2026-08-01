@@ -7,33 +7,51 @@ import {
   filterAssignmentsByCategory,
 } from "@shared/utils/local-category";
 import { CategoryTree } from "@/components/taxonomy/CategoryTree";
+import { FavMoveDialog } from "@/components/favorites/FavMoveDialog";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Link } from "react-router-dom";
+import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn, formatDuration } from "@/lib/utils";
-import { Folder, Loader2, Sparkles } from "lucide-react";
+import {
+  Check,
+  Folder,
+  FolderInput,
+  Loader2,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 const LOCAL_PAGE_SIZE = 40;
 
 type SidebarMode = "bilibili" | "local";
 
 function formatFolderError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "加载失败";
+  const message = extractIpcErrorMessage(err) || "加载失败";
   if (message.includes("412") || message.includes("安全策略")) {
     return "请求被 B 站安全策略拦截，请稍后重试";
-  }
-  if (message.startsWith("Error invoking remote method")) {
-    return "加载失败，请稍后重试";
   }
   return message;
 }
 
-function FavVideoCard({ item }: { item: FavResource }) {
-  return (
-    <Link
-      to={item.bvid ? `/video/${item.bvid}` : "#"}
-      className="flex gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-secondary/50"
-    >
+function FavVideoCard({
+  item,
+  editing,
+  selected,
+  removing,
+  onToggleSelect,
+  onRemove,
+}: {
+  item: FavResource;
+  editing: boolean;
+  selected: boolean;
+  removing: boolean;
+  onToggleSelect: () => void;
+  onRemove: () => void;
+}) {
+  const body = (
+    <>
       {item.cover ? (
         <BiliImage
           src={item.cover}
@@ -45,7 +63,7 @@ function FavVideoCard({ item }: { item: FavResource }) {
           无封面
         </div>
       )}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 pr-6">
         <p className="line-clamp-2 text-sm font-medium">{item.title}</p>
         {item.upper.name && (
           <p className="mt-1 text-xs text-muted-foreground">
@@ -58,7 +76,78 @@ function FavVideoCard({ item }: { item: FavResource }) {
           </p>
         )}
       </div>
-    </Link>
+    </>
+  );
+
+  return (
+    <div
+      className={cn(
+        "group relative rounded-xl border border-border bg-card transition-colors",
+        editing &&
+          selected &&
+          "ring-2 ring-primary ring-offset-2 ring-offset-background",
+        editing ? "hover:bg-secondary/40" : "hover:bg-secondary/50",
+      )}
+    >
+      {editing ? (
+        <button
+          type="button"
+          className="flex w-full gap-3 p-3 text-left"
+          onClick={onToggleSelect}
+        >
+          {body}
+        </button>
+      ) : (
+        <Link
+          to={item.bvid ? `/video/${item.bvid}` : "#"}
+          className="flex gap-3 p-3"
+        >
+          {body}
+        </Link>
+      )}
+
+      {editing ? (
+        <button
+          type="button"
+          title={selected ? "取消选择" : "选择"}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggleSelect();
+          }}
+          className={cn(
+            "absolute left-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 transition-colors",
+            selected
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-white/80 bg-black/55 text-white hover:bg-black/75",
+          )}
+        >
+          {selected && <Check className="h-3.5 w-3.5" />}
+        </button>
+      ) : (
+        <button
+          type="button"
+          title="从当前收藏夹移除"
+          disabled={removing}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onRemove();
+          }}
+          className={cn(
+            "absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full",
+            "bg-black/55 text-white opacity-0 transition-opacity hover:bg-red-500/90",
+            "group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-60",
+          )}
+        >
+          {removing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -66,6 +155,7 @@ export function FavoritesPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const folderLoadSeqRef = useRef(0);
+  const classifyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const tree = useFavoritesStore((state) => state.tree);
   const assignments = useFavoritesStore((state) => state.assignments);
@@ -77,6 +167,9 @@ export function FavoritesPage() {
   const enrichCoversOnce = useFavoritesStore((state) => state.enrichCoversOnce);
   const invalidateTaxonomy = useFavoritesStore(
     (state) => state.invalidateTaxonomy,
+  );
+  const patchFolderCounts = useFavoritesStore(
+    (state) => state.patchFolderCounts,
   );
   const refreshVersion = useFavoritesStore((state) => state.refreshVersion);
 
@@ -98,6 +191,16 @@ export function FavoritesPage() {
   const [classifyMessage, setClassifyMessage] = useState<string | null>(null);
   const [classifyProgress, setClassifyProgress] = useState(0);
 
+  const [editing, setEditing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [batchRemoving, setBatchRemoving] = useState(false);
+  const [batchMoving, setBatchMoving] = useState(false);
+  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [moveError, setMoveError] = useState("");
+
   const isLocalMode = sidebarMode === "local";
 
   const reloadTaxonomy = useCallback(async () => {
@@ -112,6 +215,15 @@ export function FavoritesPage() {
       setSelectedFolder((prev) => prev ?? list[0]?.id ?? null);
     })();
   }, [ensureTaxonomy, ensureFolders, enrichCoversOnce]);
+
+  useEffect(() => {
+    return () => {
+      if (classifyPollRef.current) {
+        clearInterval(classifyPollRef.current);
+        classifyPollRef.current = null;
+      }
+    };
+  }, []);
 
   const loadFolderPage = useCallback(
     async (mediaId: number, page: number, append: boolean) => {
@@ -156,6 +268,12 @@ export function FavoritesPage() {
 
   useEffect(() => {
     setListReady(false);
+    setEditing(false);
+    setSelectedIds(new Set());
+    setActionError("");
+    setMoveError("");
+    setMoveOpen(false);
+    setBatchConfirmOpen(false);
   }, [sidebarMode, selectedFolder, localSelection]);
 
   useEffect(() => {
@@ -269,6 +387,110 @@ export function FavoritesPage() {
     displayItems.length,
   ]);
 
+  const refreshFolderMeta = useCallback(
+    async (optimistic?: Record<number, number>) => {
+      if (optimistic) patchFolderCounts(optimistic);
+      // 官方 media_count 偶发延迟，稍后强制拉取一次校准
+      window.setTimeout(() => {
+        void ensureFolders({ force: true }).catch(() => undefined);
+      }, 800);
+    },
+    [ensureFolders, patchFolderCounts],
+  );
+
+  const removeFromFolder = useCallback(
+    async (aids: number[]) => {
+      if (!selectedFolder || aids.length === 0) return;
+      await window.biliDesk.bili.removeFavResources(selectedFolder, aids);
+      const removed = new Set(aids);
+      setResources((prev) => prev.filter((item) => !removed.has(item.id)));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of aids) next.delete(id);
+        return next;
+      });
+      await refreshFolderMeta({ [selectedFolder]: -aids.length });
+    },
+    [refreshFolderMeta, selectedFolder],
+  );
+
+  const handleQuickRemove = useCallback(
+    async (item: FavResource) => {
+      if (!selectedFolder || isLocalMode) return;
+      setRemovingId(item.id);
+      setActionError("");
+      try {
+        await removeFromFolder([item.id]);
+      } catch (err) {
+        setActionError(formatFolderError(err));
+      } finally {
+        setRemovingId(null);
+      }
+    },
+    [isLocalMode, removeFromFolder, selectedFolder],
+  );
+
+  const handleBatchRemove = useCallback(async () => {
+    if (!selectedFolder || selectedIds.size === 0) return;
+    setBatchRemoving(true);
+    setActionError("");
+    try {
+      await removeFromFolder([...selectedIds]);
+      setBatchConfirmOpen(false);
+    } catch (err) {
+      setActionError(formatFolderError(err));
+    } finally {
+      setBatchRemoving(false);
+    }
+  }, [removeFromFolder, selectedFolder, selectedIds]);
+
+  const handleBatchMove = useCallback(
+    async (targetFolderId: number) => {
+      if (!selectedFolder || selectedIds.size === 0) return;
+      setBatchMoving(true);
+      setMoveError("");
+      setActionError("");
+      try {
+        const aids = [...selectedIds];
+        await window.biliDesk.bili.moveFavResources(
+          selectedFolder,
+          targetFolderId,
+          aids,
+        );
+        const moved = new Set(aids);
+        setResources((prev) => prev.filter((item) => !moved.has(item.id)));
+        setSelectedIds(new Set());
+        setMoveOpen(false);
+        await refreshFolderMeta({
+          [selectedFolder]: -aids.length,
+          [targetFolderId]: aids.length,
+        });
+      } catch (err) {
+        setMoveError(formatFolderError(err));
+      } finally {
+        setBatchMoving(false);
+      }
+    },
+    [refreshFolderMeta, selectedFolder, selectedIds],
+  );
+
+  const batchBusy = batchRemoving || batchMoving;
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllLoaded = () => {
+    setSelectedIds(new Set(resources.map((item) => item.id)));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
   const handleClassifyAll = async () => {
     setClassifying(true);
     setClassifyMessage("正在启动分类任务...");
@@ -278,6 +500,7 @@ export function FavoritesPage() {
       const { taskId } = await window.biliDesk.taxonomy.classifyAllFavorites();
 
       await new Promise<void>((resolve, reject) => {
+        if (classifyPollRef.current) clearInterval(classifyPollRef.current);
         const poll = setInterval(async () => {
           try {
             const task =
@@ -289,6 +512,9 @@ export function FavoritesPage() {
 
             if (task.status === "done" || task.status === "failed") {
               clearInterval(poll);
+              if (classifyPollRef.current === poll) {
+                classifyPollRef.current = null;
+              }
               invalidateTaxonomy();
               await reloadTaxonomy();
               void enrichCoversOnce();
@@ -300,9 +526,13 @@ export function FavoritesPage() {
             }
           } catch (err) {
             clearInterval(poll);
+            if (classifyPollRef.current === poll) {
+              classifyPollRef.current = null;
+            }
             reject(err);
           }
         }, 500);
+        classifyPollRef.current = poll;
       });
     } catch (err) {
       const message =
@@ -443,26 +673,114 @@ export function FavoritesPage() {
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
-          {isLocalMode ? (
-            <>
-              本地分类
-              {localSelection.level !== "all" && " · 已筛选"}
-              ：共 {localCategoryItems.length} 个视频
-              {localCategoryItems.length > 0 &&
-                `，已显示 ${displayItems.length} 个`}
-            </>
-          ) : (
-            <>
-              B 站收藏夹「{selectedFolderInfo?.title ?? "..."}」：已加载{" "}
-              {resources.length}
-              {selectedFolderInfo
-                ? ` / ${selectedFolderInfo.mediaCount}`
-                : ""}{" "}
-              个视频
-            </>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            {isLocalMode ? (
+              <>
+                本地分类
+                {localSelection.level !== "all" && " · 已筛选"}
+                ：共 {localCategoryItems.length} 个视频
+                {localCategoryItems.length > 0 &&
+                  `，已显示 ${displayItems.length} 个`}
+              </>
+            ) : (
+              <>
+                B 站收藏夹「{selectedFolderInfo?.title ?? "..."}」：已加载{" "}
+                {resources.length}
+                {selectedFolderInfo
+                  ? ` / ${selectedFolderInfo.mediaCount}`
+                  : ""}{" "}
+                个视频
+              </>
+            )}
+          </p>
+
+          {!isLocalMode && resources.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {editing ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={batchBusy}
+                    onClick={selectAllLoaded}
+                  >
+                    全选已加载
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={batchBusy || selectedIds.size === 0}
+                    onClick={clearSelection}
+                  >
+                    取消选择
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    disabled={batchBusy || selectedIds.size === 0}
+                    onClick={() => {
+                      setMoveError("");
+                      setMoveOpen(true);
+                    }}
+                  >
+                    {batchMoving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <FolderInput className="h-3.5 w-3.5" />
+                    )}
+                    移动
+                    {selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 border-red-500/30 text-red-400 hover:bg-red-500/15"
+                    disabled={batchBusy || selectedIds.size === 0}
+                    onClick={() => setBatchConfirmOpen(true)}
+                  >
+                    {batchRemoving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                    移除
+                    {selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={batchBusy}
+                    onClick={() => {
+                      setEditing(false);
+                      clearSelection();
+                    }}
+                  >
+                    完成
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditing(true);
+                    setActionError("");
+                  }}
+                >
+                  批量管理
+                </Button>
+              )}
+            </div>
           )}
         </div>
+
+        {actionError && (
+          <p className="border-b border-border px-4 py-2 text-xs text-red-400">
+            {actionError}
+          </p>
+        )}
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           {showListLoading ? (
@@ -473,7 +791,15 @@ export function FavoritesPage() {
           ) : (
             <div className="grid grid-cols-2 gap-3 p-4 xl:grid-cols-3">
               {displayItems.map((item) => (
-                <FavVideoCard key={`${item.id}-${item.bvid}`} item={item} />
+                <FavVideoCard
+                  key={`${item.id}-${item.bvid}`}
+                  item={item}
+                  editing={!isLocalMode && editing}
+                  selected={selectedIds.has(item.id)}
+                  removing={removingId === item.id}
+                  onToggleSelect={() => toggleSelect(item.id)}
+                  onRemove={() => void handleQuickRemove(item)}
+                />
               ))}
 
               {displayItems.length === 0 && (
@@ -505,6 +831,34 @@ export function FavoritesPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={batchConfirmOpen}
+        title={`移除 ${selectedIds.size} 个视频？`}
+        description="将从当前 B 站收藏夹中移除所选视频，不会删除稿件本身。此操作与官方账号同步。"
+        confirmLabel="确认移除"
+        destructive
+        loading={batchRemoving}
+        onConfirm={() => void handleBatchRemove()}
+        onCancel={() => {
+          if (!batchRemoving) setBatchConfirmOpen(false);
+        }}
+      />
+
+      {selectedFolder != null && (
+        <FavMoveDialog
+          open={moveOpen}
+          folders={folders}
+          sourceFolderId={selectedFolder}
+          selectedCount={selectedIds.size}
+          loading={batchMoving}
+          error={moveError}
+          onConfirm={(targetId) => void handleBatchMove(targetId)}
+          onClose={() => {
+            if (!batchMoving) setMoveOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

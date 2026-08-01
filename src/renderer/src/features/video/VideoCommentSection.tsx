@@ -1,17 +1,32 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { Link } from "react-router-dom";
 import type { CommentItem } from "@shared/types";
+import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
+import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { VirtualList } from "@/components/ui/virtual-list";
+import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn, formatCount } from "@/lib/utils";
 import { Loader2, MessageCircle, ThumbsUp } from "lucide-react";
 
 interface VideoCommentSectionProps {
   aid: number;
   replyCount?: number;
+  scrollRootRef?: RefObject<HTMLElement | null>;
 }
 
 type CommentSort = 0 | 2;
+
+/** 虚拟列表只减 DOM，不减 JS 堆；热门稿评论加软上限防 OOM */
+const MAX_COMMENTS = 800;
 
 function formatCommentTime(ctime: number): string {
   if (!ctime) return "";
@@ -44,6 +59,7 @@ function CommentRow({
   depth?: number;
   onChanged: () => void;
 }) {
+  const emotes = useReplyEmotes(item.emotes);
   const [liked, setLiked] = useState(item.action === 1);
   const [likeCount, setLikeCount] = useState(item.like);
   const [liking, setLiking] = useState(false);
@@ -55,8 +71,10 @@ function CommentRow({
   const [morePage, setMorePage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   const visibleReplies = depth === 0 ? [...item.replies, ...moreReplies] : [];
+  const pictureSrcs = item.pictures?.map((picture) => picture.src) ?? [];
 
   const handleLike = async () => {
     setLiking(true);
@@ -137,14 +155,56 @@ function CommentRow({
           >
             {item.member.name}
           </Link>
-          <span className="text-xs text-muted-foreground">
-            {formatCommentTime(item.ctime)}
-          </span>
         </div>
-        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
-          {item.content}
-        </p>
+        {item.content.trim() && (
+          <p className="mt-1 text-sm leading-relaxed text-foreground/90">
+            <BiliEmoteText text={item.content} emotes={emotes} size={22} />
+          </p>
+        )}
+        {item.pictures && item.pictures.length > 0 && (
+          <div
+            className={cn(
+              "mt-2 grid gap-1.5",
+              item.pictures.length === 1
+                ? "max-w-xs grid-cols-1"
+                : item.pictures.length === 2
+                  ? "max-w-md grid-cols-2"
+                  : "max-w-lg grid-cols-3",
+            )}
+          >
+            {item.pictures.map((picture, index) => (
+              <button
+                key={picture.src}
+                type="button"
+                onClick={() => setPreviewIndex(index)}
+                className="block overflow-hidden rounded-lg bg-secondary/40 text-left"
+              >
+                <BiliImage
+                  src={picture.src}
+                  alt="评论图片"
+                  className={cn(
+                    "w-full object-cover",
+                    item.pictures!.length === 1
+                      ? "max-h-72 object-contain"
+                      : "aspect-square",
+                  )}
+                />
+              </button>
+            ))}
+          </div>
+        )}
+        <ImageLightbox
+          images={pictureSrcs}
+          index={previewIndex ?? 0}
+          open={previewIndex != null}
+          onClose={() => setPreviewIndex(null)}
+          onIndexChange={setPreviewIndex}
+        />
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <span>{formatCommentTime(item.ctime)}</span>
+            {item.location && <span>{item.location}</span>}
+          </span>
           <button
             type="button"
             disabled={liking}
@@ -191,23 +251,30 @@ function CommentRow({
               placeholder={`回复 @${item.member.name}`}
               className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
             />
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setShowReply(false)}
-              >
-                取消
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={replying || !replyText.trim()}
-                onClick={() => void handleReply()}
-              >
-                {replying ? "发送中..." : "发送"}
-              </Button>
+            <div className="flex items-center justify-between gap-2">
+              <EmotePickerButton
+                onPick={(emote) =>
+                  setReplyText((prev) => (prev + emote).slice(0, 1000))
+                }
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowReply(false)}
+                >
+                  取消
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={replying || !replyText.trim()}
+                  onClick={() => void handleReply()}
+                >
+                  {replying ? "发送中..." : "发送"}
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -235,7 +302,10 @@ function CommentRow({
 export function VideoCommentSection({
   aid,
   replyCount = 0,
+  scrollRootRef,
 }: VideoCommentSectionProps) {
+  const loadingMoreRef = useRef(false);
+  const commentsRef = useRef<CommentItem[]>([]);
   const [sort, setSort] = useState<CommentSort>(0);
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [page, setPage] = useState(1);
@@ -247,12 +317,20 @@ export function VideoCommentSection({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
+  commentsRef.current = comments;
+  // 预热表情面板，供 `[doge]` 等转义渲染
+  useReplyEmotes();
   const loadComments = useCallback(
     async (nextPage: number, nextSort: CommentSort, reset: boolean) => {
       if (reset) {
+        loadingMoreRef.current = false;
         setLoading(true);
         setComments([]);
+        commentsRef.current = [];
+        setHasMore(false);
       } else {
+        if (loadingMoreRef.current) return;
+        loadingMoreRef.current = true;
         setLoadingMore(true);
       }
       setError("");
@@ -263,17 +341,33 @@ export function VideoCommentSection({
           nextPage,
           nextSort,
         );
-        setComments((prev) =>
-          reset ? result.comments : [...prev, ...result.comments],
-        );
+
+        const prev = reset ? [] : commentsRef.current;
+        const seen = new Set(prev.map((item) => item.rpid));
+        const merged = reset ? [] : [...prev];
+        let uniqueAdded = 0;
+        for (const item of result.comments) {
+          if (merged.length >= MAX_COMMENTS) break;
+          if (seen.has(item.rpid)) continue;
+          seen.add(item.rpid);
+          merged.push(item);
+          uniqueAdded += 1;
+        }
+
+        commentsRef.current = merged;
+        setComments(merged);
         setPage(result.page);
-        setHasMore(result.hasMore);
+        // 空页 / 无新增 / 达到软上限 → 停止，避免无限堆内存
+        const underCap = merged.length < MAX_COMMENTS;
+        setHasMore(result.hasMore && uniqueAdded > 0 && underCap);
         setTotal(result.acount || result.count || replyCount);
       } catch (err) {
         setError(err instanceof Error ? err.message : "评论加载失败");
+        if (!reset) setHasMore(false);
       } finally {
         setLoading(false);
         setLoadingMore(false);
+        loadingMoreRef.current = false;
       }
     },
     [aid, replyCount],
@@ -282,6 +376,11 @@ export function VideoCommentSection({
   useEffect(() => {
     void loadComments(1, sort, true);
   }, [aid, sort, loadComments]);
+
+  const handleLoadMore = useCallback(() => {
+    if (loading || loadingMoreRef.current || !hasMore) return;
+    void loadComments(page + 1, sort, false);
+  }, [loading, hasMore, page, sort, loadComments]);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -338,9 +437,16 @@ export function VideoCommentSection({
           className="w-full resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
         />
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">
-            {draft.trim().length}/1000
-          </p>
+          <div className="flex items-center gap-2">
+            <EmotePickerButton
+              onPick={(emote) =>
+                setDraft((prev) => (prev + emote).slice(0, 1000))
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              {draft.trim().length}/1000
+            </p>
+          </div>
           <Button
             type="button"
             size="sm"
@@ -362,33 +468,40 @@ export function VideoCommentSection({
           还没有评论，来抢沙发吧
         </p>
       ) : (
-        <div className="space-y-5">
-          {comments.map((item) => (
-            <CommentRow
-              key={item.rpid}
-              item={item}
-              aid={aid}
-              onChanged={() => void loadComments(1, sort, true)}
-            />
-          ))}
-        </div>
+        <VirtualList
+          items={comments}
+          scrollRootRef={scrollRootRef}
+          estimateSize={168}
+          overscan={8}
+          getItemKey={(item) => item.rpid}
+          onEndReached={handleLoadMore}
+          renderItem={(item) => (
+            <div className="pb-5">
+              <CommentRow
+                item={item}
+                aid={aid}
+                onChanged={() => void loadComments(1, sort, true)}
+              />
+            </div>
+          )}
+          footer={
+            <div className="flex items-center justify-center gap-2 pt-2 text-sm text-muted-foreground">
+              {loadingMore ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  加载更多评论...
+                </>
+              ) : hasMore ? (
+                "继续下滑加载更多"
+              ) : (
+                "已经到底啦"
+              )}
+            </div>
+          }
+        />
       )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
-
-      {!loading && hasMore && (
-        <div className="flex justify-center pt-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={loadingMore}
-            onClick={() => void loadComments(page + 1, sort, false)}
-          >
-            {loadingMore ? "加载中..." : "加载更多评论"}
-          </Button>
-        </div>
-      )}
     </section>
   );
 }

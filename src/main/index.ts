@@ -21,8 +21,17 @@ app.whenReady().then(() => {
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: mediaUrls },
     (details, callback) => {
-      details.requestHeaders.Referer = "https://www.bilibili.com/";
-      details.requestHeaders.Origin = "https://www.bilibili.com";
+      const isLiveMedia =
+        /live-bvc|\/live[_/-]/i.test(details.url) ||
+        details.url.includes("live.bilivideo");
+      const referer = isLiveMedia
+        ? "https://live.bilibili.com/"
+        : "https://www.bilibili.com/";
+      const origin = isLiveMedia
+        ? "https://live.bilibili.com"
+        : "https://www.bilibili.com";
+      details.requestHeaders.Referer = referer;
+      details.requestHeaders.Origin = origin;
       if (!details.requestHeaders["User-Agent"]) {
         details.requestHeaders["User-Agent"] =
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";

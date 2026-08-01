@@ -7,7 +7,9 @@ import { useAppStore } from "@/stores/app-store";
 import { useFavoritesStore } from "@/stores/favorites-store";
 import { useFollowingStore } from "@/stores/following-store";
 import { useHomeFeedStore } from "@/stores/home-feed-store";
+import { useHomeLiveStore } from "@/stores/home-live-store";
 import { useHomeSearchStore } from "@/stores/home-search-store";
+import { useHomeTabStore } from "@/stores/home-tab-store";
 import { useWatchLaterStore } from "@/stores/watch-later-store";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -24,6 +26,10 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const setIncognitoMode = useAppStore((state) => state.setIncognitoMode);
   const homeRefresh = useHomeFeedStore((state) => state.refresh);
   const homeRefreshing = useHomeFeedStore((state) => state.refreshing);
+  const homeLiveRefresh = useHomeLiveStore((state) => state.refresh);
+  const homeLiveRefreshing = useHomeLiveStore((state) => state.refreshing);
+  const homeTab = useHomeTabStore((state) => state.tab);
+  const setHomeTab = useHomeTabStore((state) => state.setTab);
   const searchQuery = useHomeSearchStore((state) => state.query);
   const searchOrder = useHomeSearchStore((state) => state.order);
   const followingRefresh = useFollowingStore((state) => state.refresh);
@@ -34,16 +40,31 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const watchLaterRefreshing = useWatchLaterStore((state) => state.refreshing);
 
   const isHome = location.pathname === "/";
-  const isSearching = isHome && searchQuery.length > 0;
+  const isHomeLive = isHome && homeTab === "live";
+  const isSearching = isHome && homeTab === "video" && searchQuery.length > 0;
   const isFollowing = location.pathname === "/following";
   const isFavorites = location.pathname === "/favorites";
   const isWatchLater = location.pathname === "/watch-later";
+  const isDynamics = location.pathname === "/dynamics";
+  const isHistory = location.pathname === "/history";
   const isUpSpace = location.pathname.startsWith("/up/");
-  const showRefresh = isHome || isFollowing || isFavorites || isWatchLater;
+  const showRefresh =
+    isHome ||
+    isFollowing ||
+    isFavorites ||
+    isWatchLater ||
+    isDynamics ||
+    isHistory;
   const showGridPicker = isHome || isWatchLater || isUpSpace;
+  const homeTabs = [
+    { id: "video" as const, label: "视频" },
+    { id: "live" as const, label: "直播" },
+  ];
 
   const refreshing = isHome
-    ? homeRefreshing
+    ? isHomeLive
+      ? homeLiveRefreshing
+      : homeRefreshing
     : isFollowing
       ? followingRefreshing
       : isFavorites
@@ -61,45 +82,79 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       );
       return;
     }
-    if (isHome) void homeRefresh();
+    if (isHomeLive) void homeLiveRefresh();
+    else if (isHome) void homeRefresh();
     else if (isFollowing) void followingRefresh();
     else if (isFavorites) void favoritesRefresh();
     else if (isWatchLater) void watchLaterRefresh();
+    else if (isDynamics) {
+      window.dispatchEvent(new CustomEvent("bilidesk:refresh-dynamics"));
+    } else if (isHistory) {
+      window.dispatchEvent(new CustomEvent("bilidesk:refresh-history"));
+    }
   };
 
   const refreshLabel = isSearching
     ? "刷新搜索结果"
-    : isHome
-      ? "刷新推荐"
-      : isFollowing
-        ? "刷新关注"
-        : isFavorites
-          ? "刷新收藏"
-          : "刷新稍后再看";
+    : isHomeLive
+      ? "刷新直播"
+      : isHome
+        ? "刷新推荐"
+        : isFollowing
+          ? "刷新关注"
+          : isFavorites
+            ? "刷新收藏"
+            : isDynamics
+              ? "刷新动态"
+              : isHistory
+                ? "刷新历史"
+                : "刷新稍后再看";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold">{title}</h2>
-          {subtitle && (
-            <p className="text-xs text-muted-foreground">{subtitle}</p>
+    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-6">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold">{title}</h2>
+            {subtitle && (
+              <p className="text-xs text-muted-foreground">{subtitle}</p>
+            )}
+          </div>
+          {showRefresh && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              disabled={refreshing}
+              onClick={handleRefresh}
+              aria-label={refreshLabel}
+              title={refreshLabel}
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+              />
+            </Button>
           )}
         </div>
-        {showRefresh && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            disabled={refreshing}
-            onClick={handleRefresh}
-            aria-label={refreshLabel}
-            title={refreshLabel}
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-            />
-          </Button>
+
+        {isHome && (
+          <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-secondary/50 p-0.5">
+            {homeTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setHomeTab(tab.id)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-sm font-medium transition-colors",
+                  homeTab === tab.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 

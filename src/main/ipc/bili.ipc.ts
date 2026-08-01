@@ -1,6 +1,11 @@
 import { ipcMain } from "electron";
 import { IPC } from "@shared/ipc-channels";
-import type { SearchOrder, UpVideosOrder } from "@shared/types";
+import type {
+  SearchOrder,
+  SearchUserOrder,
+  SearchUserTypeFilter,
+  UpVideosOrder,
+} from "@shared/types";
 import { biliApi } from "../services/bili-api";
 import { handleIpc } from "./safe-handler";
 
@@ -9,6 +14,16 @@ export function registerBiliIpc(): void {
     IPC.BILI_RECOMMEND,
     (_e, options?: { freshIdx?: number; freshIdx1h?: number; ps?: number }) =>
       biliApi.getRecommend(options),
+  );
+  ipcMain.handle(IPC.BILI_LIVE_RECOMMEND, (_e, page?: number) =>
+    biliApi.getLiveRecommend(page),
+  );
+  ipcMain.handle(IPC.BILI_LIVE_FOLLOWING, () => biliApi.getFollowingLives());
+  ipcMain.handle(IPC.BILI_LIVE_ROOM, (_e, roomId: number) =>
+    biliApi.getLiveRoom(roomId),
+  );
+  ipcMain.handle(IPC.BILI_LIVE_PLAY_URL, (_e, roomId: number, qn?: number) =>
+    biliApi.getLivePlayUrl(roomId, qn),
   );
   ipcMain.handle(IPC.BILI_VIDEO, (_e, bvid: string) => biliApi.getVideo(bvid));
   ipcMain.handle(
@@ -57,6 +72,7 @@ export function registerBiliIpc(): void {
     (_e, aid: number, rpid: number, like: boolean) =>
       biliApi.likeComment(aid, rpid, like),
   );
+  ipcMain.handle(IPC.BILI_REPLY_EMOTES, () => biliApi.getReplyEmotes());
   ipcMain.handle(IPC.BILI_FAV_FOLDERS, () => biliApi.getFavFolders());
   ipcMain.handle(IPC.BILI_VIDEO_FAV_FOLDERS, (_e, aid: number) =>
     biliApi.getVideoFavFolders(aid),
@@ -68,6 +84,16 @@ export function registerBiliIpc(): void {
   );
   ipcMain.handle(IPC.BILI_FAV_RESOURCES, (_e, mediaId: number, page?: number) =>
     biliApi.getFavResources(mediaId, page),
+  );
+  ipcMain.handle(
+    IPC.BILI_FAV_RESOURCES_REMOVE,
+    (_e, mediaId: number, aids: number[]) =>
+      biliApi.removeFavResources(mediaId, aids),
+  );
+  ipcMain.handle(
+    IPC.BILI_FAV_RESOURCES_MOVE,
+    (_e, srcMediaId: number, tarMediaId: number, aids: number[]) =>
+      biliApi.moveFavResources(srcMediaId, tarMediaId, aids),
   );
   ipcMain.handle(IPC.BILI_FOLLOWINGS, (_e, page?: number) =>
     biliApi.getFollowings(page),
@@ -111,6 +137,19 @@ export function registerBiliIpc(): void {
       pageSize?: number,
     ) => biliApi.searchVideos(keyword, page, order, apiStartPage, pageSize),
   );
+  handleIpc(
+    IPC.BILI_SEARCH_USERS,
+    (
+      _e,
+      keyword: string,
+      page?: number,
+      order?: SearchUserOrder,
+      userType?: SearchUserTypeFilter,
+    ) => biliApi.searchUsers(keyword, page, order, userType),
+  );
+  handleIpc(IPC.BILI_SEARCH_TYPE_COUNTS, (_e, keyword: string) =>
+    biliApi.getSearchTypeCounts(keyword),
+  );
   handleIpc(IPC.BILI_TOVIEW_LIST, () => biliApi.getToViewList());
   handleIpc(IPC.BILI_TOVIEW_ADD, (_e, aid: number, bvid: string) =>
     biliApi.addToView(aid, bvid),
@@ -121,6 +160,25 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_SPACE_DYNAMICS, (_e, mid: number, offset?: string) =>
     biliApi.getSpaceDynamics(mid, offset),
   );
+  handleIpc(
+    IPC.BILI_FOLLOW_DYNAMICS,
+    (_e, offset?: string, type?: "all" | "video" | "article") =>
+      biliApi.getFollowDynamics(offset ?? "", type ?? "all"),
+  );
+  handleIpc(
+    IPC.BILI_WATCH_HISTORY,
+    (
+      _e,
+      type?: "all" | "archive" | "live" | "article",
+      cursor?: { max: number; viewAt: number; business: string },
+    ) => biliApi.getWatchHistory(type ?? "all", cursor),
+  );
+  handleIpc(
+    IPC.BILI_WATCH_HISTORY_DELETE,
+    (_e, item: { business: string; oid: number; kid?: number }) =>
+      biliApi.deleteWatchHistory(item),
+  );
+  handleIpc(IPC.BILI_WATCH_HISTORY_CLEAR, () => biliApi.clearWatchHistory());
   handleIpc(IPC.BILI_USER_COLLECTIONS, (_e, mid: number, page?: number) =>
     biliApi.getUserCollections(mid, page),
   );

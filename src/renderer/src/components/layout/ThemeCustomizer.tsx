@@ -82,10 +82,10 @@ export function ThemeCustomizer() {
                   type="button"
                   onClick={() => handlePresetSelect(preset.id)}
                   className={cn(
-                    "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition-colors",
+                    "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40",
                     active
-                      ? "border-primary/50 bg-primary/10"
-                      : "border-border bg-background/80 hover:bg-secondary/70",
+                      ? "border-primary bg-primary/10"
+                      : "border-transparent bg-background/80 hover:bg-secondary/70",
                   )}
                 >
                   <div className="min-w-0">

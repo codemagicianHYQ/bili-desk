@@ -9,6 +9,14 @@ interface PaginationBarProps {
   totalPages: number;
   disabled?: boolean;
   disableNext?: boolean;
+  /**
+   * 游标分页等「总页数未知」场景：
+   * - 下一页只看 disableNext
+   * - 允许跳转到大于当前已知页数的页码（由业务侧按需拉取）
+   */
+  openEnded?: boolean;
+  /** openEnded 时跳转上限，默认 999 */
+  maxJumpPage?: number;
   info?: ReactNode;
   onPageChange: (page: number) => void;
   className?: string;
@@ -19,6 +27,8 @@ export function PaginationBar({
   totalPages,
   disabled = false,
   disableNext,
+  openEnded = false,
+  maxJumpPage = 999,
   info,
   onPageChange,
   className,
@@ -29,15 +39,18 @@ export function PaginationBar({
     setJumpPageInput(String(page));
   }, [page]);
 
+  const jumpUpperBound = openEnded ? maxJumpPage : Math.max(1, totalPages);
+
   const handleJump = useCallback(() => {
     const target = Number.parseInt(jumpPageInput, 10);
     if (!Number.isFinite(target)) return;
-    if (target < 1 || target > totalPages) return;
+    if (target < 1 || target > jumpUpperBound) return;
     if (target === page) return;
     onPageChange(target);
-  }, [jumpPageInput, page, totalPages, onPageChange]);
+  }, [jumpPageInput, jumpUpperBound, page, onPageChange]);
 
-  if (totalPages <= 0) return null;
+  if (totalPages <= 0 && !openEnded) return null;
+  if (openEnded && page < 1) return null;
 
   return (
     <div className={cn("border-t border-border px-6 py-3", className)}>
@@ -46,7 +59,9 @@ export function PaginationBar({
           <div className="text-xs text-muted-foreground">{info}</div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            第 {page} / {totalPages} 页
+            {openEnded && disableNext !== false && page >= totalPages
+              ? `第 ${page} 页`
+              : `第 ${page} / ${Math.max(totalPages, page)} 页`}
           </p>
         )}
         <div className="flex flex-wrap items-center gap-1.5">
@@ -75,7 +90,11 @@ export function PaginationBar({
             size="sm"
             variant="outline"
             className="gap-1"
-            disabled={disabled || disableNext || page >= totalPages}
+            disabled={
+              disabled ||
+              Boolean(disableNext) ||
+              (!openEnded && page >= totalPages)
+            }
             onClick={() => onPageChange(page + 1)}
           >
             下一页
@@ -91,7 +110,7 @@ export function PaginationBar({
             <input
               type="number"
               min={1}
-              max={totalPages}
+              max={jumpUpperBound}
               value={jumpPageInput}
               onChange={(event) => setJumpPageInput(event.target.value)}
               disabled={disabled}

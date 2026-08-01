@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Artplayer from "artplayer";
 import artplayerPluginDanmuku from "artplayer-plugin-danmuku";
 import flvjs from "flv.js";
@@ -6,9 +6,11 @@ import dashjs from "dashjs";
 import type { VideoPlayInfo } from "@shared/types";
 import { createPlaybackRateControl } from "@/components/video/playback-rate-setting";
 import {
+  clearPlaybackProgress,
   getPlaybackProgress,
   savePlaybackProgress,
 } from "@/lib/playback-progress";
+import { cn, formatDuration } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 
 interface VideoPlayerProps {
@@ -18,9 +20,13 @@ interface VideoPlayerProps {
   cid: number;
   poster?: string;
   active?: boolean;
+  /** 优先于本地缓存的续播秒数（如历史记录进度） */
+  initialTime?: number;
   reloadKey?: number;
   onQualityChange: (qn: number) => void;
   onError?: (message: string) => void;
+  /** 用户选择从头观看时回调（用于清掉 URL 续播参数） */
+  onWatchFromStart?: () => void;
 }
 
 function resolvePlayerType(format: VideoPlayInfo["format"]): string {
@@ -51,6 +57,7 @@ function colorHexToInt(color?: string): number {
 
 const SAVE_INTERVAL_MS = 3000;
 const HEARTBEAT_INTERVAL_MS = 15000;
+const RESUME_TIP_MS = 5000;
 
 export function VideoPlayer({
   playInfo,
@@ -59,26 +66,43 @@ export function VideoPlayer({
   cid,
   poster,
   active = true,
+  initialTime,
   reloadKey = 0,
   onQualityChange,
   onError,
+  onWatchFromStart,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const artRef = useRef<Artplayer | null>(null);
   const resumeOnActiveRef = useRef(false);
   const hasSeekedRef = useRef(false);
   const lastSaveAtRef = useRef(0);
+  const tipShownKeyRef = useRef<string | null>(null);
   const onQualityChangeRef = useRef(onQualityChange);
   const onErrorRef = useRef(onError);
+  const onWatchFromStartRef = useRef(onWatchFromStart);
   const incognitoMode = useAppStore((state) => state.incognitoMode);
   const userLoggedIn = useAppStore((state) => Boolean(state.user?.isLogin));
   const incognitoRef = useRef(incognitoMode);
   const loggedInRef = useRef(userLoggedIn);
+  const [resumeTipAt, setResumeTipAt] = useState<number | null>(null);
 
   onQualityChangeRef.current = onQualityChange;
   onErrorRef.current = onError;
+  onWatchFromStartRef.current = onWatchFromStart;
   incognitoRef.current = incognitoMode;
   loggedInRef.current = userLoggedIn;
+
+  useEffect(() => {
+    tipShownKeyRef.current = null;
+    setResumeTipAt(null);
+  }, [bvid, cid]);
+
+  useEffect(() => {
+    if (resumeTipAt == null) return;
+    const timer = window.setTimeout(() => setResumeTipAt(null), RESUME_TIP_MS);
+    return () => window.clearTimeout(timer);
+  }, [resumeTipAt]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -87,7 +111,11 @@ export function VideoPlayer({
     hasSeekedRef.current = false;
     lastSaveAtRef.current = 0;
 
-    const pendingSeek = getPlaybackProgress(bvid, cid);
+    const localProgress = getPlaybackProgress(bvid, cid);
+    const pendingSeek =
+      initialTime != null && Number.isFinite(initialTime) && initialTime >= 5
+        ? initialTime
+        : localProgress;
     const startTs = Math.floor(Date.now() / 1000);
     let playedAccum = 0;
     let lastTickAt = 0;
@@ -159,10 +187,22 @@ export function VideoPlayer({
       if (hasSeekedRef.current || pendingSeek == null) return;
       if (!art.duration || art.duration <= 0) return;
 
+      // 已接近片尾则从头播，避免“已看完”又卡在最后几秒
+      if (pendingSeek >= art.duration - 15) {
+        hasSeekedRef.current = true;
+        return;
+      }
+
       const target = Math.min(pendingSeek, Math.max(0, art.duration - 1));
       if (target >= 5) {
         art.currentTime = target;
         hasSeekedRef.current = true;
+        savePlaybackProgress(bvid, cid, target, art.duration);
+        const tipKey = `${bvid}:${cid}`;
+        if (tipShownKeyRef.current !== tipKey) {
+          tipShownKeyRef.current = tipKey;
+          setResumeTipAt(Math.floor(target));
+        }
       }
     };
 
@@ -352,6 +392,7 @@ export function VideoPlayer({
     aid,
     bvid,
     cid,
+    initialTime,
     reloadKey,
   ]);
 
@@ -372,5 +413,40 @@ export function VideoPlayer({
     }
   }, [active, bvid, cid]);
 
-  return <div ref={containerRef} className="aspect-video w-full bg-black" />;
+  const handleWatchFromStart = () => {
+    const art = artRef.current;
+    if (art) {
+      art.currentTime = 0;
+    }
+    clearPlaybackProgress(bvid, cid);
+    setResumeTipAt(null);
+    onWatchFromStartRef.current?.();
+  };
+
+  return (
+    <div className="relative aspect-video w-full bg-black">
+      <div ref={containerRef} className="h-full w-full" />
+      {resumeTipAt != null && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[3.25rem] z-30 flex justify-center px-3 sm:bottom-16">
+          <div
+            className={cn(
+              "pointer-events-auto flex max-w-[min(92%,28rem)] items-center gap-2 rounded-full",
+              "border border-white/15 bg-black/75 px-3 py-1.5 text-xs text-white shadow-lg backdrop-blur-sm sm:text-sm",
+            )}
+          >
+            <span className="min-w-0 truncate text-white/90">
+              已从 {formatDuration(resumeTipAt)} 续播
+            </span>
+            <button
+              type="button"
+              onClick={handleWatchFromStart}
+              className="shrink-0 rounded-full bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              从头观看
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
