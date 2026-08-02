@@ -1451,7 +1451,7 @@ class BiliApiService {
     await this.ensureBuvid3();
 
     const referer = `https://www.bilibili.com/video/${bvid}`;
-    const preferMp4 = Boolean(options?.preferMp4);
+    const preferMp4 = options?.preferMp4 !== false;
 
     const tryDash = async (): Promise<VideoPlayInfo | null> => {
       const dashParams = await signParams({
@@ -1499,14 +1499,18 @@ class BiliApiService {
       return this.buildPlayInfoFromDurl(mp4Data, mp4Stream, qn);
     };
 
-    // 并行取流，避免串行多等一轮；桌面端优先 MP4 首帧更快
-    const [dash, mp4] = await Promise.all([tryDash(), tryMp4()]);
+    // 串行：先 MP4（首帧快、少一次无用等待），没有再 DASH
+    // 以前 Promise.all 会等两路都结束，反而更慢、更容易触发风控
     if (preferMp4) {
+      const mp4 = await tryMp4();
       if (mp4) return mp4;
+      const dash = await tryDash();
       if (dash) return dash;
     } else {
-      if (mp4) return mp4;
+      const dash = await tryDash();
       if (dash) return dash;
+      const mp4 = await tryMp4();
+      if (mp4) return mp4;
     }
 
     throw new Error("该视频暂不支持在线播放，可能为付费或受限内容");
@@ -3894,7 +3898,8 @@ class BiliApiService {
 
     const needed = targetPage * pageSize;
     let emptyStreak = 0;
-    const maxScans = Math.min(25, Math.max(8, targetPage * 6));
+    // 搜索兜底要快失败：扫太多页会把 UP 主页拖成卡顿
+    const maxScans = Math.min(12, Math.max(4, targetPage * 3));
 
     while (
       cache.videos.length < needed &&

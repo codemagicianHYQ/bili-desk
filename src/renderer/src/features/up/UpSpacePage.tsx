@@ -148,7 +148,6 @@ export function UpSpacePage() {
         const upProfile = await profilePromise;
         if (cancelled) return;
         setProfile(upProfile);
-        setTotal(upProfile.videos || 0);
 
         void relationPromise.then((upRelation) => {
           if (!cancelled) setRelation(upRelation);
@@ -166,7 +165,7 @@ export function UpSpacePage() {
             setHasMore(Boolean(result.hasMore));
             setVideosError("");
           } else if ((upProfile.videos || 0) > 0) {
-            setTotal(upProfile.videos || 0);
+            setTotal(0);
             setHasMore(false);
             setVideosError("投稿列表暂时无法获取，请点击重新加载");
           } else {

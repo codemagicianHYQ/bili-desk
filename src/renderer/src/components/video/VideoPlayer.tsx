@@ -219,7 +219,7 @@ export function VideoPlayer({
       poster,
       autoplay: true,
       autoSize: false,
-      autoMini: true,
+      autoMini: false,
       setting: true,
       playbackRate: false,
       aspectRatio: true,
@@ -257,19 +257,25 @@ export function VideoPlayer({
           dashPlayer.updateSettings({
             streaming: {
               abr: { autoSwitchBitrate: { video: false, audio: false } },
+              buffer: {
+                fastSwitchEnabled: true,
+                stableBufferTime: 3,
+                bufferTimeAtTopQuality: 6,
+                bufferTimeAtTopQualityLongForm: 8,
+              },
               retryAttempts: {
-                MediaSegment: 3,
-                InitializationSegment: 3,
-                IndexSegment: 3,
-                BitstreamSwitchingSegment: 2,
-                FragmentInfoSegment: 2,
+                MediaSegment: 2,
+                InitializationSegment: 2,
+                IndexSegment: 2,
+                BitstreamSwitchingSegment: 1,
+                FragmentInfoSegment: 1,
               },
               retryIntervals: {
-                MediaSegment: 800,
-                InitializationSegment: 800,
-                IndexSegment: 800,
-                BitstreamSwitchingSegment: 800,
-                FragmentInfoSegment: 800,
+                MediaSegment: 500,
+                InitializationSegment: 500,
+                IndexSegment: 500,
+                BitstreamSwitchingSegment: 500,
+                FragmentInfoSegment: 500,
               },
             },
           });
@@ -285,7 +291,11 @@ export function VideoPlayer({
             } catch {
               // ignore
             }
-            dashPlayer.reset();
+            try {
+              dashPlayer.reset();
+            } catch {
+              // ignore
+            }
           });
         },
       },
@@ -313,13 +323,11 @@ export function VideoPlayer({
         artplayerPluginDanmuku({
           danmuku: async () => {
             // 先让视频抢带宽开播，弹幕稍后再拉
-            await new Promise((resolve) => window.setTimeout(resolve, 800));
+            await new Promise((resolve) => window.setTimeout(resolve, 1200));
             try {
               return await window.biliDesk.bili.getDanmakuList(cid);
-            } catch (error) {
-              onErrorRef.current?.(
-                error instanceof Error ? error.message : "弹幕加载失败",
-              );
+            } catch {
+              // 弹幕失败不打断播放
               return [];
             }
           },
@@ -336,7 +344,7 @@ export function VideoPlayer({
           emitter: true,
           maxLength: 100,
           theme: "dark",
-          heatmap: true,
+          heatmap: false,
           beforeEmit: async (danmu) => {
             try {
               const progressMs = Math.floor(
@@ -378,9 +386,11 @@ export function VideoPlayer({
       }
     }, STALL_TIMEOUT_MS);
 
+    let seekTimer: number | null = null;
     art.on("video:playing", () => {
       window.clearTimeout(stallTimer);
-      window.setTimeout(() => trySeekToProgress(art), 400);
+      if (seekTimer != null) window.clearTimeout(seekTimer);
+      seekTimer = window.setTimeout(() => trySeekToProgress(art), 500);
     });
 
     art.on("video:timeupdate", () => {
@@ -424,6 +434,7 @@ export function VideoPlayer({
 
     return () => {
       window.clearTimeout(stallTimer);
+      if (seekTimer != null) window.clearTimeout(seekTimer);
       accumulateRealtime();
       stopHeartbeat();
       savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
@@ -437,7 +448,6 @@ export function VideoPlayer({
     playInfo.url,
     playInfo.format,
     playInfo.quality,
-    playInfo.qualities,
     poster,
     aid,
     bvid,
