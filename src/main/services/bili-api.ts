@@ -579,127 +579,116 @@ class BiliApiService {
   async getLiveRecommend(page = 1): Promise<LiveRecommendPage> {
     await this.ensureBuvid3();
 
-    // 第 2 页起用可分页接口；失败则停止，绝不能回退到无分页的 getMoreRecList
-    if (page > 1) {
-      try {
-        const res = await this.liveClient.get(
-          "/xlive/web-interface/v1/second/getUserRecommend",
-          { params: { page } },
-        );
-        if (res.data?.code === 0) {
-          const list = (res.data?.data?.list ??
-            res.data?.data?.recommend_room_list ??
-            []) as unknown[];
-          const rooms = this.normalizeLiveRoomItems(list);
-          const hasMoreFlag = res.data?.data?.has_more;
-          const hasMore =
-            typeof hasMoreFlag === "boolean"
-              ? hasMoreFlag
-              : typeof hasMoreFlag === "number"
-                ? hasMoreFlag > 0
-                : rooms.length > 0;
-          return { rooms, page, hasMore };
-        }
-      } catch {
-        // fall through
-      }
+    const pageSize = 30;
+    // 分区人气列表：比 getMoreRecList 更偏「发现」，登录态也不会几乎全是已关注
+    const parentAreas = [9, 2, 3, 1, 10, 5, 11, 6, 14, 15];
 
-      try {
-        const res = await this.liveClient.get(
-          "/xlive/web-interface/v1/second/getList",
-          {
-            params: {
-              platform: "web",
-              parent_area_id: 0,
-              area_id: 0,
-              sort_type: "online",
-              page,
-            },
+    const parseHasMore = (
+      data: Record<string, unknown> | undefined,
+      roomsLen: number,
+    ): boolean => {
+      const flag = data?.has_more ?? data?.hasMore;
+      if (typeof flag === "boolean") return flag;
+      if (typeof flag === "number") return flag > 0;
+      return roomsLen >= Math.min(10, pageSize);
+    };
+
+    const tryUserRecommend = async (): Promise<LiveRecommendPage | null> => {
+      const res = await this.liveClient.get(
+        "/xlive/web-interface/v1/second/getUserRecommend",
+        {
+          params: {
+            platform: "web",
+            page,
+            page_size: pageSize,
           },
-        );
-        if (res.data?.code === 0) {
-          const list = (res.data?.data?.list ?? []) as unknown[];
-          const rooms = this.normalizeLiveRoomItems(list);
-          return { rooms, page, hasMore: rooms.length > 0 };
-        }
-      } catch {
-        // fall through
-      }
+        },
+      );
+      if (res.data?.code !== 0) return null;
+      const data = (res.data?.data ?? {}) as Record<string, unknown>;
+      const list = (data.list ?? data.recommend_room_list ?? []) as unknown[];
+      const rooms = this.normalizeLiveRoomItems(list);
+      if (rooms.length === 0) return null;
+      return {
+        rooms,
+        page,
+        hasMore: parseHasMore(data, rooms.length),
+      };
+    };
 
-      return { rooms: [], page, hasMore: false };
-    }
+    const tryAreaOnlineList = async (): Promise<LiveRecommendPage | null> => {
+      const parent =
+        parentAreas[(Math.max(page, 1) - 1) % parentAreas.length] ?? 9;
+      const areaPage =
+        Math.floor((Math.max(page, 1) - 1) / parentAreas.length) + 1;
+      const res = await this.liveClient.get(
+        "/xlive/web-interface/v1/second/getList",
+        {
+          params: {
+            platform: "web",
+            parent_area_id: parent,
+            area_id: 0,
+            sort_type: "online",
+            page: areaPage,
+          },
+        },
+      );
+      if (res.data?.code !== 0) return null;
+      const data = (res.data?.data ?? {}) as Record<string, unknown>;
+      const list = (data.list ?? []) as unknown[];
+      const rooms = this.normalizeLiveRoomItems(list);
+      if (rooms.length === 0) return null;
+      return {
+        rooms,
+        page,
+        hasMore: parseHasMore(data, rooms.length),
+      };
+    };
 
-    const page1Candidates: Array<() => Promise<LiveRoomItem[]>> = [
-      async () => {
-        const res = await this.liveClient.get(
-          "/xlive/web-interface/v1/webMain/getMoreRecList",
-          { params: { platform: "web" } },
-        );
-        if (res.data?.code !== 0) {
-          throw new Error(String(res.data?.message ?? "getMoreRecList failed"));
-        }
-        return this.normalizeLiveRoomItems(
-          (res.data?.data?.recommend_room_list ?? []) as unknown[],
-        );
-      },
-      async () => {
-        const res = await this.liveClient.get(
-          "/xlive/web-interface/v1/webMain/getList",
-          { params: { platform: "web" } },
-        );
-        if (res.data?.code !== 0) {
-          throw new Error(
-            String(res.data?.message ?? "webMain/getList failed"),
+    const tryHomepageRec = async (): Promise<LiveRecommendPage | null> => {
+      if (page > 1) return null;
+      const endpoints = [
+        "/xlive/web-interface/v1/webMain/getList",
+        "/xlive/web-interface/v1/index/getList",
+      ] as const;
+      for (const path of endpoints) {
+        try {
+          const res = await this.liveClient.get(path, {
+            params: { platform: "web" },
+          });
+          if (res.data?.code !== 0) continue;
+          const data = (res.data?.data ?? {}) as Record<string, unknown>;
+          const rooms = this.normalizeLiveRoomItems(
+            (data.recommend_room_list ?? data.list ?? []) as unknown[],
           );
+          if (rooms.length === 0) continue;
+          // 首页接口不可分页，交给分区/推荐接口继续翻
+          return { rooms, page, hasMore: true };
+        } catch {
+          // try next
         }
-        return this.normalizeLiveRoomItems(
-          (res.data?.data?.recommend_room_list ?? []) as unknown[],
-        );
-      },
-      async () => {
-        const res = await this.liveClient.get(
-          "/xlive/web-interface/v1/index/getList",
-          { params: { platform: "web" } },
-        );
-        if (res.data?.code !== 0) {
-          throw new Error(String(res.data?.message ?? "index/getList failed"));
-        }
-        return this.normalizeLiveRoomItems(
-          (res.data?.data?.recommend_room_list ?? []) as unknown[],
-        );
-      },
-      async () => {
-        const res = await this.liveClient.get(
-          "/xlive/web-interface/v1/second/getList",
-          {
-            params: {
-              platform: "web",
-              parent_area_id: 0,
-              area_id: 0,
-              sort_type: "online",
-              page: 1,
-            },
-          },
-        );
-        if (res.data?.code !== 0) {
-          throw new Error(String(res.data?.message ?? "second/getList failed"));
-        }
-        return this.normalizeLiveRoomItems(
-          (res.data?.data?.list ?? []) as unknown[],
-        );
-      },
-    ];
+      }
+      return null;
+    };
 
     let lastError = "获取直播推荐失败";
-    for (const fetchRooms of page1Candidates) {
+
+    // 优先分区人气（真正发现流），再个性化推荐；避免先打 getMoreRecList 几乎全是已关注且无法翻页
+    for (const fetchPage of [
+      tryAreaOnlineList,
+      tryUserRecommend,
+      tryHomepageRec,
+    ]) {
       try {
-        const rooms = await fetchRooms();
-        if (rooms.length > 0) {
-          return { rooms, page, hasMore: true };
-        }
+        const result = await fetchPage();
+        if (result && result.rooms.length > 0) return result;
       } catch (err) {
         lastError = err instanceof Error ? err.message : lastError;
       }
+    }
+
+    if (page > 1) {
+      return { rooms: [], page, hasMore: false };
     }
 
     throw new Error(lastError);
@@ -712,16 +701,16 @@ class BiliApiService {
 
     await this.ensureBuvid3();
 
-    // hit_ab=false：前 10 条带完整昵称/标题；再补一次 true 拉全量并用已有字段兜底
+    // hit_ab=false：前 10 条字段更全；hit_ab=true：可拉全量（roomid 常为 0，需用 room_id）
     const [briefRes, fullRes] = await Promise.all([
       this.liveClient
         .get("/xlive/web-ucenter/v1/xfetter/GetWebList", {
-          params: { hit_ab: false },
+          params: { hit_ab: "false" },
         })
         .catch(() => null),
       this.liveClient
         .get("/xlive/web-ucenter/v1/xfetter/GetWebList", {
-          params: { hit_ab: true },
+          params: { hit_ab: "true" },
         })
         .catch(() => null),
     ]);
@@ -762,7 +751,7 @@ class BiliApiService {
       });
     }
 
-    const rooms = [...byId.values()].filter(
+    let rooms = [...byId.values()].filter(
       (room) => room.liveStatus === 1 || room.liveStatus === 2,
     );
     const count =
@@ -770,7 +759,94 @@ class BiliApiService {
       Number(fullRes?.data?.data?.count) ||
       rooms.length;
 
-    return { rooms, count };
+    // GetWebList 全量偶发丢字段时，用分页 following 接口补齐
+    if (count > 0 && rooms.length < count) {
+      const fallback = await this.fetchFollowingLivesByPages().catch(
+        () => null,
+      );
+      if (fallback && fallback.rooms.length > rooms.length) {
+        for (const room of fallback.rooms) {
+          const prev = byId.get(room.roomId);
+          if (!prev) {
+            byId.set(room.roomId, room);
+            continue;
+          }
+          byId.set(room.roomId, {
+            ...prev,
+            ...room,
+            title: room.title || prev.title,
+            uname: room.uname || prev.uname,
+            face: room.face || prev.face,
+            cover: room.cover || prev.cover,
+          });
+        }
+        rooms = [...byId.values()].filter(
+          (room) => room.liveStatus === 1 || room.liveStatus === 2,
+        );
+      }
+      return {
+        rooms,
+        count: Math.max(count, fallback?.count ?? 0, rooms.length),
+      };
+    }
+
+    return { rooms, count: count || rooms.length };
+  }
+
+  /** 分页拉取关注直播（含未开播），用于 GetWebList 全量不足时兜底 */
+  private async fetchFollowingLivesByPages(): Promise<FollowingLivePage> {
+    const pageSize = 10;
+    const maxPages = 30;
+    const rooms: LiveRoomItem[] = [];
+    let liveCount = 0;
+    let totalPage = 1;
+
+    for (let page = 1; page <= maxPages; page++) {
+      const res = await this.liveClient.get(
+        "/xlive/web-ucenter/user/following",
+        {
+          params: {
+            page,
+            page_size: pageSize,
+            ignoreRecord: 1,
+            hit_ab: "true",
+          },
+        },
+      );
+      if (res.data?.code !== 0) {
+        throw new Error(
+          (res.data?.message as string) || "获取关注直播分页失败",
+        );
+      }
+
+      const data = (res.data?.data ?? {}) as Record<string, unknown>;
+      liveCount = Number(data.live_count ?? liveCount) || liveCount;
+      totalPage = Number(data.totalPage ?? totalPage) || totalPage;
+      const list = (data.list ?? []) as unknown[];
+      const pageRooms = this.normalizeLiveRoomItems(list).filter(
+        (room) => room.liveStatus === 1 || room.liveStatus === 2,
+      );
+      rooms.push(...pageRooms);
+
+      // 正在直播通常排在前面；本页已无直播且已凑够数量则可提前结束
+      if (
+        (liveCount > 0 && rooms.length >= liveCount) ||
+        (pageRooms.length === 0 && rooms.length > 0) ||
+        page >= totalPage
+      ) {
+        break;
+      }
+    }
+
+    const byId = new Map<number, LiveRoomItem>();
+    for (const room of rooms) {
+      if (!byId.has(room.roomId)) byId.set(room.roomId, room);
+    }
+    const deduped = [...byId.values()];
+    return {
+      rooms: deduped,
+      count: liveCount || deduped.length,
+    };
   }
 
   async getLiveRoom(roomId: number): Promise<LiveRoomDetail> {
@@ -1095,22 +1171,39 @@ class BiliApiService {
       .filter((item) => item.roomId > 0);
   }
 
+  /** 取第一个有效正数（跳过 hit_ab=true 时 roomid=0 这类占位） */
+  private pickPositiveId(...values: unknown[]): number {
+    for (const value of values) {
+      const n = Number(value ?? 0);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+  }
+
+  private pickHttpUrl(...values: unknown[]): string {
+    for (const value of values) {
+      if (value == null || value === 0 || value === "0") continue;
+      const text = String(value).trim();
+      if (!text || text === "undefined" || text === "null") continue;
+      return this.normalizeHttps(text);
+    }
+    return "";
+  }
+
   private normalizeLiveRoomItem(item: Record<string, unknown>): LiveRoomItem {
     const watched = (item.watched_show ?? {}) as Record<string, unknown>;
-    const roomIdRaw = item.roomid ?? item.room_id ?? item.roomId ?? undefined;
-    let roomId = Number(roomIdRaw ?? 0);
+    // hit_ab=true 时 roomid 常为 0，真实 id 在 room_id；不可用 ?? 直接吃 0
+    let roomId = this.pickPositiveId(item.room_id, item.roomId, item.roomid);
     if (!roomId && typeof item.link === "string") {
-      const match = item.link.match(/(\d+)/);
+      const match = item.link.match(/live\.bilibili\.com\/(\d+)/i);
       roomId = match ? Number(match[1]) : 0;
     }
-    const cover = this.normalizeHttps(
-      String(
-        item.cover ??
-          item.keyframe ??
-          item.cover_from_user ??
-          item.user_cover ??
-          "",
-      ),
+    const cover = this.pickHttpUrl(
+      item.cover,
+      item.keyframe,
+      item.cover_from_user,
+      item.user_cover,
+      item.room_cover,
     );
     const online = Number(item.online ?? watched.num ?? item.watched_num ?? 0);
     const onlineText =
@@ -1136,9 +1229,7 @@ class BiliApiService {
         ) || undefined,
       uid: Number(item.uid ?? item.mid ?? 0),
       uname: String(item.uname ?? item.nickname ?? item.name ?? ""),
-      face: this.normalizeHttps(
-        String(item.face ?? item.user_cover ?? item.avatar ?? ""),
-      ),
+      face: this.pickHttpUrl(item.face, item.user_cover, item.avatar),
       liveStatus: (() => {
         if (item.live_status != null) return Number(item.live_status);
         if (item.liveStatus != null) return Number(item.liveStatus);
