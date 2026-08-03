@@ -193,6 +193,58 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_SPACE_DYNAMICS, mid, offset ?? ""),
     getFollowDynamics: (offset?: string, type?: DynamicFeedType) =>
       ipcRenderer.invoke(IPC.BILI_FOLLOW_DYNAMICS, offset ?? "", type ?? "all"),
+    getDynamicDetail: (id: string) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_DETAIL, id),
+    likeDynamic: (id: string, like: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_LIKE, id, like),
+    getTargetComments: (
+      oid: string,
+      type: number,
+      page?: number,
+      sort?: 0 | 1 | 2,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_TARGET_COMMENT_LIST,
+        oid,
+        type,
+        page ?? 1,
+        sort ?? 0,
+      ),
+    getTargetCommentReplies: (
+      oid: string,
+      type: number,
+      root: number,
+      page?: number,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_TARGET_COMMENT_REPLIES,
+        oid,
+        type,
+        root,
+        page ?? 1,
+      ),
+    addTargetComment: (
+      oid: string,
+      type: number,
+      message: string,
+      root?: number,
+      parent?: number,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_TARGET_COMMENT_ADD,
+        oid,
+        type,
+        message,
+        root ?? 0,
+        parent ?? 0,
+      ),
+    likeTargetComment: (
+      oid: string,
+      type: number,
+      rpid: number,
+      like: boolean,
+    ) =>
+      ipcRenderer.invoke(IPC.BILI_TARGET_COMMENT_LIKE, oid, type, rpid, like),
     getWatchHistory: (type?: HistoryFeedType, cursor?: HistoryCursor) =>
       ipcRenderer.invoke(IPC.BILI_WATCH_HISTORY, type ?? "all", cursor),
     deleteWatchHistory: (item: {

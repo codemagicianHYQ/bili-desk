@@ -73,6 +73,7 @@ export function Sidebar() {
   const inDynamicsFlow =
     dynamicsKeepAlive &&
     (path === "/dynamics" ||
+      path.startsWith("/dynamic/") ||
       path.startsWith("/video/") ||
       path.startsWith("/live/") ||
       path.startsWith("/up/"));

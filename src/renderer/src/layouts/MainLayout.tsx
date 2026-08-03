@@ -78,15 +78,17 @@ export function MainLayout() {
 
   const meta = path.startsWith("/up/")
     ? { title: "UP 主主页", subtitle: "投稿与关注" }
-    : path.startsWith("/video/")
-      ? { title: "视频", subtitle: "正在播放" }
-      : path.startsWith("/live/")
-        ? { title: "直播", subtitle: "应用内观看" }
-        : path === "/" && searchQuery
-          ? { title: `搜索「${searchQuery}」`, subtitle: "已过滤无关结果" }
-          : path === "/" && homeTab === "live"
-            ? { title: "直播", subtitle: "推荐直播与关注开播" }
-            : (titles[path] ?? { title: "BiliDesk" });
+    : path.startsWith("/dynamic/")
+      ? { title: "动态详情", subtitle: "内容与评论" }
+      : path.startsWith("/video/")
+        ? { title: "视频", subtitle: "正在播放" }
+        : path.startsWith("/live/")
+          ? { title: "直播", subtitle: "应用内观看" }
+          : path === "/" && searchQuery
+            ? { title: `搜索「${searchQuery}」`, subtitle: "已过滤无关结果" }
+            : path === "/" && homeTab === "live"
+              ? { title: "直播", subtitle: "推荐直播与关注开播" }
+              : (titles[path] ?? { title: "BiliDesk" });
 
   if (path === "/login") {
     return <Outlet />;
@@ -100,10 +102,11 @@ export function MainLayout() {
   const isHistory = path === "/history";
   const isMe = path === "/me";
   const isUpSpace = path.startsWith("/up/");
+  const isDynamicDetail = path.startsWith("/dynamic/");
   const isVideo = path.startsWith("/video/");
   const isLive = path.startsWith("/live/");
   const isSettings = path === "/settings";
-  const showOutlet = isUpSpace || isSettings;
+  const showOutlet = isUpSpace || isSettings || isDynamicDetail;
   const showVideo = isVideo && effectiveVideoBvid != null;
   const showLive = isLive && effectiveLiveRoomId != null;
 

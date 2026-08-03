@@ -37,7 +37,8 @@ function matchesTab(item: SpaceDynamicItem, tab: UiTab): boolean {
     item.kind === "text" ||
     item.kind === "draw" ||
     item.kind === "opus" ||
-    item.kind === "forward"
+    item.kind === "forward" ||
+    item.kind === "article"
   );
 }
 

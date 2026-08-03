@@ -427,7 +427,7 @@ export interface ToViewList {
 export interface SpaceDynamicItem {
   id: string;
   type: string;
-  kind: "video" | "opus" | "text" | "draw" | "live" | "forward";
+  kind: "video" | "opus" | "text" | "draw" | "live" | "forward" | "article";
   text: string;
   pubTime: number;
   pubTimeLabel?: string;
@@ -441,6 +441,12 @@ export interface SpaceDynamicItem {
   bvid?: string;
   title?: string;
   duration?: number;
+  /** 评论区 oid（可能是动态 id / avid / 相簿 id 等大整数，必须用字符串） */
+  commentId?: string;
+  /** 评论区 type：1 视频 / 11 相簿 / 12 专栏 / 17 动态文字等 */
+  commentType?: number;
+  /** 当前用户是否已点赞该动态 */
+  liked?: boolean;
   /** 直播间号 / 跳转 */
   liveRoomId?: number;
   liveUrl?: string;
@@ -450,6 +456,7 @@ export interface SpaceDynamicItem {
     like?: number;
     reply?: number;
     danmaku?: number;
+    forward?: number;
   };
 }
 
@@ -822,6 +829,33 @@ export interface BiliDeskApi {
       offset?: string,
       type?: DynamicFeedType,
     ) => Promise<SpaceDynamicPage>;
+    getDynamicDetail: (id: string) => Promise<SpaceDynamicItem>;
+    likeDynamic: (id: string, like: boolean) => Promise<void>;
+    getTargetComments: (
+      oid: string,
+      type: number,
+      page?: number,
+      sort?: 0 | 1 | 2,
+    ) => Promise<CommentPage>;
+    getTargetCommentReplies: (
+      oid: string,
+      type: number,
+      root: number,
+      page?: number,
+    ) => Promise<CommentPage>;
+    addTargetComment: (
+      oid: string,
+      type: number,
+      message: string,
+      root?: number,
+      parent?: number,
+    ) => Promise<void>;
+    likeTargetComment: (
+      oid: string,
+      type: number,
+      rpid: number,
+      like: boolean,
+    ) => Promise<void>;
     getWatchHistory: (
       type?: HistoryFeedType,
       cursor?: HistoryCursor,

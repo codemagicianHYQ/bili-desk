@@ -182,6 +182,38 @@ export function registerBiliIpc(): void {
     (_e, offset?: string, type?: "all" | "video" | "article") =>
       biliApi.getFollowDynamics(offset ?? "", type ?? "all"),
   );
+  handleIpc(IPC.BILI_DYNAMIC_DETAIL, (_e, id: string) =>
+    biliApi.getDynamicDetail(id),
+  );
+  handleIpc(IPC.BILI_DYNAMIC_LIKE, (_e, id: string, like: boolean) =>
+    biliApi.likeDynamic(id, like),
+  );
+  handleIpc(
+    IPC.BILI_TARGET_COMMENT_LIST,
+    (_e, oid: string, type: number, page?: number, sort?: 0 | 1 | 2) =>
+      biliApi.getTargetComments(oid, type, page ?? 1, sort ?? 0),
+  );
+  handleIpc(
+    IPC.BILI_TARGET_COMMENT_REPLIES,
+    (_e, oid: string, type: number, root: number, page?: number) =>
+      biliApi.getTargetCommentReplies(oid, type, root, page ?? 1),
+  );
+  handleIpc(
+    IPC.BILI_TARGET_COMMENT_ADD,
+    (
+      _e,
+      oid: string,
+      type: number,
+      message: string,
+      root?: number,
+      parent?: number,
+    ) => biliApi.addTargetComment(oid, type, message, root ?? 0, parent ?? 0),
+  );
+  handleIpc(
+    IPC.BILI_TARGET_COMMENT_LIKE,
+    (_e, oid: string, type: number, rpid: number, like: boolean) =>
+      biliApi.likeTargetComment(oid, type, rpid, like),
+  );
   handleIpc(
     IPC.BILI_WATCH_HISTORY,
     (

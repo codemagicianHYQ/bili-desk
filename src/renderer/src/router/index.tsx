@@ -2,6 +2,7 @@ import { Navigate, createHashRouter } from "react-router-dom";
 import { MainLayout } from "@/layouts/MainLayout";
 import { LoginPage } from "@/features/login/LoginPage";
 import { UpSpacePage } from "@/features/up/UpSpacePage";
+import { DynamicDetailPage } from "@/features/dynamics/DynamicDetailPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 
 export const router = createHashRouter([
@@ -13,6 +14,7 @@ export const router = createHashRouter([
       { path: "favorites", element: null },
       { path: "following", element: null },
       { path: "dynamics", element: null },
+      { path: "dynamic/:id", element: <DynamicDetailPage /> },
       { path: "history", element: null },
       { path: "watch-later", element: null },
       { path: "me", element: null },

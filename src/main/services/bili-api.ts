@@ -4344,6 +4344,203 @@ class BiliApiService {
     };
   }
 
+  async getDynamicDetail(id: string): Promise<SpaceDynamicItem> {
+    await this.ensureBuvid3();
+    const dynamicId = String(id || "").trim();
+    if (!dynamicId) throw new Error("动态 ID 无效");
+
+    const res = await this.client.get("/x/polymer/web-dynamic/v1/detail", {
+      params: {
+        id: dynamicId,
+        timezone_offset: -480,
+        platform: "web",
+        features:
+          "itemOpusStyle,opusBigCover,onlyfansVote,endFooterHidden,decorationCard,onlyfansAssetsV2,ugcDelete,onlyfansQaCard,commentsNewVersion",
+      },
+      headers: { Referer: `https://www.bilibili.com/opus/${dynamicId}` },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "动态详情获取失败");
+    }
+
+    const item = this.normalizeSpaceDynamicItem(
+      (res.data?.data?.item ?? {}) as Record<string, unknown>,
+    );
+    if (!item) throw new Error("动态不存在或已失效");
+    return item;
+  }
+
+  async likeDynamic(id: string, like: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再点赞");
+    const dynId = String(id || "").trim();
+    if (!dynId) throw new Error("动态 ID 无效");
+
+    const res = await this.client.post(
+      "/x/dynamic/feed/dyn/thumb",
+      {
+        dyn_id_str: dynId,
+        up: like ? 1 : 2,
+        spmid: "333.1369.0.0",
+        from_spmid: "333.999.0.0",
+      },
+      {
+        params: { csrf },
+        headers: {
+          "Content-Type": "application/json",
+          Referer: "https://t.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "动态点赞失败");
+    }
+  }
+
+  async getTargetComments(
+    oid: string,
+    type: number,
+    page = 1,
+    sort: 0 | 1 | 2 = 0,
+  ): Promise<CommentPage> {
+    await this.ensureBuvid3();
+    const pageSize = 20;
+    const apiSort = sort === 2 ? 0 : 2;
+
+    const res = await this.client.get("/x/v2/reply", {
+      params: {
+        type,
+        oid: String(oid),
+        pn: page,
+        ps: pageSize,
+        sort: apiSort,
+      },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "评论加载失败");
+    }
+
+    return this.normalizeCommentPage(res.data?.data, page, pageSize);
+  }
+
+  async getTargetCommentReplies(
+    oid: string,
+    type: number,
+    root: number,
+    page = 1,
+  ): Promise<CommentPage> {
+    await this.ensureBuvid3();
+    const pageSize = 10;
+
+    const res = await this.client.get("/x/v2/reply/reply", {
+      params: {
+        type,
+        oid: String(oid),
+        root,
+        pn: page,
+        ps: pageSize,
+      },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "楼中楼加载失败");
+    }
+
+    return this.normalizeCommentPage(res.data?.data, page, pageSize);
+  }
+
+  async addTargetComment(
+    oid: string,
+    type: number,
+    message: string,
+    root = 0,
+    parent = 0,
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再发表评论");
+
+    const text = message.trim();
+    if (!text) throw new Error("评论内容不能为空");
+
+    const body = new URLSearchParams({
+      type: String(type),
+      oid: String(oid),
+      message: text,
+      csrf,
+    });
+    if (root > 0) body.set("root", String(root));
+    if (parent > 0) body.set("parent", String(parent));
+
+    const res = await this.client.post("/x/v2/reply/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "发表评论失败");
+    }
+  }
+
+  async likeTargetComment(
+    oid: string,
+    type: number,
+    rpid: number,
+    like: boolean,
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再点赞");
+
+    const body = new URLSearchParams({
+      type: String(type),
+      oid: String(oid),
+      rpid: String(rpid),
+      action: like ? "1" : "0",
+      csrf,
+    });
+
+    const res = await this.client.post("/x/v2/reply/action", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "点赞失败");
+    }
+  }
+
   /** 官方历史记录（与客户端历史同步） */
   async getWatchHistory(
     type: HistoryFeedType = "all",
@@ -5199,6 +5396,15 @@ class BiliApiService {
     if (!id) return null;
 
     const type = (item.type as string) ?? "";
+    const basic = item.basic as Record<string, unknown> | undefined;
+    const commentIdRaw =
+      basic?.comment_id_str ?? basic?.comment_id ?? item.comment_id_str;
+    const commentId =
+      commentIdRaw != null && String(commentIdRaw).trim()
+        ? String(commentIdRaw).trim()
+        : id;
+    const commentType = Number(basic?.comment_type ?? 0) || undefined;
+
     const modules = item.modules as Record<string, unknown> | undefined;
     const moduleAuthor = modules?.module_author as
       | Record<string, unknown>
@@ -5246,10 +5452,13 @@ class BiliApiService {
     const moduleStat = modules?.module_stat as
       | Record<string, unknown>
       | undefined;
-    const likeCount =
-      Number((moduleStat?.like as Record<string, unknown>)?.count) || 0;
+    const likeStat = (moduleStat?.like ?? {}) as Record<string, unknown>;
+    const forwardStat = (moduleStat?.forward ?? {}) as Record<string, unknown>;
+    const likeCount = Number(likeStat.count) || 0;
     const replyCount =
       Number((moduleStat?.comment as Record<string, unknown>)?.count) || 0;
+    const forwardCount = Number(forwardStat.count) || 0;
+    const liked = Boolean(likeStat.status);
 
     const base = {
       id,
@@ -5260,6 +5469,9 @@ class BiliApiService {
       authorMid: authorMid || undefined,
       authorName,
       authorFace,
+      commentId,
+      commentType,
+      liked,
     };
 
     if (major?.archive) {
@@ -5279,6 +5491,7 @@ class BiliApiService {
           danmaku: Number(stat?.danmaku) || 0,
           like: Number(stat?.like) || likeCount,
           reply: Number(stat?.reply) || replyCount,
+          forward: forwardCount,
         },
       };
     }
@@ -5304,7 +5517,31 @@ class BiliApiService {
           danmaku: Number(stat?.danmaku) || 0,
           like: likeCount,
           reply: replyCount,
+          forward: forwardCount,
         },
+      };
+    }
+
+    if (major?.article) {
+      const article = major.article as Record<string, unknown>;
+      const covers = (
+        Array.isArray(article.covers) ? article.covers : []
+      ) as unknown[];
+      const articleImages = covers
+        .map((cover) => String(cover ?? "").replace(/^http:/, "https:"))
+        .filter(Boolean);
+      const articleTitle = String(article.title ?? "").trim();
+      const articleText = String(article.desc ?? "").trim();
+      return {
+        ...base,
+        kind: "article",
+        text: articleText,
+        title: articleTitle || "专栏文章",
+        cover:
+          articleImages[0] ||
+          ((article.cover as string) ?? "").replace(/^http:/, "https:"),
+        images: articleImages,
+        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
       };
     }
 
@@ -5319,13 +5556,14 @@ class BiliApiService {
         liveRoomId: liveInfo.roomId,
         liveUrl: liveInfo.url,
         liveState: liveInfo.state,
-        stats: { like: likeCount, reply: replyCount },
+        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
       };
     }
 
     if (major?.opus) {
       const opus = major.opus as Record<string, unknown>;
       const summary = this.extractRichText(opus.summary);
+      const opusTitle = String(opus.title ?? "").trim();
       const pics = (opus.pics as Record<string, unknown>[] | undefined) ?? [];
       const images = pics
         .map((pic) =>
@@ -5336,12 +5574,13 @@ class BiliApiService {
         ...base,
         kind: "opus",
         text: summary,
-        title: ((opus.title as string) ?? summary.slice(0, 40)) || "图文动态",
+        // 仅保留真实标题，不要用正文截断冒充标题
+        title: opusTitle || undefined,
         cover:
           images[0] ||
           ((opus.cover as string) ?? "").replace(/^http:/, "https:"),
         images,
-        stats: { like: likeCount, reply: replyCount },
+        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
       };
     }
 
@@ -5355,8 +5594,8 @@ class BiliApiService {
         ...base,
         kind: "forward",
         text,
-        title: text.slice(0, 80) || "转发动态",
-        stats: { like: likeCount, reply: replyCount },
+        title: undefined,
+        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
       };
     }
 
@@ -5380,10 +5619,10 @@ class BiliApiService {
       ...base,
       kind: images.length > 0 ? "draw" : "text",
       text,
-      title: text.slice(0, 80) || "动态",
+      title: undefined,
       cover: images[0],
       images,
-      stats: { like: likeCount, reply: replyCount },
+      stats: { like: likeCount, reply: replyCount, forward: forwardCount },
     };
   }
 

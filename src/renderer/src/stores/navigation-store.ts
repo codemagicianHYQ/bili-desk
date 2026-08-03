@@ -28,6 +28,10 @@ function isUpPath(path: string): boolean {
   return path.startsWith("/up/");
 }
 
+function isDynamicDetailPath(path: string): boolean {
+  return path.startsWith("/dynamic/");
+}
+
 function isVideoPath(path: string): boolean {
   return path.startsWith("/video/");
 }
@@ -144,17 +148,24 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
     if (path === "/dynamics") {
       dynamicsKeepAlive = true;
     } else if (
-      (isVideoPath(path) || isLivePath(path)) &&
+      (isVideoPath(path) ||
+        isLivePath(path) ||
+        isDynamicDetailPath(path) ||
+        isUpPath(path)) &&
       (prevPath === "/dynamics" ||
+        isDynamicDetailPath(prevPath) ||
         isVideoPath(prevPath) ||
         isLivePath(prevPath) ||
-        isUpPath(prevPath))
+        isUpPath(prevPath) ||
+        dynamicsKeepAlive)
     ) {
-      if (prevPath === "/dynamics" || dynamicsKeepAlive) {
+      if (
+        prevPath === "/dynamics" ||
+        isDynamicDetailPath(prevPath) ||
+        dynamicsKeepAlive
+      ) {
         dynamicsKeepAlive = true;
       }
-    } else if (isUpPath(path) && dynamicsKeepAlive) {
-      dynamicsKeepAlive = true;
     } else if (MAIN_SECTIONS.has(path) && path !== "/dynamics") {
       dynamicsKeepAlive = false;
     }
