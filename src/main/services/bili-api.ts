@@ -5174,6 +5174,24 @@ class BiliApiService {
     return "";
   }
 
+  private parseUgcSeasonPubAction(pubAction: string): {
+    name: string;
+    action: string;
+  } {
+    const text = pubAction.trim();
+    const suffix = "更新了合集";
+    if (text.endsWith(suffix)) {
+      const name = text.slice(0, -suffix.length).trim();
+      if (name) return { name, action: suffix };
+    }
+    return { name: "", action: text || suffix };
+  }
+
+  private extractBvidFromUrl(url: string): string | undefined {
+    const match = url.match(/BV[\w]+/);
+    return match?.[0];
+  }
+
   private normalizeSpaceDynamicItem(
     item: Record<string, unknown>,
   ): SpaceDynamicItem | null {
@@ -5185,21 +5203,41 @@ class BiliApiService {
     const moduleAuthor = modules?.module_author as
       | Record<string, unknown>
       | undefined;
+    const authorType = String(moduleAuthor?.type ?? "");
     const pubTime = (moduleAuthor?.pub_ts as number) ?? 0;
     const pubTimeLabel =
       typeof moduleAuthor?.pub_time === "string"
         ? moduleAuthor.pub_time
         : this.formatDynamicPubTime(pubTime);
-    const authorMid = Number(moduleAuthor?.mid) || 0;
-    const authorName = (moduleAuthor?.name as string) ?? "";
-    const authorFace = ((moduleAuthor?.face as string) ?? "").replace(
+
+    let authorMid = Number(moduleAuthor?.mid) || 0;
+    let authorName = (moduleAuthor?.name as string) ?? "";
+    let authorFace = ((moduleAuthor?.face as string) ?? "").replace(
       /^http:/,
       "https:",
     );
-    const pubAction =
+    let pubAction =
       (moduleAuthor?.pub_action as string) ||
       (moduleAuthor?.pub_label as string) ||
       this.getDynamicPubAction(type);
+
+    // 合集/番剧更新：module_author.name 是合集名，mid 是 avid/seasonId，不是 UP mid
+    const isUgcSeason =
+      authorType === "AUTHOR_TYPE_UGC_SEASON" || type.includes("UGC_SEASON");
+    const isPgcAuthor =
+      authorType === "AUTHOR_TYPE_PGC" || type.includes("_PGC");
+    const collectionName = isUgcSeason ? authorName : "";
+
+    if (isUgcSeason) {
+      const parsed = this.parseUgcSeasonPubAction(pubAction);
+      authorName = parsed.name || "UP主";
+      pubAction = parsed.action;
+      authorMid = 0;
+      // face 常是稿件封面，不当作用户头像
+      authorFace = "";
+    } else if (isPgcAuthor) {
+      authorMid = 0;
+    }
 
     const moduleDynamic = modules?.module_dynamic as
       | Record<string, unknown>
@@ -5241,6 +5279,31 @@ class BiliApiService {
           danmaku: Number(stat?.danmaku) || 0,
           like: Number(stat?.like) || likeCount,
           reply: Number(stat?.reply) || replyCount,
+        },
+      };
+    }
+
+    if (major?.ugc_season) {
+      const season = major.ugc_season as Record<string, unknown>;
+      const stat = season.stat as Record<string, unknown> | undefined;
+      const jumpUrl = String(season.jump_url ?? moduleAuthor?.jump_url ?? "");
+      const bvid =
+        (season.bvid as string | undefined) || this.extractBvidFromUrl(jumpUrl);
+      return {
+        ...base,
+        kind: "video",
+        text: collectionName ? `合集 · ${collectionName}` : "更新了合集",
+        title: String(season.title ?? collectionName ?? "合集更新"),
+        bvid,
+        cover: ((season.cover as string) ?? "").replace(/^http:/, "https:"),
+        duration: this.parseDynamicDuration(
+          season.duration_text ?? season.duration,
+        ),
+        stats: {
+          view: Number(stat?.play) || 0,
+          danmaku: Number(stat?.danmaku) || 0,
+          like: likeCount,
+          reply: replyCount,
         },
       };
     }
@@ -5418,6 +5481,7 @@ class BiliApiService {
 
   private getDynamicPubAction(type: string): string {
     if (type.includes("FORWARD")) return "转发了动态";
+    if (type.includes("UGC_SEASON")) return "更新了合集";
     if (type.includes("AV")) return "投稿了视频";
     if (type.includes("LIVE")) return "正在直播";
     if (type.includes("DRAW")) return "发布了动态";

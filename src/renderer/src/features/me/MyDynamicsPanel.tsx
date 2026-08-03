@@ -121,7 +121,10 @@ function DynamicCard({
 
       <div className="space-y-3 px-5 py-3">
         {item.kind === "video" ? (
-          <VideoDynamicBody item={item} />
+          <>
+            {item.text && <p className="text-sm text-[#9499a0]">{item.text}</p>}
+            <VideoDynamicBody item={item} />
+          </>
         ) : (
           <>
             {item.title && item.kind !== "text" && (
