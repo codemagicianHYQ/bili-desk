@@ -11,6 +11,7 @@ export const router = createHashRouter([
     element: <MainLayout />,
     children: [
       { index: true, element: null },
+      { path: "popular", element: null },
       { path: "favorites", element: null },
       { path: "following", element: null },
       { path: "dynamics", element: null },

@@ -27,6 +27,13 @@ import type {
   UserInfo,
   VideoDetail,
   VideoItem,
+  PopularVideoItem,
+  PopularFeedPage,
+  WeeklySeriesMeta,
+  WeeklySeriesDetail,
+  PreciousVideosPage,
+  MusicRankPeriod,
+  MusicRankItem,
   VideoPlayInfo,
   DanmakuItem,
   SendDanmakuPayload,
@@ -626,6 +633,209 @@ class BiliApiService {
     };
   }
 
+  async getPopularVideos(page = 1): Promise<PopularFeedPage> {
+    await this.ensureBuvid3();
+    const pn = Math.max(1, page);
+    const ps = 20;
+    const res = await this.client.get("/x/web-interface/popular", {
+      params: { pn, ps },
+      headers: { Referer: "https://www.bilibili.com/v/popular/all" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "热门列表获取失败"));
+    }
+    const list = (res.data?.data?.list ?? []) as unknown[];
+    const videos = this.normalizePopularItems(list);
+    return {
+      videos,
+      page: pn,
+      hasMore: !res.data?.data?.no_more && videos.length > 0,
+    };
+  }
+
+  async getWeeklySeriesList(): Promise<WeeklySeriesMeta[]> {
+    await this.ensureBuvid3();
+    const res = await this.client.get("/x/web-interface/popular/series/list", {
+      headers: { Referer: "https://www.bilibili.com/v/popular/weekly" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "每周必看期数获取失败"));
+    }
+    const list = (res.data?.data?.list ?? []) as unknown[];
+    return list
+      .filter((item): item is Record<string, unknown> =>
+        Boolean(item && typeof item === "object"),
+      )
+      .map((item) => ({
+        number: Number(item.number) || 0,
+        name: String(item.name ?? ""),
+        subject: String(item.subject ?? ""),
+        status: Number(item.status) || 0,
+      }))
+      .filter((item) => item.number > 0);
+  }
+
+  async getWeeklySeries(number: number): Promise<WeeklySeriesDetail> {
+    await this.ensureBuvid3();
+    const res = await this.client.get("/x/web-interface/popular/series/one", {
+      params: { number },
+      headers: { Referer: "https://www.bilibili.com/v/popular/weekly" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "每周必看获取失败"));
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const config = (data.config ?? {}) as Record<string, unknown>;
+    const videos = this.normalizePopularItems((data.list ?? []) as unknown[]);
+    return {
+      number: Number(config.number) || number,
+      name: String(config.name ?? ""),
+      subject: String(config.subject ?? ""),
+      reminder: String(data.reminder ?? config.reminder ?? ""),
+      videos,
+    };
+  }
+
+  async getPreciousVideos(): Promise<PreciousVideosPage> {
+    await this.ensureBuvid3();
+    const res = await this.client.get("/x/web-interface/popular/precious", {
+      params: { page_size: 100, page: 1 },
+      headers: { Referer: "https://www.bilibili.com/v/popular/history" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "入站必刷获取失败"));
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    return {
+      title: String(data.title ?? "入站必刷"),
+      explain: String(data.explain ?? ""),
+      videos: this.normalizePopularItems((data.list ?? []) as unknown[]),
+    };
+  }
+
+  async getRankingVideos(rid = 0): Promise<PopularVideoItem[]> {
+    await this.ensureBuvid3();
+    const baseParams = {
+      rid,
+      type: "all",
+      web_location: "333.934",
+    };
+    const fetchRanking = async (params: Record<string, string | number>) =>
+      this.client.get("/x/web-interface/ranking/v2", {
+        params,
+        headers: { Referer: "https://www.bilibili.com/v/popular/rank/all" },
+        validateStatus: () => true,
+      });
+
+    let res = await fetchRanking(await signParams(baseParams));
+    if (res.data?.code !== 0) {
+      res = await fetchRanking(baseParams);
+    }
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "排行榜获取失败"));
+    }
+    const list = (res.data?.data?.list ?? []) as unknown[];
+    return this.normalizePopularItems(list, true);
+  }
+
+  async getMusicRankPeriods(): Promise<MusicRankPeriod[]> {
+    await this.ensureBuvid3();
+    const res = await this.client.get(
+      "/x/copyright-music-publicity/toplist/all_period",
+      {
+        params: { list_type: 1 },
+        headers: { Referer: "https://www.bilibili.com/v/popular/music" },
+        validateStatus: () => true,
+      },
+    );
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "音乐榜期数获取失败"));
+    }
+    const years = (res.data?.data?.list ?? {}) as Record<string, unknown>;
+    const periods: MusicRankPeriod[] = [];
+    for (const yearItems of Object.values(years)) {
+      if (!Array.isArray(yearItems)) continue;
+      for (const raw of yearItems) {
+        if (!raw || typeof raw !== "object") continue;
+        const item = raw as Record<string, unknown>;
+        const listId = Number(item.ID ?? item.id) || 0;
+        if (!listId) continue;
+        periods.push({
+          listId,
+          period: Number(item.priod ?? item.period) || 0,
+          publishTime: Number(item.publish_time) || 0,
+        });
+      }
+    }
+    periods.sort((a, b) => b.listId - a.listId);
+    return periods;
+  }
+
+  async getMusicRankList(listId: number): Promise<MusicRankItem[]> {
+    await this.ensureBuvid3();
+    const res = await this.client.get(
+      "/x/copyright-music-publicity/toplist/music_list",
+      {
+        params: { list_id: listId },
+        headers: { Referer: "https://www.bilibili.com/v/popular/music" },
+        validateStatus: () => true,
+      },
+    );
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "音乐榜获取失败"));
+    }
+    const list = (res.data?.data?.list ?? []) as unknown[];
+    return list
+      .filter((item): item is Record<string, unknown> =>
+        Boolean(item && typeof item === "object"),
+      )
+      .map((item) => {
+        const bvid = String(item.creation_bvid || item.mv_bvid || "");
+        const cover = String(
+          item.creation_cover || item.mv_cover || item.cover || "",
+        );
+        return {
+          rank: Number(item.rank) || 0,
+          musicId: String(item.music_id ?? ""),
+          title: String(item.music_title ?? item.title ?? ""),
+          singer: String(item.singer ?? ""),
+          cover: this.normalizeVideoCoverUrl(cover),
+          heat: Number(item.heat) || 0,
+          bvid,
+          aid: Number(item.creation_aid || item.mv_aid) || 0,
+          upName: String(item.creation_nickname ?? ""),
+          play: Number(item.creation_play) || 0,
+          duration: Number(item.creation_duration) || 0,
+          reason: String(item.creation_reason ?? item.recommendation ?? ""),
+        };
+      });
+  }
+
   private normalizeRecommendItems(items: unknown[]): VideoItem[] {
     return items
       .filter((item): item is Record<string, unknown> =>
@@ -633,6 +843,53 @@ class BiliApiService {
       )
       .filter((item) => item.bvid)
       .map((item) => this.normalizeVideo(item));
+  }
+
+  private pickRcmdReason(item: Record<string, unknown>): string {
+    const reason = item.rcmd_reason;
+    if (typeof reason === "string") return reason.trim();
+    if (reason && typeof reason === "object") {
+      const content = (reason as Record<string, unknown>).content;
+      if (typeof content === "string") return content.trim();
+    }
+    return "";
+  }
+
+  private normalizePopularItems(
+    items: unknown[],
+    withRank = false,
+  ): PopularVideoItem[] {
+    return items
+      .filter((item): item is Record<string, unknown> =>
+        Boolean(item && typeof item === "object"),
+      )
+      .filter((item) => item.bvid)
+      .map((item, index) => {
+        const owner = (item.owner ?? {}) as Record<string, unknown>;
+        const stat = (item.stat ?? {}) as Record<string, unknown>;
+        return {
+          bvid: String(item.bvid ?? ""),
+          aid: Number(item.aid) || Number(item.id) || 0,
+          title: String(item.title ?? ""),
+          cover: this.normalizeVideoCoverUrl(
+            String(item.pic ?? item.cover ?? ""),
+          ),
+          duration: Number(item.duration) || 0,
+          play: Number(stat.view) || Number(item.play) || 0,
+          danmaku: Number(stat.danmaku) || 0,
+          reply: Number(stat.reply) || 0,
+          like: Number(stat.like) || 0,
+          share: Number(stat.share) || 0,
+          rcmdReason: this.pickRcmdReason(item),
+          rank: withRank ? index + 1 : undefined,
+          owner: {
+            mid: Number(owner.mid) || 0,
+            name: String(owner.name ?? ""),
+            face: String(owner.face ?? ""),
+          },
+          pubdate: Number(item.pubdate) || Number(item.ctime) || 0,
+        };
+      });
   }
 
   async getLiveRecommend(page = 1): Promise<LiveRecommendPage> {

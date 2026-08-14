@@ -5,6 +5,13 @@ export const IPC = {
   AUTH_STATUS: "auth:status",
 
   BILI_RECOMMEND: "bili:recommend",
+  BILI_POPULAR: "bili:popular",
+  BILI_WEEKLY_SERIES_LIST: "bili:weekly-series-list",
+  BILI_WEEKLY_SERIES: "bili:weekly-series",
+  BILI_PRECIOUS: "bili:precious",
+  BILI_RANKING: "bili:ranking",
+  BILI_MUSIC_RANK_PERIODS: "bili:music-rank-periods",
+  BILI_MUSIC_RANK_LIST: "bili:music-rank-list",
   BILI_LIVE_RECOMMEND: "bili:live-recommend",
   BILI_LIVE_FOLLOWING: "bili:live-following",
   BILI_LIVE_ROOM: "bili:live-room",

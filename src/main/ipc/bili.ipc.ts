@@ -17,6 +17,21 @@ export function registerBiliIpc(): void {
     (_e, options?: { freshIdx?: number; freshIdx1h?: number; ps?: number }) =>
       biliApi.getRecommend(options),
   );
+  handleIpc(IPC.BILI_POPULAR, (_e, page?: number) =>
+    biliApi.getPopularVideos(page ?? 1),
+  );
+  handleIpc(IPC.BILI_WEEKLY_SERIES_LIST, () => biliApi.getWeeklySeriesList());
+  handleIpc(IPC.BILI_WEEKLY_SERIES, (_e, number: number) =>
+    biliApi.getWeeklySeries(number),
+  );
+  handleIpc(IPC.BILI_PRECIOUS, () => biliApi.getPreciousVideos());
+  handleIpc(IPC.BILI_RANKING, (_e, rid?: number) =>
+    biliApi.getRankingVideos(rid ?? 0),
+  );
+  handleIpc(IPC.BILI_MUSIC_RANK_PERIODS, () => biliApi.getMusicRankPeriods());
+  handleIpc(IPC.BILI_MUSIC_RANK_LIST, (_e, listId: number) =>
+    biliApi.getMusicRankList(listId),
+  );
   ipcMain.handle(IPC.BILI_LIVE_RECOMMEND, (_e, page?: number) =>
     biliApi.getLiveRecommend(page),
   );

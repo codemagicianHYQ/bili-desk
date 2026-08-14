@@ -6,6 +6,7 @@ interface NavigationState {
   watchLaterKeepAlive: boolean;
   dynamicsKeepAlive: boolean;
   historyKeepAlive: boolean;
+  popularKeepAlive: boolean;
   videoKeepAlive: boolean;
   liveKeepAlive: boolean;
   activeVideoBvid: string | null;
@@ -17,6 +18,7 @@ const MAIN_SECTIONS = new Set([
   "/",
   "/dynamics",
   "/history",
+  "/popular",
   "/favorites",
   "/following",
   "/watch-later",
@@ -58,6 +60,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   watchLaterKeepAlive: false,
   dynamicsKeepAlive: false,
   historyKeepAlive: false,
+  popularKeepAlive: false,
   videoKeepAlive: false,
   liveKeepAlive: false,
   activeVideoBvid: null,
@@ -69,6 +72,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
     let watchLaterKeepAlive = get().watchLaterKeepAlive;
     let dynamicsKeepAlive = get().dynamicsKeepAlive;
     let historyKeepAlive = get().historyKeepAlive;
+    let popularKeepAlive = get().popularKeepAlive;
     let videoKeepAlive = get().videoKeepAlive;
     let liveKeepAlive = get().liveKeepAlive;
     let activeVideoBvid = get().activeVideoBvid;
@@ -188,6 +192,24 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       historyKeepAlive = false;
     }
 
+    if (path === "/popular") {
+      popularKeepAlive = true;
+    } else if (
+      (isVideoPath(path) || isLivePath(path)) &&
+      (prevPath === "/popular" ||
+        isVideoPath(prevPath) ||
+        isLivePath(prevPath) ||
+        isUpPath(prevPath))
+    ) {
+      if (prevPath === "/popular" || popularKeepAlive) {
+        popularKeepAlive = true;
+      }
+    } else if (isUpPath(path) && popularKeepAlive) {
+      popularKeepAlive = true;
+    } else if (MAIN_SECTIONS.has(path) && path !== "/popular") {
+      popularKeepAlive = false;
+    }
+
     const current = get();
     if (
       current.followingKeepAlive !== followingKeepAlive ||
@@ -195,6 +217,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       current.watchLaterKeepAlive !== watchLaterKeepAlive ||
       current.dynamicsKeepAlive !== dynamicsKeepAlive ||
       current.historyKeepAlive !== historyKeepAlive ||
+      current.popularKeepAlive !== popularKeepAlive ||
       current.videoKeepAlive !== videoKeepAlive ||
       current.liveKeepAlive !== liveKeepAlive ||
       current.activeVideoBvid !== activeVideoBvid ||
@@ -206,6 +229,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
         watchLaterKeepAlive,
         dynamicsKeepAlive,
         historyKeepAlive,
+        popularKeepAlive,
         videoKeepAlive,
         liveKeepAlive,
         activeVideoBvid,

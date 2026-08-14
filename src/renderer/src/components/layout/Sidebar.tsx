@@ -10,6 +10,7 @@ import {
   UserCircle2,
   Radio,
   History,
+  Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -19,6 +20,7 @@ import { BiliImage } from "@/components/ui/bili-image";
 
 const navItems = [
   { to: "/", icon: Home, label: "首页" },
+  { to: "/popular", icon: Flame, label: "热门" },
   { to: "/dynamics", icon: Radio, label: "动态" },
   { to: "/me", icon: UserCircle2, label: "我的" },
   { to: "/favorites", icon: Bookmark, label: "收藏" },
@@ -47,6 +49,9 @@ export function Sidebar() {
   const historyKeepAlive = useNavigationStore(
     (state) => state.historyKeepAlive,
   );
+  const popularKeepAlive = useNavigationStore(
+    (state) => state.popularKeepAlive,
+  );
 
   const path = location.pathname;
   const inFollowingFlow =
@@ -57,7 +62,8 @@ export function Sidebar() {
         !favoritesKeepAlive &&
         !watchLaterKeepAlive &&
         !dynamicsKeepAlive &&
-        !historyKeepAlive));
+        !historyKeepAlive &&
+        !popularKeepAlive));
   const inFavoritesFlow =
     favoritesKeepAlive &&
     (path === "/favorites" ||
@@ -80,6 +86,12 @@ export function Sidebar() {
   const inHistoryFlow =
     historyKeepAlive &&
     (path === "/history" ||
+      path.startsWith("/video/") ||
+      path.startsWith("/live/") ||
+      path.startsWith("/up/"));
+  const inPopularFlow =
+    popularKeepAlive &&
+    (path === "/popular" ||
       path.startsWith("/video/") ||
       path.startsWith("/live/") ||
       path.startsWith("/up/"));
@@ -111,7 +123,8 @@ export function Sidebar() {
             (to === "/favorites" && inFavoritesFlow) ||
             (to === "/watch-later" && inWatchLaterFlow) ||
             (to === "/dynamics" && inDynamicsFlow) ||
-            (to === "/history" && inHistoryFlow);
+            (to === "/history" && inHistoryFlow) ||
+            (to === "/popular" && inPopularFlow);
           return (
             <Link
               key={to}

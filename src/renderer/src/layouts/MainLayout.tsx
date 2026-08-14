@@ -7,6 +7,7 @@ import { FavoritesPage } from "@/features/favorites/FavoritesPage";
 import { FollowingPage } from "@/features/following/FollowingPage";
 import { DynamicsPage } from "@/features/dynamics/DynamicsPage";
 import { HistoryPage } from "@/features/history/HistoryPage";
+import { PopularPage } from "@/features/popular/PopularPage";
 import { VideoPage } from "@/features/video/VideoPage";
 import { LivePage } from "@/features/live/LivePage";
 import { WatchLaterPage } from "@/features/watch-later/WatchLaterPage";
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
   "/": { title: "推荐", subtitle: "为你精选的内容" },
+  "/popular": { title: "热门", subtitle: "综合热门、每周必看与排行榜" },
   "/dynamics": { title: "动态", subtitle: "关注 UP 的最新更新" },
   "/history": { title: "历史记录", subtitle: "与官方账号同步" },
   "/favorites": { title: "收藏夹", subtitle: "本地二级分类管理" },
@@ -46,6 +48,9 @@ export function MainLayout() {
   );
   const historyKeepAlive = useNavigationStore(
     (state) => state.historyKeepAlive,
+  );
+  const popularKeepAlive = useNavigationStore(
+    (state) => state.popularKeepAlive,
   );
   const videoKeepAlive = useNavigationStore((state) => state.videoKeepAlive);
   const liveKeepAlive = useNavigationStore((state) => state.liveKeepAlive);
@@ -100,6 +105,7 @@ export function MainLayout() {
   const isWatchLater = path === "/watch-later";
   const isDynamics = path === "/dynamics";
   const isHistory = path === "/history";
+  const isPopular = path === "/popular";
   const isMe = path === "/me";
   const isUpSpace = path.startsWith("/up/");
   const isDynamicDetail = path.startsWith("/dynamic/");
@@ -136,6 +142,14 @@ export function MainLayout() {
               aria-hidden={!isHistory}
             >
               <HistoryPage />
+            </div>
+          )}
+          {(popularKeepAlive || isPopular) && (
+            <div
+              className={cn("h-full", !isPopular && "hidden")}
+              aria-hidden={!isPopular}
+            >
+              <PopularPage />
             </div>
           )}
           {(followingKeepAlive || isFollowing) && (

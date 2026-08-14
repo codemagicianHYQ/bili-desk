@@ -285,6 +285,89 @@ export interface RecommendPage {
   hasMore: boolean;
 }
 
+/** 热门 / 每周必看 / 入站必刷 / 排行榜 共用卡片 */
+export interface PopularVideoItem extends VideoItem {
+  reply: number;
+  like: number;
+  share: number;
+  /** 例如「6万点赞」「1万分享」 */
+  rcmdReason?: string;
+  rank?: number;
+}
+
+export interface PopularFeedPage {
+  videos: PopularVideoItem[];
+  page: number;
+  hasMore: boolean;
+}
+
+export interface WeeklySeriesMeta {
+  number: number;
+  name: string;
+  subject: string;
+  status: number;
+}
+
+export interface WeeklySeriesDetail {
+  number: number;
+  name: string;
+  subject: string;
+  reminder?: string;
+  videos: PopularVideoItem[];
+}
+
+export interface PreciousVideosPage {
+  title: string;
+  explain: string;
+  videos: PopularVideoItem[];
+}
+
+export interface RankingPartition {
+  rid: number;
+  label: string;
+}
+
+export const RANKING_PARTITIONS: RankingPartition[] = [
+  { rid: 0, label: "全站" },
+  { rid: 1, label: "动画" },
+  { rid: 168, label: "国创相关" },
+  { rid: 3, label: "音乐" },
+  { rid: 129, label: "舞蹈" },
+  { rid: 4, label: "游戏" },
+  { rid: 36, label: "知识" },
+  { rid: 188, label: "科技" },
+  { rid: 234, label: "运动" },
+  { rid: 223, label: "汽车" },
+  { rid: 160, label: "生活" },
+  { rid: 211, label: "美食" },
+  { rid: 217, label: "动物圈" },
+  { rid: 119, label: "鬼畜" },
+  { rid: 155, label: "时尚" },
+  { rid: 5, label: "娱乐" },
+  { rid: 181, label: "影视" },
+];
+
+export interface MusicRankPeriod {
+  listId: number;
+  period: number;
+  publishTime: number;
+}
+
+export interface MusicRankItem {
+  rank: number;
+  musicId: string;
+  title: string;
+  singer: string;
+  cover: string;
+  heat: number;
+  bvid: string;
+  aid: number;
+  upName: string;
+  play: number;
+  duration: number;
+  reason: string;
+}
+
 /** 直播间卡片（推荐 / 关注中） */
 export interface LiveRoomItem {
   roomId: number;
@@ -740,6 +823,13 @@ export interface BiliDeskApi {
       freshIdx1h?: number;
       ps?: number;
     }) => Promise<RecommendPage>;
+    getPopularVideos: (page?: number) => Promise<PopularFeedPage>;
+    getWeeklySeriesList: () => Promise<WeeklySeriesMeta[]>;
+    getWeeklySeries: (number: number) => Promise<WeeklySeriesDetail>;
+    getPreciousVideos: () => Promise<PreciousVideosPage>;
+    getRankingVideos: (rid?: number) => Promise<PopularVideoItem[]>;
+    getMusicRankPeriods: () => Promise<MusicRankPeriod[]>;
+    getMusicRankList: (listId: number) => Promise<MusicRankItem[]>;
     getLiveRecommend: (page?: number) => Promise<LiveRecommendPage>;
     getFollowingLives: () => Promise<FollowingLivePage>;
     getLiveRoom: (roomId: number) => Promise<LiveRoomDetail>;

@@ -35,6 +35,17 @@ const api = {
       options
         ? ipcRenderer.invoke(IPC.BILI_RECOMMEND, options)
         : ipcRenderer.invoke(IPC.BILI_RECOMMEND),
+    getPopularVideos: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_POPULAR, page ?? 1),
+    getWeeklySeriesList: () => ipcRenderer.invoke(IPC.BILI_WEEKLY_SERIES_LIST),
+    getWeeklySeries: (number: number) =>
+      ipcRenderer.invoke(IPC.BILI_WEEKLY_SERIES, number),
+    getPreciousVideos: () => ipcRenderer.invoke(IPC.BILI_PRECIOUS),
+    getRankingVideos: (rid?: number) =>
+      ipcRenderer.invoke(IPC.BILI_RANKING, rid ?? 0),
+    getMusicRankPeriods: () => ipcRenderer.invoke(IPC.BILI_MUSIC_RANK_PERIODS),
+    getMusicRankList: (listId: number) =>
+      ipcRenderer.invoke(IPC.BILI_MUSIC_RANK_LIST, listId),
     getLiveRecommend: (page?: number) =>
       page == null
         ? ipcRenderer.invoke(IPC.BILI_LIVE_RECOMMEND)
