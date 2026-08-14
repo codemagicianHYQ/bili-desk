@@ -754,7 +754,7 @@ export interface BiliDeskApi {
     getVideoRelation: (bvid: string, aid: number) => Promise<VideoRelation>;
     likeVideo: (aid: number, like: boolean) => Promise<void>;
     addCoin: (payload: AddCoinPayload) => Promise<void>;
-    shareVideo: (aid: number, bvid: string) => Promise<void>;
+    shareVideo: (aid: number, bvid: string) => Promise<boolean>;
     reportWatchHeartbeat: (payload: WatchHeartbeatPayload) => Promise<void>;
     getDanmakuList: (cid: number) => Promise<DanmakuItem[]>;
     sendDanmaku: (payload: SendDanmakuPayload) => Promise<void>;

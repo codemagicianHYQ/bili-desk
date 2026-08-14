@@ -118,6 +118,35 @@ function orderMediaUrls(
   return { url: unique[0], backupUrls: unique.slice(1) };
 }
 
+const BILI_CODE_TEXT: Record<number, string> = {
+  [-101]: "账号未登录",
+  [-111]: "csrf 校验失败，请重新登录",
+  [-400]: "请求参数错误",
+  [-403]: "没有权限",
+  [-404]: "内容不存在",
+  [-412]: "请求被安全策略拦截",
+};
+
+function looksGarbled(text: string): boolean {
+  return /[閱圑嚈�]/.test(text) || text.includes("\uFFFD");
+}
+
+function formatBiliApiError(
+  data: { code?: number; message?: unknown } | undefined,
+  fallback: string,
+): string {
+  const code = Number(data?.code);
+  const mapped = Number.isFinite(code) ? BILI_CODE_TEXT[code] : undefined;
+  const raw = typeof data?.message === "string" ? data.message.trim() : "";
+  const usable = raw && raw !== "0" && !looksGarbled(raw);
+  if (usable) {
+    return Number.isFinite(code) && code !== 0 ? `${raw}（code=${code}）` : raw;
+  }
+  if (mapped) return `${mapped}（code=${code}）`;
+  if (Number.isFinite(code) && code !== 0) return `${fallback}（code=${code}）`;
+  return fallback;
+}
+
 function decodeXmlEntities(text: string): string {
   return text
     .replace(/&lt;/g, "<")
@@ -1422,7 +1451,7 @@ class BiliApiService {
       throw new Error("请求被 B 站安全策略拦截，请稍后重试");
     }
     if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "点赞失败");
+      throw new Error(formatBiliApiError(res.data, "点赞失败"));
     }
   }
 
@@ -1450,34 +1479,42 @@ class BiliApiService {
       throw new Error("请求被 B 站安全策略拦截，请稍后重试");
     }
     if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "投币失败");
+      throw new Error(formatBiliApiError(res.data, "投币失败"));
     }
   }
 
-  async shareVideo(aid: number, bvid: string): Promise<void> {
+  /** 给稿件加一次分享计数。复制链接本身不依赖此接口，失败只记日志不抛错。 */
+  async shareVideo(aid: number, bvid: string): Promise<boolean> {
     const csrf = getCsrf();
-    if (!csrf) throw new Error("请先登录后再分享");
+    if (!csrf) return false;
 
     const body = new URLSearchParams({
       aid: String(aid),
-      eabee: "",
+      bvid,
       csrf,
+      source: "web_normal",
     });
 
     const res = await this.client.post("/x/web-interface/share/add", body, {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         Referer: `https://www.bilibili.com/video/${bvid}`,
+        Origin: "https://www.bilibili.com",
       },
       validateStatus: () => true,
     });
 
     if (res.status === 412 || res.data?.code === -412) {
-      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+      console.warn("[BiliDesk][share] 请求被安全策略拦截");
+      return false;
     }
     if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "分享失败");
+      console.warn(
+        `[BiliDesk][share] ${formatBiliApiError(res.data, "分享计数失败")}`,
+      );
+      return false;
     }
+    return true;
   }
 
   /**

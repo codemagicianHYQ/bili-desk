@@ -221,10 +221,13 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
     try {
       await navigator.clipboard.writeText(url);
       try {
-        await window.biliDesk.bili.shareVideo(video.aid, video.bvid);
-        setShareCount((count) => count + 1);
+        const counted = await window.biliDesk.bili.shareVideo(
+          video.aid,
+          video.bvid,
+        );
+        if (counted) setShareCount((count) => count + 1);
       } catch {
-        // 未登录时仍保留复制链接
+        // 复制链接已成功，分享计数失败不影响
       }
       showHint("已复制分享链接");
     } catch (err) {
