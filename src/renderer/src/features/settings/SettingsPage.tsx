@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { THEME_PRESETS, useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 import {
+  Ban,
   ExternalLink,
   Eye,
   EyeOff,
@@ -13,6 +14,7 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
+import { BlacklistPanel } from "./BlacklistPanel";
 
 const GITHUB_REPO = {
   name: "bili-desk",
@@ -27,7 +29,7 @@ const GITHUB_AUTHOR = {
   description: "项目作者 · GitHub",
 };
 
-type SettingsSection = "appearance" | "privacy" | "ai" | "about";
+type SettingsSection = "appearance" | "privacy" | "blacklist" | "ai" | "about";
 
 const NAV_ITEMS: Array<{
   id: SettingsSection;
@@ -36,6 +38,7 @@ const NAV_ITEMS: Array<{
 }> = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "privacy", label: "观看隐私", icon: EyeOff },
+  { id: "blacklist", label: "黑名单", icon: Ban },
   { id: "ai", label: "AI 配置", icon: Sparkles },
   { id: "about", label: "关于", icon: Info },
 ];
@@ -240,6 +243,8 @@ export function SettingsPage() {
               </SettingRow>
             </section>
           )}
+
+          {section === "blacklist" && <BlacklistPanel />}
 
           {section === "ai" && (
             <section className="space-y-5 rounded-xl border border-border bg-card/60 p-5">

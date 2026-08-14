@@ -14,7 +14,13 @@ import { FollowTagDialog } from "./FollowTagDialog";
 import { FollowingUpCard } from "./FollowingUpCard";
 import { UnfollowConfirmDialog } from "./UnfollowConfirmDialog";
 
-type SidebarMode = "bilibili" | "local";
+function isSpecialFollowTag(
+  tagId: number | null,
+  tag: { tagId: number; name: string } | undefined,
+): boolean {
+  if (tagId === BILI_SPECIAL_FOLLOW_TAG_ID) return true;
+  return tag?.name === "特别关注";
+}
 
 function formatError(err: unknown): string {
   const message = err instanceof Error ? err.message : "加载失败";
@@ -96,6 +102,8 @@ export function FollowingPage() {
 
   const isLocalMode = sidebarMode === "local";
   const selectedTag = followTags.find((tag) => tag.tagId === selectedTagId);
+  const inSpecialGroup =
+    !isLocalMode && isSpecialFollowTag(selectedTagId, selectedTag);
   const localSelectionLabel = useMemo(
     () => getLocalSelectionLabel(upGroupTree, localSelection),
     [upGroupTree, localSelection],
@@ -349,8 +357,6 @@ export function FollowingPage() {
     setActionMessage("");
     try {
       await window.biliDesk.bili.modifySpecialFollow(up.mid, special);
-      const inSpecialGroup =
-        !isLocalMode && selectedTagId === BILI_SPECIAL_FOLLOW_TAG_ID;
 
       if (!special && inSpecialGroup) {
         setFollowings((prev) => prev.filter((item) => item.mid !== up.mid));
@@ -510,11 +516,7 @@ export function FollowingPage() {
                   key={up.mid}
                   up={up}
                   showGroupActions={!isLocalMode}
-                  isSpecial={
-                    Boolean(up.special) ||
-                    (!isLocalMode &&
-                      selectedTagId === BILI_SPECIAL_FOLLOW_TAG_ID)
-                  }
+                  isSpecial={Boolean(up.special) || inSpecialGroup}
                   specialPending={specialPendingMid === up.mid}
                   onSetGroup={setTagDialogUp}
                   onToggleSpecial={(target, next) =>

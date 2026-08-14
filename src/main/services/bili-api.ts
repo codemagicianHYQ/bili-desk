@@ -9,6 +9,7 @@ import {
   isLoggedIn,
   setCookies,
 } from "../store/app-store";
+import { BILI_SPECIAL_FOLLOW_TAG_ID } from "@shared/types";
 import type {
   AuthPollResult,
   FavFolder,
@@ -17,6 +18,8 @@ import type {
   FollowTag,
   FollowingUp,
   FollowingsPage,
+  BlacklistPage,
+  BlacklistUser,
   UserRelationListPage,
   QrLoginResult,
   UpProfile,
@@ -2963,25 +2966,68 @@ class BiliApiService {
   }
 
   async modifySpecialFollow(mid: number, special: boolean): Promise<void> {
-    try {
-      await this.postRelationForm("/x/relation/modify", {
-        fid: String(mid),
-        act: special ? "5" : "6",
-        re_src: "11",
+    // 特别关注是系统分组 tagid=-10，不是 /x/relation/modify 的 act。
+    // act=5/6 实际是拉黑/取消拉黑，会误取关。
+    if (special) {
+      const current = await this.getUserFollowTags(mid);
+      const next = [
+        ...new Set(
+          [...current, BILI_SPECIAL_FOLLOW_TAG_ID].filter((id) => id !== 0),
+        ),
+      ];
+      await this.postRelationForm("/x/relation/tags/addUsers", {
+        fids: String(mid),
+        tagids: next.join(","),
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      const shouldFallback =
-        message.includes("不存在") ||
-        message.includes("404") ||
-        message.includes("未知");
-      if (!shouldFallback) throw err;
-
-      await this.postRelationForm(
-        special ? "/x/relation/tag/special/add" : "/x/relation/tag/special/del",
-        { fid: String(mid) },
-      );
+      return;
     }
+
+    await this.postRelationForm("/x/relation/tags/moveUsers", {
+      beforeTagids: String(BILI_SPECIAL_FOLLOW_TAG_ID),
+      afterTagids: "0",
+      fids: String(mid),
+    });
+  }
+
+  async getBlacklist(page = 1, pageSize = 50): Promise<BlacklistPage> {
+    if (!isLoggedIn()) {
+      return { users: [], page: 1, total: 0, hasMore: false };
+    }
+
+    await this.ensureBuvid3();
+
+    const res = await this.client.get("/x/relation/blacks", {
+      params: { pn: page, ps: pageSize },
+      headers: { Referer: "https://space.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "黑名单获取失败");
+    }
+
+    const data = (res.data?.data as Record<string, unknown>) ?? {};
+    const list = (data.list as Record<string, unknown>[]) ?? [];
+    const total = (data.total as number) ?? 0;
+    const users: BlacklistUser[] = list.map((u) => ({
+      ...this.mapFollowingUser(u),
+      blockedAt: (u.mtime as number) || undefined,
+    }));
+
+    return {
+      users,
+      page,
+      total,
+      hasMore: page * pageSize < total,
+    };
+  }
+
+  async modifyBlock(mid: number, block: boolean): Promise<void> {
+    await this.postRelationForm("/x/relation/modify", {
+      fid: String(mid),
+      act: block ? "5" : "6",
+      re_src: "11",
+    });
   }
 
   async getRecentVideoTitles(mid: number, limit = 5): Promise<string[]> {

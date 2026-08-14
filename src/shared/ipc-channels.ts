@@ -39,6 +39,8 @@ export const IPC = {
   BILI_UP_RELATION: "bili:up-relation",
   BILI_UP_MODIFY_FOLLOW: "bili:up-modify-follow",
   BILI_UP_MODIFY_SPECIAL: "bili:up-modify-special",
+  BILI_BLACKLIST: "bili:blacklist",
+  BILI_UP_MODIFY_BLOCK: "bili:up-modify-block",
   BILI_UP_VIDEOS: "bili:up-videos",
   BILI_SEARCH: "bili:search",
   BILI_SEARCH_USERS: "bili:search-users",

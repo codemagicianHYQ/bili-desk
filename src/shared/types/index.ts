@@ -212,6 +212,18 @@ export interface FollowTag {
 /** B 站系统分组：特别关注 */
 export const BILI_SPECIAL_FOLLOW_TAG_ID = -10;
 
+export interface BlacklistUser extends FollowingUp {
+  /** 拉黑时间，秒级时间戳 */
+  blockedAt?: number;
+}
+
+export interface BlacklistPage {
+  users: BlacklistUser[];
+  page: number;
+  total: number;
+  hasMore: boolean;
+}
+
 export interface FollowingsPage {
   followings: FollowingUp[];
   page: number;
@@ -798,6 +810,8 @@ export interface BiliDeskApi {
     getUpRelation: (mid: number) => Promise<UpRelation>;
     modifyFollow: (mid: number, follow: boolean) => Promise<void>;
     modifySpecialFollow: (mid: number, special: boolean) => Promise<void>;
+    getBlacklist: (page?: number) => Promise<BlacklistPage>;
+    modifyBlock: (mid: number, block: boolean) => Promise<void>;
     getUpVideos: (
       mid: number,
       page?: number,

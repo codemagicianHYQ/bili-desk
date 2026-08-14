@@ -133,10 +133,14 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_UP_MODIFY_FOLLOW, (_e, mid: number, follow: boolean) =>
     biliApi.modifyFollow(mid, follow),
   );
-  handleIpc(
-    IPC.BILI_UP_MODIFY_SPECIAL,
-    (_e, mid: number, special: boolean) =>
-      biliApi.modifySpecialFollow(mid, special),
+  handleIpc(IPC.BILI_UP_MODIFY_SPECIAL, (_e, mid: number, special: boolean) =>
+    biliApi.modifySpecialFollow(mid, special),
+  );
+  handleIpc(IPC.BILI_BLACKLIST, (_e, page?: number) =>
+    biliApi.getBlacklist(page ?? 1),
+  );
+  handleIpc(IPC.BILI_UP_MODIFY_BLOCK, (_e, mid: number, block: boolean) =>
+    biliApi.modifyBlock(mid, block),
   );
   handleIpc(
     IPC.BILI_UP_VIDEOS,

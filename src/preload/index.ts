@@ -138,6 +138,10 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_UP_MODIFY_FOLLOW, mid, follow),
     modifySpecialFollow: (mid: number, special: boolean) =>
       ipcRenderer.invoke(IPC.BILI_UP_MODIFY_SPECIAL, mid, special),
+    getBlacklist: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_BLACKLIST, page ?? 1),
+    modifyBlock: (mid: number, block: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_UP_MODIFY_BLOCK, mid, block),
     getUpVideos: (mid: number, page?: number, order?: UpVideosOrder) =>
       ipcRenderer.invoke(
         IPC.BILI_UP_VIDEOS,
