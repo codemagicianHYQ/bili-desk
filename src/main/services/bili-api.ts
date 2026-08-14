@@ -2969,19 +2969,14 @@ class BiliApiService {
     // 特别关注是系统分组 tagid=-10，不是 /x/relation/modify 的 act。
     // act=5/6 实际是拉黑/取消拉黑，会误取关。
     if (special) {
-      const current = await this.getUserFollowTags(mid);
-      const next = [
-        ...new Set(
-          [...current, BILI_SPECIAL_FOLLOW_TAG_ID].filter((id) => id !== 0),
-        ),
-      ];
-      await this.postRelationForm("/x/relation/tags/addUsers", {
+      await this.postRelationForm("/x/relation/tags/copyUsers", {
         fids: String(mid),
-        tagids: next.join(","),
+        tagids: String(BILI_SPECIAL_FOLLOW_TAG_ID),
       });
       return;
     }
 
+    // 只从特别关注移出，其它分组 / 默认分组保持不变
     await this.postRelationForm("/x/relation/tags/moveUsers", {
       beforeTagids: String(BILI_SPECIAL_FOLLOW_TAG_ID),
       afterTagids: "0",

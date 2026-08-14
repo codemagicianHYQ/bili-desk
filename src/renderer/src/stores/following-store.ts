@@ -1,9 +1,10 @@
 import { create } from "zustand";
-import type {
-  FollowTag,
-  FollowingUp,
-  UpGroupSelection,
-  UpGroupTreeNode,
+import {
+  BILI_SPECIAL_FOLLOW_TAG_ID,
+  type FollowTag,
+  type FollowingUp,
+  type UpGroupSelection,
+  type UpGroupTreeNode,
 } from "@shared/types";
 
 const FOLLOWINGS_TTL_MS = 10 * 60 * 1000;
@@ -30,6 +31,7 @@ interface FollowingState {
   invalidateSidebar: () => void;
   patchFollowing: (mid: number, patch: Partial<FollowingUp> | null) => void;
   patchFollowTagCount: (tagId: number, delta: number) => void;
+  patchSpecialFollowCount: (delta: number) => void;
   refreshFollowTags: () => Promise<void>;
 }
 
@@ -181,7 +183,7 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
   },
 
   patchFollowTagCount: (tagId, delta) => {
-    if (delta === 0) return;
+    if (delta === 0 || tagId === 0) return;
     set({
       followTags: get().followTags.map((tag) =>
         tag.tagId === tagId
@@ -189,6 +191,21 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
           : tag,
       ),
     });
+  },
+
+  patchSpecialFollowCount: (delta) => {
+    if (delta === 0) return;
+    const tags = get().followTags;
+    const index = tags.findIndex(
+      (tag) =>
+        tag.name === "特别关注" || tag.tagId === BILI_SPECIAL_FOLLOW_TAG_ID,
+    );
+    if (index < 0) return;
+    const target = tags[index];
+    if (target.name === "默认分组") return;
+    const next = tags.slice();
+    next[index] = { ...target, count: Math.max(0, target.count + delta) };
+    set({ followTags: next });
   },
 
   refreshFollowTags: async () => {

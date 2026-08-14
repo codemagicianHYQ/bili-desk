@@ -74,6 +74,9 @@ export function FollowingPage() {
   const patchFollowTagCount = useFollowingStore(
     (state) => state.patchFollowTagCount,
   );
+  const patchSpecialFollowCount = useFollowingStore(
+    (state) => state.patchSpecialFollowCount,
+  );
   const refreshVersion = useFollowingStore((state) => state.refreshVersion);
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("bilibili");
@@ -104,11 +107,6 @@ export function FollowingPage() {
   const selectedTag = followTags.find((tag) => tag.tagId === selectedTagId);
   const inSpecialGroup =
     !isLocalMode && isSpecialFollowTag(selectedTagId, selectedTag);
-  const specialTagId =
-    followTags.find(
-      (tag) =>
-        tag.tagId === BILI_SPECIAL_FOLLOW_TAG_ID || tag.name === "特别关注",
-    )?.tagId ?? BILI_SPECIAL_FOLLOW_TAG_ID;
   const localSelectionLabel = useMemo(
     () => getLocalSelectionLabel(upGroupTree, localSelection),
     [upGroupTree, localSelection],
@@ -374,7 +372,7 @@ export function FollowingPage() {
       }
 
       patchFollowing(up.mid, { special });
-      patchFollowTagCount(specialTagId, special ? 1 : -1);
+      patchSpecialFollowCount(special ? 1 : -1);
       setActionMessage(
         special
           ? `已将「${up.uname}」加入特别关注`
