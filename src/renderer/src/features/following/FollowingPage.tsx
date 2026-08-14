@@ -71,8 +71,8 @@ export function FollowingPage() {
     (state) => state.invalidateSidebar,
   );
   const patchFollowing = useFollowingStore((state) => state.patchFollowing);
-  const refreshFollowTags = useFollowingStore(
-    (state) => state.refreshFollowTags,
+  const patchFollowTagCount = useFollowingStore(
+    (state) => state.patchFollowTagCount,
   );
   const refreshVersion = useFollowingStore((state) => state.refreshVersion);
 
@@ -104,6 +104,11 @@ export function FollowingPage() {
   const selectedTag = followTags.find((tag) => tag.tagId === selectedTagId);
   const inSpecialGroup =
     !isLocalMode && isSpecialFollowTag(selectedTagId, selectedTag);
+  const specialTagId =
+    followTags.find(
+      (tag) =>
+        tag.tagId === BILI_SPECIAL_FOLLOW_TAG_ID || tag.name === "特别关注",
+    )?.tagId ?? BILI_SPECIAL_FOLLOW_TAG_ID;
   const localSelectionLabel = useMemo(
     () => getLocalSelectionLabel(upGroupTree, localSelection),
     [upGroupTree, localSelection],
@@ -369,7 +374,7 @@ export function FollowingPage() {
       }
 
       patchFollowing(up.mid, { special });
-      await refreshFollowTags();
+      patchFollowTagCount(specialTagId, special ? 1 : -1);
       setActionMessage(
         special
           ? `已将「${up.uname}」加入特别关注`
@@ -382,11 +387,35 @@ export function FollowingPage() {
     }
   };
 
-  const handleTagSaved = async () => {
-    invalidateFollowings();
-    invalidateSidebar();
-    await refreshSidebar({ force: true });
-    await reloadCurrentList();
+  const handleTagSaved = (change: {
+    prevTagIds: number[];
+    nextTagIds: number[];
+  }) => {
+    const prev = new Set(change.prevTagIds.filter((id) => id !== 0));
+    const next = new Set(change.nextTagIds.filter((id) => id !== 0));
+
+    for (const tagId of next) {
+      if (!prev.has(tagId)) patchFollowTagCount(tagId, 1);
+    }
+    for (const tagId of prev) {
+      if (!next.has(tagId)) patchFollowTagCount(tagId, -1);
+    }
+
+    if (
+      tagDialogUp &&
+      !isLocalMode &&
+      selectedTagId != null &&
+      selectedTagId !== 0
+    ) {
+      const wasIn = prev.has(selectedTagId);
+      const nowIn = next.has(selectedTagId);
+      if (wasIn && !nowIn) {
+        setFollowings((list) =>
+          list.filter((item) => item.mid !== tagDialogUp.mid),
+        );
+      }
+    }
+
     setActionMessage("分组已更新");
   };
 
@@ -560,7 +589,7 @@ export function FollowingPage() {
         up={tagDialogUp}
         tags={followTags}
         onClose={() => setTagDialogUp(null)}
-        onSaved={() => void handleTagSaved()}
+        onSaved={handleTagSaved}
       />
 
       <UnfollowConfirmDialog

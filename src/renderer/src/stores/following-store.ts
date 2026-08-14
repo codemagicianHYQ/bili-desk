@@ -29,6 +29,7 @@ interface FollowingState {
   invalidateFollowings: () => void;
   invalidateSidebar: () => void;
   patchFollowing: (mid: number, patch: Partial<FollowingUp> | null) => void;
+  patchFollowTagCount: (tagId: number, delta: number) => void;
   refreshFollowTags: () => Promise<void>;
 }
 
@@ -175,6 +176,17 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
     set({
       allFollowings: allFollowings.map((up) =>
         up.mid === mid ? { ...up, ...patch } : up,
+      ),
+    });
+  },
+
+  patchFollowTagCount: (tagId, delta) => {
+    if (delta === 0) return;
+    set({
+      followTags: get().followTags.map((tag) =>
+        tag.tagId === tagId
+          ? { ...tag, count: Math.max(0, tag.count + delta) }
+          : tag,
       ),
     });
   },

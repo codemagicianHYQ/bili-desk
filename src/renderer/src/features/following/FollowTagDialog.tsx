@@ -8,7 +8,7 @@ interface FollowTagDialogProps {
   up: FollowingUp | null;
   tags: FollowTag[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (change: { prevTagIds: number[]; nextTagIds: number[] }) => void;
 }
 
 export function FollowTagDialog({
@@ -18,6 +18,7 @@ export function FollowTagDialog({
   onSaved,
 }: FollowTagDialogProps) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [initialTagIds, setInitialTagIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -33,6 +34,7 @@ export function FollowTagDialog({
         const next = new Set(tagIds);
         if (next.size === 0) next.add(0);
         setSelected(next);
+        setInitialTagIds([...next]);
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "加载分组失败");
@@ -58,7 +60,7 @@ export function FollowTagDialog({
     setError("");
     try {
       await window.biliDesk.bili.setUserFollowTags(up.mid, [...selected]);
-      onSaved();
+      onSaved({ prevTagIds: initialTagIds, nextTagIds: [...selected] });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存分组失败");
