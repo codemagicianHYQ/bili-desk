@@ -134,6 +134,11 @@ export function registerBiliIpc(): void {
     biliApi.modifyFollow(mid, follow),
   );
   handleIpc(
+    IPC.BILI_UP_MODIFY_SPECIAL,
+    (_e, mid: number, special: boolean) =>
+      biliApi.modifySpecialFollow(mid, special),
+  );
+  handleIpc(
     IPC.BILI_UP_VIDEOS,
     (_e, mid: number, page?: number, order?: UpVideosOrder) =>
       biliApi.getUpVideos(mid, page, order),

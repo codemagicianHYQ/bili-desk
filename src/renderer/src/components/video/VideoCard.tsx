@@ -17,6 +17,10 @@ interface VideoCardProps {
   interactive?: boolean;
   /** 隐藏稍后再看快捷按钮 */
   hideWatchLater?: boolean;
+  /** 0–100，贴在封面底部，和历史记录页一致 */
+  progressPercent?: number;
+  /** 封面左下角进度文案，例如「看到 0:14」 */
+  progressLabel?: string;
   onCardClick?: () => void;
 }
 
@@ -27,8 +31,11 @@ export function VideoCard({
   showFollowedBadge = false,
   interactive = true,
   hideWatchLater = false,
+  progressPercent = 0,
+  progressLabel,
   onCardClick,
 }: VideoCardProps) {
+  const showProgress = progressPercent > 0;
   const content = (
     <>
       <div className="relative aspect-video bg-muted">
@@ -44,9 +51,22 @@ export function VideoCard({
               <Play className="h-10 w-10 fill-white text-white" />
             </div>
           )}
+          {progressLabel && (
+            <span className="absolute bottom-2 left-2 z-[1] rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+              {progressLabel}
+            </span>
+          )}
           <span className="absolute bottom-2 right-2 z-[1] rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
             {formatDuration(video.duration)}
           </span>
+          {showProgress && (
+            <div className="absolute inset-x-0 bottom-0 z-[2] h-0.5 bg-black/35">
+              <div
+                className="h-full bg-primary"
+                style={{ width: `${Math.min(100, progressPercent)}%` }}
+              />
+            </div>
+          )}
         </div>
         {!hideWatchLater && (
           <WatchLaterButton aid={video.aid} bvid={video.bvid} video={video} />

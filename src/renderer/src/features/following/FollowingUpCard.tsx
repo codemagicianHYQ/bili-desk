@@ -1,51 +1,71 @@
-import { useEffect, useRef, useState } from 'react'
-import type { FollowingUp } from '@shared/types'
-import { BiliImage } from '@/components/ui/bili-image'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
-import { FolderCog, List, UserMinus } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from "react";
+import type { FollowingUp } from "@shared/types";
+import { BiliImage } from "@/components/ui/bili-image";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { FolderCog, List, Star, StarOff, UserMinus } from "lucide-react";
+import { Link } from "react-router-dom";
 
 interface FollowingUpCardProps {
-  up: FollowingUp
-  showGroupActions?: boolean
-  onSetGroup: (up: FollowingUp) => void
-  onUnfollow: (up: FollowingUp) => void
+  up: FollowingUp;
+  showGroupActions?: boolean;
+  isSpecial?: boolean;
+  specialPending?: boolean;
+  onSetGroup: (up: FollowingUp) => void;
+  onToggleSpecial: (up: FollowingUp, special: boolean) => void;
+  onUnfollow: (up: FollowingUp) => void;
 }
 
-export function FollowingUpCard({ up, showGroupActions = true, onSetGroup, onUnfollow }: FollowingUpCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+export function FollowingUpCard({
+  up,
+  showGroupActions = true,
+  isSpecial = false,
+  specialPending = false,
+  onSetGroup,
+  onToggleSpecial,
+  onUnfollow,
+}: FollowingUpCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!menuOpen) return
+    if (!menuOpen) return;
 
     const handleClickOutside = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) {
-        setMenuOpen(false)
+        setMenuOpen(false);
       }
-    }
+    };
 
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [menuOpen])
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
 
   return (
     <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
       <Link to={`/up/${up.mid}`} className="shrink-0">
-        <BiliImage src={up.face} alt="" className="h-12 w-12 rounded-full object-cover" />
+        <BiliImage
+          src={up.face}
+          alt=""
+          className="h-12 w-12 rounded-full object-cover"
+        />
       </Link>
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Link to={`/up/${up.mid}`} className="truncate font-medium hover:text-primary">
+          <Link
+            to={`/up/${up.mid}`}
+            className="truncate font-medium hover:text-primary"
+          >
             {up.uname}
           </Link>
-          {up.special && <Badge variant="secondary">特别关注</Badge>}
+          {isSpecial && <Badge variant="secondary">特别关注</Badge>}
           {up.mutual && <Badge variant="secondary">互相关注</Badge>}
         </div>
-        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{up.sign || '暂无签名'}</p>
+        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+          {up.sign || "暂无签名"}
+        </p>
       </div>
 
       <div ref={menuRef} className="relative shrink-0">
@@ -54,8 +74,8 @@ export function FollowingUpCard({ up, showGroupActions = true, onSetGroup, onUnf
           size="sm"
           variant="secondary"
           className={cn(
-            'gap-1 border border-border bg-muted text-muted-foreground shadow-none hover:bg-muted/80',
-            menuOpen && 'bg-muted/80'
+            "gap-1 border border-border bg-muted text-muted-foreground shadow-none hover:bg-muted/80",
+            menuOpen && "bg-muted/80",
           )}
           onClick={() => setMenuOpen((open) => !open)}
         >
@@ -64,14 +84,14 @@ export function FollowingUpCard({ up, showGroupActions = true, onSetGroup, onUnf
         </Button>
 
         {menuOpen && (
-          <div className="absolute right-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+          <div className="absolute right-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
             {showGroupActions && (
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-secondary"
                 onClick={() => {
-                  setMenuOpen(false)
-                  onSetGroup(up)
+                  setMenuOpen(false);
+                  onSetGroup(up);
                 }}
               >
                 <FolderCog className="h-4 w-4 text-muted-foreground" />
@@ -80,10 +100,26 @@ export function FollowingUpCard({ up, showGroupActions = true, onSetGroup, onUnf
             )}
             <button
               type="button"
+              disabled={specialPending}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-secondary disabled:opacity-50"
+              onClick={() => {
+                setMenuOpen(false);
+                onToggleSpecial(up, !isSpecial);
+              }}
+            >
+              {isSpecial ? (
+                <StarOff className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <Star className="h-4 w-4 text-muted-foreground" />
+              )}
+              {isSpecial ? "移除特别关注" : "加入特别关注"}
+            </button>
+            <button
+              type="button"
               className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-red-400 hover:bg-secondary"
               onClick={() => {
-                setMenuOpen(false)
-                onUnfollow(up)
+                setMenuOpen(false);
+                onUnfollow(up);
               }}
             >
               <UserMinus className="h-4 w-4" />
@@ -93,5 +129,5 @@ export function FollowingUpCard({ up, showGroupActions = true, onSetGroup, onUnf
         )}
       </div>
     </div>
-  )
+  );
 }

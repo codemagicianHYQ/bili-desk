@@ -2962,6 +2962,28 @@ class BiliApiService {
     }
   }
 
+  async modifySpecialFollow(mid: number, special: boolean): Promise<void> {
+    try {
+      await this.postRelationForm("/x/relation/modify", {
+        fid: String(mid),
+        act: special ? "5" : "6",
+        re_src: "11",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      const shouldFallback =
+        message.includes("不存在") ||
+        message.includes("404") ||
+        message.includes("未知");
+      if (!shouldFallback) throw err;
+
+      await this.postRelationForm(
+        special ? "/x/relation/tag/special/add" : "/x/relation/tag/special/del",
+        { fid: String(mid) },
+      );
+    }
+  }
+
   async getRecentVideoTitles(mid: number, limit = 5): Promise<string[]> {
     // 分类任务批量调用：只打一枪空间接口，避免拖垮主进程
     try {

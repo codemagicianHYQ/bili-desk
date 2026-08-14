@@ -69,21 +69,14 @@ function WatchLaterCard({
           hideWatchLater
           interactive={!editing}
           onCardClick={editing ? onToggleSelect : undefined}
+          progressPercent={editing ? 0 : progressPercent}
+          progressLabel={
+            !editing && progressPercent > 0
+              ? `看到 ${formatDuration(item.progress)}`
+              : undefined
+          }
         />
       </div>
-      {progressPercent > 0 && !editing && (
-        <>
-          <div className="pointer-events-none absolute bottom-[4.5rem] left-3 right-3 h-1 overflow-hidden rounded-full bg-black/40">
-            <div
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-          <p className="pointer-events-none absolute bottom-[5.25rem] left-3 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
-            看到 {formatDuration(item.progress)}
-          </p>
-        </>
-      )}
       {editing ? (
         <button
           type="button"

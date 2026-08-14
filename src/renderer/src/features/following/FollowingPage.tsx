@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  FollowingUp,
-  UpGroupSelection,
-  UpGroupTreeNode,
+import {
+  BILI_SPECIAL_FOLLOW_TAG_ID,
+  type FollowingUp,
+  type UpGroupSelection,
+  type UpGroupTreeNode,
 } from "@shared/types";
 import { useFollowingStore } from "@/stores/following-store";
 import { UpGroupTree } from "@/components/taxonomy/UpGroupTree";
@@ -64,6 +65,9 @@ export function FollowingPage() {
     (state) => state.invalidateSidebar,
   );
   const patchFollowing = useFollowingStore((state) => state.patchFollowing);
+  const refreshFollowTags = useFollowingStore(
+    (state) => state.refreshFollowTags,
+  );
   const refreshVersion = useFollowingStore((state) => state.refreshVersion);
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("bilibili");
@@ -85,6 +89,9 @@ export function FollowingPage() {
     null,
   );
   const [unfollowing, setUnfollowing] = useState(false);
+  const [specialPendingMid, setSpecialPendingMid] = useState<number | null>(
+    null,
+  );
   const [actionMessage, setActionMessage] = useState("");
 
   const isLocalMode = sidebarMode === "local";
@@ -335,6 +342,40 @@ export function FollowingPage() {
     }
   };
 
+  const handleToggleSpecial = async (up: FollowingUp, special: boolean) => {
+    if (specialPendingMid != null) return;
+
+    setSpecialPendingMid(up.mid);
+    setActionMessage("");
+    try {
+      await window.biliDesk.bili.modifySpecialFollow(up.mid, special);
+      const inSpecialGroup =
+        !isLocalMode && selectedTagId === BILI_SPECIAL_FOLLOW_TAG_ID;
+
+      if (!special && inSpecialGroup) {
+        setFollowings((prev) => prev.filter((item) => item.mid !== up.mid));
+      } else {
+        setFollowings((prev) =>
+          prev.map((item) =>
+            item.mid === up.mid ? { ...item, special } : item,
+          ),
+        );
+      }
+
+      patchFollowing(up.mid, { special });
+      await refreshFollowTags();
+      setActionMessage(
+        special
+          ? `已将「${up.uname}」加入特别关注`
+          : `已将「${up.uname}」移出特别关注`,
+      );
+    } catch (err) {
+      setActionMessage(formatError(err));
+    } finally {
+      setSpecialPendingMid(null);
+    }
+  };
+
   const handleTagSaved = async () => {
     invalidateFollowings();
     invalidateSidebar();
@@ -469,7 +510,16 @@ export function FollowingPage() {
                   key={up.mid}
                   up={up}
                   showGroupActions={!isLocalMode}
+                  isSpecial={
+                    Boolean(up.special) ||
+                    (!isLocalMode &&
+                      selectedTagId === BILI_SPECIAL_FOLLOW_TAG_ID)
+                  }
+                  specialPending={specialPendingMid === up.mid}
                   onSetGroup={setTagDialogUp}
+                  onToggleSpecial={(target, next) =>
+                    void handleToggleSpecial(target, next)
+                  }
                   onUnfollow={setUnfollowTarget}
                 />
               ))}

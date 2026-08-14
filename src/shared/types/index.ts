@@ -209,6 +209,9 @@ export interface FollowTag {
   count: number;
 }
 
+/** B 站系统分组：特别关注 */
+export const BILI_SPECIAL_FOLLOW_TAG_ID = -10;
+
 export interface FollowingsPage {
   followings: FollowingUp[];
   page: number;
@@ -794,6 +797,7 @@ export interface BiliDeskApi {
     getUpProfile: (mid: number) => Promise<UpProfile>;
     getUpRelation: (mid: number) => Promise<UpRelation>;
     modifyFollow: (mid: number, follow: boolean) => Promise<void>;
+    modifySpecialFollow: (mid: number, special: boolean) => Promise<void>;
     getUpVideos: (
       mid: number,
       page?: number,
