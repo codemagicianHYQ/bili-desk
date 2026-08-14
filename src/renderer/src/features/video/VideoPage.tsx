@@ -10,6 +10,7 @@ import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
+import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { ArrowUp, RefreshCw } from "lucide-react";
 
 interface VideoPageProps {
@@ -33,9 +34,12 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState("");
   const [playError, setPlayError] = useState("");
+  const [playErrorDetail, setPlayErrorDetail] = useState("");
   const [resumeCancelled, setResumeCancelled] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const playRequestIdRef = useRef(0);
+  const streamModeRef = useRef<"mp4" | "dash">("mp4");
+  const loweredQnRef = useRef(false);
 
   const resumeCid = useMemo(
     () => parsePositiveInt(searchParams.get("cid")),
@@ -63,16 +67,57 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const fetchPlayUrl = useCallback(
     (targetBvid: string, cid: number, qn?: number) => {
       const requestId = ++playRequestIdRef.current;
-      setPlayError("");
       return window.biliDesk.bili
-        .getPlayUrl(targetBvid, cid, qn)
+        .getPlayUrl(targetBvid, cid, qn, {
+          preferMp4: streamModeRef.current === "mp4",
+        })
         .then((info) => {
           if (requestId !== playRequestIdRef.current) return;
           setPlayInfo(info);
+          setPlayError("");
+          setPlayErrorDetail("");
         })
         .catch((e: Error) => {
           if (requestId !== playRequestIdRef.current) return;
-          setPlayError(e.message);
+          const message = extractIpcErrorMessage(e);
+          console.warn("[BiliDesk][playurl] getPlayUrl failed", {
+            bvid: targetBvid,
+            cid,
+            qn,
+            mode: streamModeRef.current,
+            message,
+          });
+          if (streamModeRef.current === "mp4") {
+            streamModeRef.current = "dash";
+            setPlayError("正在切换播放线路...");
+            setPlayErrorDetail(message);
+            return window.biliDesk.bili
+              .getPlayUrl(targetBvid, cid, qn, { preferMp4: false })
+              .then((info) => {
+                if (requestId !== playRequestIdRef.current) return;
+                setPlayInfo(info);
+                setPlayError("");
+                setPlayErrorDetail("");
+              })
+              .catch((dashErr: Error) => {
+                if (requestId !== playRequestIdRef.current) return;
+                const dashMessage = extractIpcErrorMessage(dashErr);
+                console.warn("[BiliDesk][playurl] DASH fallback failed", {
+                  bvid: targetBvid,
+                  cid,
+                  qn,
+                  message: dashMessage,
+                });
+                setPlayError(dashMessage);
+                setPlayErrorDetail(
+                  `bvid=${targetBvid} cid=${cid} qn=${qn ?? "-"} mode=dash`,
+                );
+              });
+          }
+          setPlayError(message);
+          setPlayErrorDetail(
+            `bvid=${targetBvid} cid=${cid} qn=${qn ?? "-"} mode=${streamModeRef.current}`,
+          );
         });
     },
     [],
@@ -81,11 +126,13 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   useEffect(() => {
     if (!bvid) return;
 
-    setError("");
     setPlayError("");
+    setPlayErrorDetail("");
     setPlayInfo(null);
     setReloadKey(0);
     playRequestIdRef.current += 1;
+    streamModeRef.current = "mp4";
+    loweredQnRef.current = false;
 
     window.biliDesk.bili
       .getVideo(bvid)
@@ -102,6 +149,11 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   }, [bvid, resumeCid]);
 
   useEffect(() => {
+    streamModeRef.current = "mp4";
+    loweredQnRef.current = false;
+  }, [bvid, selectedCid]);
+
+  useEffect(() => {
     if (!bvid || !selectedCid) return;
     void fetchPlayUrl(bvid, selectedCid, quality);
   }, [bvid, selectedCid, quality, fetchPlayUrl]);
@@ -112,14 +164,47 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
   const handleRefresh = useCallback(() => {
     if (!bvid || !selectedCid) return;
+    streamModeRef.current = "mp4";
+    loweredQnRef.current = false;
     setPlayInfo(null);
     setReloadKey((key) => key + 1);
     void fetchPlayUrl(bvid, selectedCid, quality);
   }, [bvid, selectedCid, quality, fetchPlayUrl]);
 
-  const handlePlayerError = useCallback((message: string) => {
-    setPlayError(message);
-  }, []);
+  const handlePlayerError = useCallback(
+    (message: string, kind?: "stall" | "decode" | "other", detail?: string) => {
+      if (detail) setPlayErrorDetail(detail);
+      if (
+        (kind === "stall" || kind === "decode") &&
+        bvid &&
+        selectedCid &&
+        playInfo
+      ) {
+        if (streamModeRef.current === "mp4") {
+          streamModeRef.current = "dash";
+          setPlayError("正在切换播放线路...");
+          setPlayInfo(null);
+          void fetchPlayUrl(bvid, selectedCid, quality);
+          return;
+        }
+
+        if (!loweredQnRef.current) {
+          const lower = [...playInfo.qualities]
+            .map((item) => item.qn)
+            .filter((qn) => qn < playInfo.quality)
+            .sort((a, b) => b - a)[0];
+          if (lower != null) {
+            loweredQnRef.current = true;
+            setPlayError("正在切换较低清晰度...");
+            setQuality(lower);
+            return;
+          }
+        }
+      }
+      setPlayError(message);
+    },
+    [bvid, selectedCid, playInfo, quality, fetchPlayUrl],
+  );
 
   const handleWatchFromStart = useCallback(() => {
     setResumeCancelled(true);
@@ -217,8 +302,13 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     alt={video.title}
                     className="h-full w-full object-cover opacity-60"
                   />
-                  <div className="absolute inset-0 flex items-center justify-center text-sm text-white/80">
-                    {playError || "正在加载播放器..."}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-6 text-center text-sm text-white/80">
+                    <p>{playError || "正在加载播放器..."}</p>
+                    {playErrorDetail && (
+                      <p className="max-w-xl break-all font-mono text-xs text-white/50">
+                        {playErrorDetail}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -277,17 +367,24 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                   {video.desc || "暂无简介"}
                 </p>
                 {playError && playInfo && (
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-red-400">
-                    <span>{playError}</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7"
-                      onClick={handleRefresh}
-                    >
-                      刷新播放器
-                    </Button>
+                  <div className="space-y-1 text-sm text-red-400">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{playError}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        onClick={handleRefresh}
+                      >
+                        刷新播放器
+                      </Button>
+                    </div>
+                    {playErrorDetail && (
+                      <p className="break-all font-mono text-xs text-muted-foreground">
+                        {playErrorDetail}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

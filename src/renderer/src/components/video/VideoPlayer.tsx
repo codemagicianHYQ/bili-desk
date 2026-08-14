@@ -12,6 +12,11 @@ import {
 } from "@/lib/playback-progress";
 import { cn, formatDuration } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+import {
+  describeDashError,
+  describeMediaError,
+  logPlayback,
+} from "@/lib/playback-log";
 
 interface VideoPlayerProps {
   playInfo: VideoPlayInfo;
@@ -24,7 +29,11 @@ interface VideoPlayerProps {
   initialTime?: number;
   reloadKey?: number;
   onQualityChange: (qn: number) => void;
-  onError?: (message: string) => void;
+  onError?: (
+    message: string,
+    kind?: "stall" | "decode" | "other",
+    detail?: string,
+  ) => void;
   /** 用户选择从头观看时回调（用于清掉 URL 续播参数） */
   onWatchFromStart?: () => void;
 }
@@ -58,8 +67,8 @@ function colorHexToInt(color?: string): number {
 const SAVE_INTERVAL_MS = 3000;
 const HEARTBEAT_INTERVAL_MS = 15000;
 const RESUME_TIP_MS = 5000;
-/** 仅提示，不再自动拆掉播放器重载（那会白白多等几秒） */
-const STALL_TIMEOUT_MS = 8000;
+/** 仅提示；超时后由页面自动换线路，避免一直转圈 */
+const STALL_TIMEOUT_MS = 10000;
 
 export function VideoPlayer({
   playInfo,
@@ -213,6 +222,36 @@ export function VideoPlayer({
       }
     };
 
+    let stallReported = false;
+    let stallTimer = 0;
+    const playbackCtx = {
+      bvid,
+      cid,
+      qn: playInfo.quality,
+      format: playInfo.format,
+      url: playInfo.url,
+    };
+    const reportStall = (
+      message: string,
+      extra?: unknown,
+      videoEl?: HTMLVideoElement,
+    ) => {
+      if (stallReported) return;
+      stallReported = true;
+      window.clearTimeout(stallTimer);
+      const media =
+        videoEl ?? (artRef.current?.video as HTMLVideoElement | undefined);
+      const detail = [
+        `${playInfo.format.toUpperCase()} ${playInfo.qualityLabel}`,
+        describeMediaError(media),
+        extra ? describeDashError(extra) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      logPlayback(message, playbackCtx, extra ?? media?.error ?? null);
+      onErrorRef.current?.(message, "stall", detail);
+    };
+
     const art = new Artplayer({
       container,
       url: playInfo.url,
@@ -280,8 +319,12 @@ export function VideoPlayer({
             },
           });
 
-          const onDashError = () => {
-            onErrorRef.current?.("视频流加载失败，可点刷新重试或切换清晰度");
+          const onDashError = (event: unknown) => {
+            reportStall(
+              "视频流加载失败，可点刷新重试或切换清晰度",
+              event,
+              video,
+            );
           };
           dashPlayer.on(dashjs.MediaPlayer.events.ERROR, onDashError);
           dashPlayer.initialize(video, url, player.option.autoplay);
@@ -371,18 +414,17 @@ export function VideoPlayer({
     });
 
     art.on("video:error", () => {
-      onErrorRef.current?.("视频加载失败，可点刷新重试或切换清晰度");
+      reportStall("视频加载失败，可点刷新重试或切换清晰度");
     });
 
-    // 不在 canplay 立刻续播 seek：缓冲未稳时一 seek 就会一直转圈
-    const stallTimer = window.setTimeout(() => {
+    stallTimer = window.setTimeout(() => {
       const media = art.video as HTMLVideoElement | undefined;
       const stuck =
         !media ||
         (media.currentTime < 0.2 &&
           media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
       if (stuck) {
-        onErrorRef.current?.("视频缓冲超时，可点右上角刷新或切换清晰度后重试");
+        reportStall("视频缓冲超时，可点右上角刷新或切换清晰度后重试");
       }
     }, STALL_TIMEOUT_MS);
 

@@ -91,6 +91,33 @@ function colorIntToHex(color: number): string {
   return `#${value.toString(16).padStart(6, "0")}`;
 }
 
+/** mcdn 在桌面端经常一直缓冲，优先 upos / akamai */
+function rankMediaUrl(url: string): number {
+  const value = url.toLowerCase();
+  if (value.includes("mcdn.bilivideo") || value.includes(".mcdn.")) return 0;
+  if (value.includes("upos-sz-mirror")) return 4;
+  if (value.includes("upos-sz")) return 3;
+  if (value.includes("akamaized")) return 3;
+  if (value.includes("upos")) return 2;
+  return 1;
+}
+
+function orderMediaUrls(
+  primary?: string,
+  backups?: string[],
+): { url: string; backupUrls: string[] } | null {
+  const unique = [
+    ...new Set(
+      [primary, ...(backups ?? [])].filter(
+        (item): item is string => typeof item === "string" && item.length > 0,
+      ),
+    ),
+  ];
+  if (unique.length === 0) return null;
+  unique.sort((a, b) => rankMediaUrl(b) - rankMediaUrl(a));
+  return { url: unique[0], backupUrls: unique.slice(1) };
+}
+
 function decodeXmlEntities(text: string): string {
   return text
     .replace(/&lt;/g, "<")
@@ -1547,6 +1574,8 @@ class BiliApiService {
     const referer = `https://www.bilibili.com/video/${bvid}`;
     const preferMp4 = options?.preferMp4 !== false;
 
+    const reasons: string[] = [];
+
     const tryDash = async (): Promise<VideoPlayInfo | null> => {
       const dashParams = await signParams({
         bvid,
@@ -1564,8 +1593,20 @@ class BiliApiService {
         headers: { Referer: referer },
         validateStatus: () => true,
       });
-      if (dashRes.data?.code !== 0) return null;
-      return this.buildPlayInfoFromDash(dashRes.data?.data, qn);
+      if (dashRes.data?.code !== 0) {
+        const reason =
+          `DASH 接口 code=${dashRes.data?.code ?? dashRes.status} ${dashRes.data?.message ?? ""}`.trim();
+        reasons.push(reason);
+        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn });
+        return null;
+      }
+      const built = this.buildPlayInfoFromDash(dashRes.data?.data, qn);
+      if (!built) {
+        const reason = "DASH 响应无可用视频轨或缺少 SegmentBase";
+        reasons.push(reason);
+        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn });
+      }
+      return built;
     };
 
     const tryMp4 = async (): Promise<VideoPlayInfo | null> => {
@@ -1584,13 +1625,33 @@ class BiliApiService {
         headers: { Referer: referer },
         validateStatus: () => true,
       });
-      if (mp4Res.data?.code !== 0) return null;
+      if (mp4Res.data?.code !== 0) {
+        const reason =
+          `MP4 接口 code=${mp4Res.data?.code ?? mp4Res.status} ${mp4Res.data?.message ?? ""}`.trim();
+        reasons.push(reason);
+        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn });
+        return null;
+      }
       const mp4Data = mp4Res.data?.data;
       const mp4Stream = mp4Data?.durl?.[0] as
         | { url?: string; format?: string; backup_url?: string[] }
         | undefined;
-      if (!mp4Stream?.url) return null;
-      return this.buildPlayInfoFromDurl(mp4Data, mp4Stream, qn);
+      if (!mp4Stream?.url) {
+        const reason = "MP4 无 durl 播放地址";
+        reasons.push(reason);
+        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn });
+        return null;
+      }
+      const ordered = orderMediaUrls(mp4Stream.url, mp4Stream.backup_url);
+      if (!ordered) {
+        reasons.push("MP4 地址无效");
+        return null;
+      }
+      return this.buildPlayInfoFromDurl(
+        mp4Data,
+        { ...mp4Stream, url: ordered.url },
+        qn,
+      );
     };
 
     // 串行：先 MP4（首帧快、少一次无用等待），没有再 DASH
@@ -1607,7 +1668,11 @@ class BiliApiService {
       if (mp4) return mp4;
     }
 
-    throw new Error("该视频暂不支持在线播放，可能为付费或受限内容");
+    throw new Error(
+      reasons.length > 0
+        ? `取流失败：${reasons.join("；")}`
+        : "该视频暂不支持在线播放，可能为付费或受限内容",
+    );
   }
 
   async getDanmakuList(cid: number): Promise<DanmakuItem[]> {
@@ -2008,10 +2073,22 @@ class BiliApiService {
     };
 
     const allVideos = (dash.video as DashStream[] | undefined) ?? [];
-    // 只取 AVC：HEVC/AV1 在 Electron 里常走软解，首帧会卡十几秒
-    const videos = allVideos.filter(
+    const avcVideos = allVideos.filter(
       (item) => item.codecid === 7 || item.codecs?.startsWith("avc1"),
     );
+    const hevcVideos = allVideos.filter(
+      (item) =>
+        item.codecid === 12 ||
+        item.codecs?.startsWith("hev1") ||
+        item.codecs?.startsWith("hvc1"),
+    );
+    // 只取 AVC：HEVC/AV1 在 Electron 里常走软解。没有 AVC 时再退 HEVC，避免整段播不了
+    const videos =
+      avcVideos.length > 0
+        ? avcVideos
+        : hevcVideos.length > 0
+          ? hevcVideos
+          : allVideos;
     if (videos.length === 0) return null;
 
     const pickByQn = (items: DashStream[], qn: number) => {
@@ -2030,19 +2107,32 @@ class BiliApiService {
     };
 
     const video = pickByQn(videos, requestedQn);
-    const audios = (dash.audio as DashStream[] | undefined) ?? [];
+    const audios = ((dash.audio as DashStream[] | undefined) ?? []).filter(
+      (item) =>
+        !item.codecs?.includes("ec-3") && !item.codecs?.includes("ac-3"),
+    );
+    const audioPool =
+      audios.length > 0
+        ? audios
+        : ((dash.audio as DashStream[] | undefined) ?? []);
     const audio =
-      audios.find((item) => item.id === 30280) ??
-      audios.find((item) => item.id === 30232) ??
-      audios.find((item) => item.id === 30216) ??
-      audios[0];
+      audioPool.find((item) => item.id === 30280) ??
+      audioPool.find((item) => item.id === 30232) ??
+      audioPool.find((item) => item.id === 30216) ??
+      audioPool[0];
     if (!audio) return null;
 
-    const videoUrl = video.baseUrl ?? video.base_url;
-    const audioUrl = audio.baseUrl ?? audio.base_url;
+    const videoOrdered = orderMediaUrls(
+      video.baseUrl ?? video.base_url,
+      collectBackupUrls(video),
+    );
+    const audioOrdered = orderMediaUrls(
+      audio.baseUrl ?? audio.base_url,
+      collectBackupUrls(audio),
+    );
     const videoSeg = video.SegmentBase ?? video.segment_base;
     const audioSeg = audio.SegmentBase ?? audio.segment_base;
-    if (!videoUrl || !audioUrl || !videoSeg || !audioSeg) return null;
+    if (!videoOrdered || !audioOrdered || !videoSeg || !audioSeg) return null;
 
     const videoInit = videoSeg.Initialization ?? videoSeg.initialization;
     const videoIndex = videoSeg.indexRange ?? videoSeg.index_range;
@@ -2082,8 +2172,8 @@ class BiliApiService {
       duration,
       video: {
         id: video.id,
-        baseUrl: videoUrl,
-        backupUrls: collectBackupUrls(video),
+        baseUrl: videoOrdered.url,
+        backupUrls: videoOrdered.backupUrls,
         bandwidth: video.bandwidth,
         mimeType: video.mimeType ?? video.mime_type ?? "video/mp4",
         codecs: video.codecs,
@@ -2097,8 +2187,8 @@ class BiliApiService {
       },
       audio: {
         id: audio.id,
-        baseUrl: audioUrl,
-        backupUrls: collectBackupUrls(audio),
+        baseUrl: audioOrdered.url,
+        backupUrls: audioOrdered.backupUrls,
         bandwidth: audio.bandwidth,
         mimeType: audio.mimeType ?? audio.mime_type ?? "audio/mp4",
         codecs: audio.codecs,
