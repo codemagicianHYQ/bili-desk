@@ -67,6 +67,8 @@ export const IPC = {
   BILI_WATCH_HISTORY: "bili:watch-history",
   BILI_WATCH_HISTORY_DELETE: "bili:watch-history-delete",
   BILI_WATCH_HISTORY_CLEAR: "bili:watch-history-clear",
+  BILI_HISTORY_SHADOW_GET: "bili:history-shadow-get",
+  BILI_HISTORY_SHADOW_SET: "bili:history-shadow-set",
   BILI_USER_COLLECTIONS: "bili:user-collections",
   BILI_SEASON_ARCHIVES: "bili:season-archives",
   BILI_SERIES_ARCHIVES: "bili:series-archives",

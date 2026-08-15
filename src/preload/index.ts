@@ -11,8 +11,9 @@ import type {
   WatchHeartbeatPayload,
   Theme,
   DynamicFeedType,
-  HistoryCursor,
-  HistoryFeedType,
+    HistoryCursor,
+    HistoryFeedType,
+    HistoryFilters,
   UpGroupSelection,
   UpGroupTreeNode,
   UpVideosOrder,
@@ -262,14 +263,26 @@ const api = {
       like: boolean,
     ) =>
       ipcRenderer.invoke(IPC.BILI_TARGET_COMMENT_LIKE, oid, type, rpid, like),
-    getWatchHistory: (type?: HistoryFeedType, cursor?: HistoryCursor) =>
-      ipcRenderer.invoke(IPC.BILI_WATCH_HISTORY, type ?? "all", cursor),
+    getWatchHistory: (
+      type?: HistoryFeedType,
+      cursor?: HistoryCursor,
+      filters?: HistoryFilters,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_WATCH_HISTORY,
+        type ?? "all",
+        cursor,
+        filters,
+      ),
     deleteWatchHistory: (item: {
       business: string;
       oid: number;
       kid?: number;
     }) => ipcRenderer.invoke(IPC.BILI_WATCH_HISTORY_DELETE, item),
     clearWatchHistory: () => ipcRenderer.invoke(IPC.BILI_WATCH_HISTORY_CLEAR),
+    getHistoryShadow: () => ipcRenderer.invoke(IPC.BILI_HISTORY_SHADOW_GET),
+    setHistoryShadow: (record: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_HISTORY_SHADOW_SET, record),
     getUserCollections: (mid: number, page?: number) =>
       ipcRenderer.invoke(IPC.BILI_USER_COLLECTIONS, mid, page ?? 1),
     getSeasonArchives: (mid: number, seasonId: number, page?: number) =>

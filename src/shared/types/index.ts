@@ -571,10 +571,28 @@ export interface SpaceDynamicPage {
 /** 历史记录分类（对应接口 type） */
 export type HistoryFeedType = "all" | "archive" | "live" | "article";
 
+/** 时长筛选，语义对齐全站搜索 duration */
+export type HistoryDurationFilter = 0 | 1 | 2 | 3 | 4;
+
+/** 设备筛选（映射 history.dt） */
+export type HistoryDeviceFilter = "all" | "pc" | "phone" | "pad" | "tv";
+
 export interface HistoryCursor {
   max: number;
   viewAt: number;
   business: string;
+}
+
+export interface HistoryFilters {
+  keyword?: string;
+  /** 搜索接口页码 pn；无关键词时忽略 */
+  page?: number;
+  duration?: HistoryDurationFilter;
+  device?: HistoryDeviceFilter;
+  /** 观看时间下限（秒） */
+  fromTime?: number;
+  /** 观看时间上限（秒） */
+  toTime?: number;
 }
 
 export interface HistoryItem {
@@ -598,6 +616,9 @@ export interface HistoryItem {
   oid: number;
   cid?: number;
   uri?: string;
+  /** 观看设备代码：1/3/5/7 手机，2 PC，4/6 平板，33 TV */
+  dt?: number;
+  favorited?: boolean;
 }
 
 export interface HistoryPage {
@@ -967,6 +988,7 @@ export interface BiliDeskApi {
     getWatchHistory: (
       type?: HistoryFeedType,
       cursor?: HistoryCursor,
+      filters?: HistoryFilters,
     ) => Promise<HistoryPage>;
     deleteWatchHistory: (item: {
       business: string;
@@ -974,6 +996,8 @@ export interface BiliDeskApi {
       kid?: number;
     }) => Promise<void>;
     clearWatchHistory: () => Promise<void>;
+    getHistoryShadow: () => Promise<boolean>;
+    setHistoryShadow: (record: boolean) => Promise<void>;
     getUserCollections: (
       mid: number,
       page?: number,

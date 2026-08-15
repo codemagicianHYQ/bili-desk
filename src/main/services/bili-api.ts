@@ -60,6 +60,7 @@ import type {
   SpaceDynamicPage,
   HistoryCursor,
   HistoryFeedType,
+  HistoryFilters,
   HistoryItem,
   HistoryPage,
   UserCollectionItem,
@@ -4992,11 +4993,70 @@ class BiliApiService {
   async getWatchHistory(
     type: HistoryFeedType = "all",
     cursor?: HistoryCursor,
+    filters?: HistoryFilters,
   ): Promise<HistoryPage> {
     if (!isLoggedIn()) {
       throw new Error("请先登录后查看历史记录");
     }
 
+    const keyword = filters?.keyword?.trim() ?? "";
+    if (keyword) {
+      return this.searchWatchHistory(type, keyword, filters);
+    }
+    return this.listWatchHistory(type, cursor, filters);
+  }
+
+  private historyNeedsScan(filters?: HistoryFilters): boolean {
+    if (!filters) return false;
+    return Boolean(
+      Boolean(filters.keyword?.trim()) ||
+        (filters.duration && filters.duration !== 0) ||
+        (filters.device && filters.device !== "all") ||
+        filters.fromTime ||
+        filters.toTime,
+    );
+  }
+
+  private matchHistoryFilters(
+    item: HistoryItem,
+    filters?: HistoryFilters,
+  ): boolean {
+    if (!filters) return true;
+    if (filters.fromTime && item.viewAt < filters.fromTime) return false;
+    if (filters.toTime && item.viewAt > filters.toTime) return false;
+    if (filters.duration && filters.duration !== 0) {
+      const seconds = item.duration;
+      if (seconds <= 0) return false;
+      if (filters.duration === 1 && seconds >= 600) return false;
+      if (filters.duration === 2 && (seconds < 600 || seconds >= 1800)) {
+        return false;
+      }
+      if (filters.duration === 3 && (seconds < 1800 || seconds >= 3600)) {
+        return false;
+      }
+      if (filters.duration === 4 && seconds < 3600) return false;
+    }
+    if (filters.device && filters.device !== "all") {
+      const dt = item.dt ?? 0;
+      if (filters.device === "pc" && dt !== 2) return false;
+      if (filters.device === "phone" && ![1, 3, 5, 7].includes(dt)) {
+        return false;
+      }
+      if (filters.device === "pad" && dt !== 4 && dt !== 6) return false;
+      if (filters.device === "tv" && dt !== 33) return false;
+    }
+    const keyword = filters.keyword?.trim().toLowerCase();
+    if (keyword) {
+      const hay = `${item.title} ${item.authorName}`.toLowerCase();
+      if (!hay.includes(keyword)) return false;
+    }
+    return true;
+  }
+
+  private async fetchHistoryCursorPage(
+    type: HistoryFeedType,
+    cursor?: HistoryCursor,
+  ): Promise<HistoryPage> {
     await this.ensureBuvid3();
 
     const params: Record<string, string | number> = {
@@ -5009,7 +5069,7 @@ class BiliApiService {
 
     const res = await this.client.get("/x/web-interface/history/cursor", {
       params,
-      headers: { Referer: "https://www.bilibili.com/account/history" },
+      headers: { Referer: "https://www.bilibili.com/history" },
       validateStatus: () => true,
     });
 
@@ -5017,7 +5077,7 @@ class BiliApiService {
       throw new Error("请求被 B 站安全策略拦截，请稍后重试");
     }
     if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "历史记录获取失败");
+      throw new Error(formatBiliApiError(res.data, "历史记录获取失败"));
     }
 
     const data = res.data?.data as Record<string, unknown> | undefined;
@@ -5038,6 +5098,154 @@ class BiliApiService {
       cursor: nextCursor,
       hasMore: items.length > 0 && nextCursor.max > 0 && nextCursor.viewAt > 0,
     };
+  }
+
+  private async listWatchHistory(
+    type: HistoryFeedType,
+    cursor?: HistoryCursor,
+    filters?: HistoryFilters,
+  ): Promise<HistoryPage> {
+    let start = cursor;
+    if (!start && filters?.toTime) {
+      start = { max: 0, viewAt: filters.toTime, business: "" };
+    }
+
+    if (!this.historyNeedsScan(filters)) {
+      return this.fetchHistoryCursorPage(type, start);
+    }
+
+    const wanted = 20;
+    const collected: HistoryItem[] = [];
+    let next = start;
+    let hasMore = true;
+    let guard = 0;
+    let lastCursor: HistoryCursor = next ?? { max: 0, viewAt: 0, business: "" };
+
+    while (collected.length < wanted && hasMore && guard < 12) {
+      const page = await this.fetchHistoryCursorPage(type, next);
+      guard += 1;
+      lastCursor = page.cursor;
+      hasMore = page.hasMore;
+
+      for (const item of page.items) {
+        if (filters?.fromTime && item.viewAt < filters.fromTime) {
+          hasMore = false;
+          break;
+        }
+        if (this.matchHistoryFilters(item, filters)) {
+          collected.push(item);
+          if (collected.length >= wanted) break;
+        }
+      }
+
+      next = page.cursor;
+      if (page.items.length === 0) hasMore = false;
+    }
+
+    return {
+      items: collected.slice(0, wanted),
+      cursor: lastCursor,
+      hasMore,
+    };
+  }
+
+  private async searchWatchHistory(
+    type: HistoryFeedType,
+    keyword: string,
+    filters?: HistoryFilters,
+  ): Promise<HistoryPage> {
+    await this.ensureBuvid3();
+    const pn = Math.max(1, filters?.page ?? 1);
+    const extraFilters = { ...filters, keyword: "" };
+    const needFilter = this.historyNeedsScan(extraFilters);
+
+    const params: Record<string, string | number> = {
+      pn,
+      keyword,
+      ps: 20,
+    };
+    if (type !== "all") params.business = type;
+
+    const res = await this.client.get("/x/web-interface/history/search", {
+      params,
+      headers: { Referer: "https://www.bilibili.com/history" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.status === 404 || res.data?.code === -404) {
+      return this.listWatchHistory(type, undefined, filters);
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "历史搜索失败"));
+    }
+
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const rawList = (data.list as Record<string, unknown>[] | undefined) ?? [];
+    const parsed = rawList
+      .map((item) => this.normalizeHistoryItem(item))
+      .filter((item): item is HistoryItem => item != null);
+    const items = needFilter
+      ? parsed.filter((item) => this.matchHistoryFilters(item, extraFilters))
+      : parsed;
+    const pageInfo = (data.page ?? {}) as Record<string, unknown>;
+    const hasMore =
+      data.has_more === true ||
+      data.hasMore === true ||
+      parsed.length >= 20 ||
+      (Number(pageInfo.total) || 0) > pn * 20;
+
+    return {
+      items,
+      cursor: { max: 0, viewAt: 0, business: "" },
+      hasMore,
+    };
+  }
+
+  async getHistoryShadow(): Promise<boolean> {
+    if (!isLoggedIn()) return true;
+    await this.ensureBuvid3();
+    const res = await this.client.get("/x/v2/history/shadow", {
+      headers: { Referer: "https://www.bilibili.com/history" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "历史开关获取失败"));
+    }
+    const raw = res.data?.data;
+    const disabled = raw === true || raw === 1 || raw === "true";
+    return !disabled;
+  }
+
+  async setHistoryShadow(record: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再修改历史开关");
+    const res = await this.client.post(
+      "/x/v2/history/shadow/set",
+      new URLSearchParams({
+        switch: record ? "false" : "true",
+        csrf,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/history",
+          Origin: "https://www.bilibili.com",
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "历史开关设置失败"));
+    }
   }
 
   /** 删除单条历史：kid 格式为 `{business}_{oid}` */
@@ -5144,6 +5352,8 @@ class BiliApiService {
       oid,
       cid: Number(history.cid) || undefined,
       uri: (item.uri as string) || undefined,
+      dt: Number(history.dt ?? item.dt ?? item.device) || 0,
+      favorited: Number(item.is_fav) === 1 || item.favorite === true,
     };
   }
 

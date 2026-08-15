@@ -244,7 +244,15 @@ export function registerBiliIpc(): void {
       _e,
       type?: "all" | "archive" | "live" | "article",
       cursor?: { max: number; viewAt: number; business: string },
-    ) => biliApi.getWatchHistory(type ?? "all", cursor),
+      filters?: {
+        keyword?: string;
+        page?: number;
+        duration?: 0 | 1 | 2 | 3 | 4;
+        device?: "all" | "pc" | "phone" | "pad" | "tv";
+        fromTime?: number;
+        toTime?: number;
+      },
+    ) => biliApi.getWatchHistory(type ?? "all", cursor, filters),
   );
   handleIpc(
     IPC.BILI_WATCH_HISTORY_DELETE,
@@ -252,6 +260,10 @@ export function registerBiliIpc(): void {
       biliApi.deleteWatchHistory(item),
   );
   handleIpc(IPC.BILI_WATCH_HISTORY_CLEAR, () => biliApi.clearWatchHistory());
+  handleIpc(IPC.BILI_HISTORY_SHADOW_GET, () => biliApi.getHistoryShadow());
+  handleIpc(IPC.BILI_HISTORY_SHADOW_SET, (_e, record: boolean) =>
+    biliApi.setHistoryShadow(record),
+  );
   handleIpc(IPC.BILI_USER_COLLECTIONS, (_e, mid: number, page?: number) =>
     biliApi.getUserCollections(mid, page),
   );
