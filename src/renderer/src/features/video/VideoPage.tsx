@@ -135,7 +135,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     setPlayInfo(null);
     setReloadKey(0);
     playRequestIdRef.current += 1;
-    streamModeRef.current = "mp4";
+    streamModeRef.current = readQualityPref() >= 80 ? "dash" : "mp4";
     loweredQnRef.current = false;
 
     window.biliDesk.bili
@@ -152,7 +152,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   }, [bvid, resumeCid]);
 
   useEffect(() => {
-    streamModeRef.current = "mp4";
+    streamModeRef.current = readQualityPref() >= 80 ? "dash" : "mp4";
     if (loweredQnRef.current) {
       loweredQnRef.current = false;
       setQuality(readQualityPref());
@@ -166,12 +166,14 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
   const handleQualityChange = useCallback((qn: number) => {
     writeQualityPref(qn);
+    loweredQnRef.current = false;
+    streamModeRef.current = qn >= 80 ? "dash" : "mp4";
     setQuality((prev) => (prev === qn ? prev : qn));
   }, []);
 
   const handleRefresh = useCallback(() => {
     if (!bvid || !selectedCid) return;
-    streamModeRef.current = "mp4";
+    streamModeRef.current = quality >= 80 ? "dash" : "mp4";
     loweredQnRef.current = false;
     setPlayInfo(null);
     setReloadKey((key) => key + 1);
@@ -187,6 +189,27 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
         selectedCid &&
         playInfo
       ) {
+        if (playInfo.format === "dash" && playInfo.dash) {
+          if (kind === "decode") {
+            loweredQnRef.current = true;
+            streamModeRef.current = "mp4";
+            setPlayError("1080P 解码失败，正在切换 720P...");
+            setPlayInfo(null);
+            setQuality(64);
+            return;
+          }
+          setPlayError(message);
+          return;
+        }
+
+        if (playInfo.format === "dash") {
+          streamModeRef.current = "mp4";
+          setPlayError("正在切换播放线路...");
+          setPlayInfo(null);
+          void fetchPlayUrl(bvid, selectedCid, quality);
+          return;
+        }
+
         if (streamModeRef.current === "mp4") {
           streamModeRef.current = "dash";
           setPlayError("正在切换播放线路...");

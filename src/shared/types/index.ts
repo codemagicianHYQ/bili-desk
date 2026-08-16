@@ -135,12 +135,30 @@ export interface VideoPagePart {
   duration: number;
 }
 
+export interface BiliDashTrackInfo {
+  url: string;
+  backupUrls?: string[];
+  referer: string;
+  mimeType: string;
+  codecs: string;
+  initRange: string;
+  indexRange: string;
+}
+
+export interface BiliDashPlayInfo {
+  duration: number;
+  video: BiliDashTrackInfo;
+  audio: BiliDashTrackInfo;
+}
+
 export interface VideoPlayInfo {
   url: string;
   format: "mp4" | "flv" | "dash";
   quality: number;
   qualityLabel: string;
   qualities: Array<{ qn: number; label: string }>;
+  /** DASH 音视频轨：由主进程 IPC 拉分片，不走 dash.js 跨域 */
+  dash?: BiliDashPlayInfo;
 }
 
 export interface UserInfo {
@@ -167,6 +185,13 @@ export interface FavFolder {
   title: string;
   mediaCount: number;
   cover: string;
+}
+
+export interface CreateFavFolderPayload {
+  title: string;
+  intro?: string;
+  /** 0 公开，1 私密 */
+  privacy?: 0 | 1;
 }
 
 export interface VideoFavFolder extends FavFolder {
@@ -862,6 +887,11 @@ export interface BiliDeskApi {
       qn?: number,
       options?: { preferMp4?: boolean },
     ) => Promise<VideoPlayInfo>;
+    fetchMediaRange: (
+      url: string,
+      range: string | undefined,
+      referer: string,
+    ) => Promise<Uint8Array>;
     getVideoRelation: (bvid: string, aid: number) => Promise<VideoRelation>;
     likeVideo: (aid: number, like: boolean) => Promise<void>;
     addCoin: (payload: AddCoinPayload) => Promise<void>;
@@ -888,6 +918,7 @@ export interface BiliDeskApi {
     likeComment: (aid: number, rpid: number, like: boolean) => Promise<void>;
     getReplyEmotes: () => Promise<Record<string, string>>;
     getFavFolders: () => Promise<FavFolder[]>;
+    createFavFolder: (payload: CreateFavFolderPayload) => Promise<FavFolder>;
     getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
     setVideoFavFolders: (
       aid: number,
@@ -1053,6 +1084,9 @@ export interface BiliDeskApi {
   app: {
     getTheme: () => Promise<Theme>;
     setTheme: (theme: Theme) => Promise<Theme>;
+    setFullscreen: (on: boolean) => Promise<boolean>;
+    isFullscreen: () => Promise<boolean>;
+    onFullscreenChange: (callback: (on: boolean) => void) => () => void;
   };
 }
 

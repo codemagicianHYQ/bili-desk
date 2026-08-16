@@ -387,10 +387,10 @@
 
   .bili-quality-control .bili-quality-btn,
   .bili-speed-control .bili-speed-btn {
-    padding: 4px 10px;
+    padding: 4px 8px;
     border-radius: 9999px;
     background: rgba(255, 255, 255, 0.14);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1.2;
     color: #fff;
@@ -546,4 +546,77 @@
     color: rgba(255, 255, 255, 0.55);
     text-align: center;
   }
+}
+
+/* 必须放在 @layer 外：弹幕插件样式无 layer，会盖掉 layer 内规则 */
+.art-video-player .art-controls {
+  min-width: 0;
+}
+
+.art-video-player .art-controls-left,
+.art-video-player .art-controls-right {
+  flex-shrink: 0;
+}
+
+.art-video-player .art-controls-center {
+  min-width: 0;
+  flex: 1 1 0%;
+  overflow: hidden;
+}
+
+.art-video-player .artplayer-plugin-danmuku {
+  width: auto !important;
+  max-width: 100%;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+  flex-shrink: 1 !important;
+}
+
+.art-video-player .artplayer-plugin-danmuku .apd-emitter {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.art-video-player .artplayer-plugin-danmuku .apd-input {
+  min-width: 0;
+  width: 100%;
+}
+
+.art-video-player .bili-fs-control {
+  flex-shrink: 0;
+}
+
+.art-video-player .bili-fs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.art-video-player .bili-fs-btn svg {
+  display: block;
+}
+
+html.bili-os-fullscreen [data-app-chrome],
+html.bili-os-fullscreen [data-page-chrome] {
+  display: none !important;
+}
+
+html.bili-os-fullscreen .bili-player-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  width: 100vw !important;
+  height: 100vh !important;
+  aspect-ratio: auto !important;
+  border-radius: 0 !important;
+  overflow: hidden;
+  background: #000;
+}
+
+html.bili-os-fullscreen .bili-player-stage .art-video-player,
+html.bili-os-fullscreen .bili-player-stage video {
+  width: 100% !important;
+  height: 100% !important;
 }

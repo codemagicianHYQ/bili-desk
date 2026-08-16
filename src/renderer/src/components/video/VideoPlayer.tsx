@@ -4,7 +4,12 @@ import artplayerPluginDanmuku from "artplayer-plugin-danmuku";
 import flvjs from "flv.js";
 import dashjs from "dashjs";
 import type { VideoPlayInfo } from "@shared/types";
+import { attachBiliDash } from "@/components/video/dash-mse";
 import { createPlaybackRateControl } from "@/components/video/playback-rate-setting";
+import {
+  createOsFullscreenControl,
+  setOsFullscreenLayout,
+} from "@/components/video/os-fullscreen-control";
 import { createQualityControl } from "@/components/video/quality-setting";
 import { BILI_AUTO_QN } from "@shared/utils/bilibili-quality";
 import {
@@ -19,6 +24,8 @@ import {
   describeMediaError,
   logPlayback,
 } from "@/lib/playback-log";
+
+Artplayer.FULLSCREEN_WEB_IN_BODY = false;
 
 interface VideoPlayerProps {
   playInfo: VideoPlayInfo;
@@ -73,6 +80,7 @@ const HEARTBEAT_INTERVAL_MS = 15000;
 const RESUME_TIP_MS = 5000;
 /** 仅提示；超时后由页面自动换线路，避免一直转圈 */
 const STALL_TIMEOUT_MS = 10000;
+const DASH_STALL_TIMEOUT_MS = 15000;
 
 export function VideoPlayer({
   playInfo,
@@ -267,7 +275,7 @@ export function VideoPlayer({
       setting: true,
       playbackRate: false,
       aspectRatio: true,
-      fullscreen: true,
+      fullscreen: false,
       fullscreenWeb: true,
       pip: true,
       mutex: true,
@@ -277,6 +285,7 @@ export function VideoPlayer({
           onQualityChangeRef.current(qn);
         }),
         createPlaybackRateControl(),
+        createOsFullscreenControl(),
       ],
       theme: playerThemeColor(),
       lang: "zh-cn",
@@ -298,6 +307,14 @@ export function VideoPlayer({
           player.on("destroy", () => flvPlayer.destroy());
         },
         mpd(video, url, player) {
+          if (playInfo.dash) {
+            const stop = attachBiliDash(video, playInfo.dash, (message) => {
+              reportStall(message, undefined, video);
+            });
+            player.on("destroy", stop);
+            return;
+          }
+
           if (!dashjs.supportsMediaSource()) {
             onErrorRef.current?.("当前环境不支持 DASH 播放");
             return;
@@ -307,6 +324,7 @@ export function VideoPlayer({
           dashPlayer.updateSettings({
             streaming: {
               abr: { autoSwitchBitrate: { video: false, audio: false } },
+              cacheInitSegments: true,
               buffer: {
                 fastSwitchEnabled: true,
                 stableBufferTime: 3,
@@ -331,6 +349,9 @@ export function VideoPlayer({
           });
 
           const onDashError = (event: unknown) => {
+            const text = describeDashError(event);
+            logPlayback("dash.js error", playbackCtx, event);
+            if (/download|fragment|network/i.test(text)) return;
             reportStall(
               "视频流加载失败，可点刷新重试或切换清晰度",
               event,
@@ -338,7 +359,29 @@ export function VideoPlayer({
             );
           };
           dashPlayer.on(dashjs.MediaPlayer.events.ERROR, onDashError);
-          dashPlayer.initialize(video, url, player.option.autoplay);
+
+          let blobUrl = "";
+          const startDash = (manifestUrl: string) => {
+            dashPlayer.initialize(video, manifestUrl, player.option.autoplay);
+          };
+
+          // data: MPD 在 dash.js 里 Range 请求容易卡住，转成 blob 更稳
+          if (url.startsWith("data:")) {
+            void fetch(url)
+              .then((res) => res.blob())
+              .then((blob) => {
+                blobUrl = URL.createObjectURL(
+                  new Blob([blob], { type: "application/dash+xml" }),
+                );
+                startDash(blobUrl);
+              })
+              .catch((error) => {
+                reportStall("DASH 清单解析失败", error, video);
+              });
+          } else {
+            startDash(url);
+          }
+
           player.on("destroy", () => {
             try {
               dashPlayer.off(dashjs.MediaPlayer.events.ERROR, onDashError);
@@ -350,6 +393,7 @@ export function VideoPlayer({
             } catch {
               // ignore
             }
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
           });
         },
       },
@@ -406,19 +450,23 @@ export function VideoPlayer({
     });
 
     art.on("video:error", () => {
+      if (playInfo.format === "dash") return;
       reportStall("视频加载失败，可点刷新重试或切换清晰度");
     });
 
-    stallTimer = window.setTimeout(() => {
-      const media = art.video as HTMLVideoElement | undefined;
-      const stuck =
-        !media ||
-        (media.currentTime < 0.2 &&
-          media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
-      if (stuck) {
-        reportStall("视频缓冲超时，可点右上角刷新或切换清晰度后重试");
-      }
-    }, STALL_TIMEOUT_MS);
+    stallTimer = window.setTimeout(
+      () => {
+        const media = art.video as HTMLVideoElement | undefined;
+        const stuck =
+          !media ||
+          (media.currentTime < 0.2 &&
+            media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
+        if (stuck) {
+          reportStall("视频缓冲超时，可点右上角刷新或切换清晰度后重试");
+        }
+      },
+      playInfo.format === "dash" ? DASH_STALL_TIMEOUT_MS : STALL_TIMEOUT_MS,
+    );
 
     let seekTimer: number | null = null;
     art.on("video:playing", () => {
@@ -476,6 +524,17 @@ export function VideoPlayer({
         reportHeartbeat(2);
       }
       artRef.current = null;
+      const media = art.video as HTMLVideoElement | undefined;
+      try {
+        art.pause();
+      } catch {
+        // ignore
+      }
+      try {
+        media?.pause();
+      } catch {
+        // ignore
+      }
       art.destroy();
     };
   }, [
@@ -498,7 +557,20 @@ export function VideoPlayer({
     if (!active) {
       savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
       resumeOnActiveRef.current = !art.paused;
-      art.pause();
+      void window.biliDesk.app.setFullscreen(false);
+      setOsFullscreenLayout(false);
+      if (art.fullscreenWeb) art.fullscreenWeb = false;
+      try {
+        art.pause();
+      } catch {
+        // ignore
+      }
+      const media = art.video as HTMLVideoElement | undefined;
+      try {
+        media?.pause();
+      } catch {
+        // ignore
+      }
       return;
     }
 
@@ -519,7 +591,7 @@ export function VideoPlayer({
   };
 
   return (
-    <div className="relative aspect-video w-full bg-black">
+    <div className="bili-player-stage relative aspect-video w-full bg-black">
       <div ref={containerRef} className="h-full w-full" />
       {resumeTipAt != null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-[3.25rem] z-30 flex justify-center px-3 sm:bottom-16">

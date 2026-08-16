@@ -65,6 +65,11 @@ const api = {
       qn?: number,
       options?: { preferMp4?: boolean },
     ) => ipcRenderer.invoke(IPC.BILI_PLAY_URL, bvid, cid, qn, options),
+    fetchMediaRange: (
+      url: string,
+      range: string | undefined,
+      referer: string,
+    ) => ipcRenderer.invoke(IPC.BILI_MEDIA_RANGE, url, range, referer),
     getVideoRelation: (bvid: string, aid: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_RELATION, bvid, aid),
     likeVideo: (aid: number, like: boolean) =>
@@ -100,6 +105,11 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_COMMENT_LIKE, aid, rpid, like),
     getReplyEmotes: () => ipcRenderer.invoke(IPC.BILI_REPLY_EMOTES),
     getFavFolders: () => ipcRenderer.invoke(IPC.BILI_FAV_FOLDERS),
+    createFavFolder: (payload: {
+      title: string;
+      intro?: string;
+      privacy?: 0 | 1;
+    }) => ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_CREATE, payload),
     getVideoFavFolders: (aid: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_FOLDERS, aid),
     setVideoFavFolders: (
@@ -342,6 +352,16 @@ const api = {
   app: {
     getTheme: () => ipcRenderer.invoke(IPC.APP_GET_THEME),
     setTheme: (theme: Theme) => ipcRenderer.invoke(IPC.APP_SET_THEME, theme),
+    setFullscreen: (on: boolean) =>
+      ipcRenderer.invoke(IPC.APP_SET_FULLSCREEN, on),
+    isFullscreen: () => ipcRenderer.invoke(IPC.APP_GET_FULLSCREEN),
+    onFullscreenChange: (callback: (on: boolean) => void) => {
+      const listener = (_event: unknown, on: boolean) => callback(Boolean(on));
+      ipcRenderer.on(IPC.APP_FULLSCREEN_CHANGED, listener);
+      return () => {
+        ipcRenderer.removeListener(IPC.APP_FULLSCREEN_CHANGED, listener);
+      };
+    },
   },
 };
 

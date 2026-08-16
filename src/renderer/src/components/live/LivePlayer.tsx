@@ -2,7 +2,10 @@ import { useEffect, useRef } from "react";
 import Artplayer from "artplayer";
 import flvjs from "flv.js";
 import type { LivePlayInfo } from "@shared/types";
+import { createOsFullscreenControl } from "@/components/video/os-fullscreen-control";
 import { cn } from "@/lib/utils";
+
+Artplayer.FULLSCREEN_WEB_IN_BODY = false;
 
 interface LivePlayerProps {
   playInfo: LivePlayInfo;
@@ -201,13 +204,14 @@ export function LivePlayer({
       setting: true,
       playbackRate: false,
       aspectRatio: true,
-      fullscreen: true,
+      fullscreen: false,
       fullscreenWeb: true,
       pip: false,
       mutex: true,
       theme: playerThemeColor(),
       lang: "zh-cn",
       type: playInfo.format === "flv" ? "flv" : "m3u8",
+      controls: [createOsFullscreenControl()],
       customType: {
         flv(video, url, player) {
           bindFlv(video, url, player);
@@ -277,7 +281,7 @@ export function LivePlayer({
     <div
       ref={containerRef}
       className={cn(
-        "aspect-video w-full overflow-hidden rounded-xl bg-black [&_video]:h-full [&_video]:w-full [&_video]:object-contain",
+        "bili-player-stage aspect-video w-full overflow-hidden rounded-xl bg-black [&_video]:h-full [&_video]:w-full [&_video]:object-contain",
         className,
       )}
     />

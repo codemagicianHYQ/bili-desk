@@ -1,7 +1,10 @@
 import type Artplayer from "artplayer";
 import type { ComponentOption } from "artplayer/types/component";
 import type { VideoPlayInfo } from "@shared/types";
-import { BILI_AUTO_QN } from "@shared/utils/bilibili-quality";
+import {
+  BILI_AUTO_QN,
+  shortQualityLabel,
+} from "@shared/utils/bilibili-quality";
 
 export function createQualityControl(
   playInfo: VideoPlayInfo,
@@ -30,7 +33,7 @@ export function createQualityControl(
     name: "quality",
     position: "right",
     index: 36,
-    html: `<div class="bili-quality-btn">${isAuto ? "自动" : playInfo.qualityLabel}</div>`,
+    html: `<div class="bili-quality-btn">${isAuto ? "自动" : shortQualityLabel(playInfo.quality, playInfo.qualityLabel)}</div>`,
     tooltip: "清晰度",
     selector,
     mounted(this: Artplayer, element) {
@@ -39,9 +42,10 @@ export function createQualityControl(
     onSelect(item) {
       const qn = Number((item as { qn?: number }).qn);
       if (!Number.isFinite(qn)) return item.html;
-      if (qn === selectedQn) return item.html;
-      onChange(qn);
-      return item.html;
+      const label =
+        qn === BILI_AUTO_QN ? "自动" : shortQualityLabel(qn, String(item.html));
+      if (qn !== selectedQn) onChange(qn);
+      return `<div class="bili-quality-btn">${label}</div>`;
     },
   };
 }

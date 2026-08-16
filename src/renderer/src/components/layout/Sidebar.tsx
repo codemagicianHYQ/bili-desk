@@ -104,7 +104,10 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-card/50 px-3 py-4">
+    <aside
+      data-app-chrome
+      className="flex w-56 shrink-0 flex-col border-r border-border bg-card/50 px-3 py-4"
+    >
       <div className="mb-8 px-2">
         <h1 className="text-lg font-semibold tracking-tight">
           Bili<span className="text-primary">Desk</span>

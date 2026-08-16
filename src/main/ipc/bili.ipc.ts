@@ -9,6 +9,7 @@ import type {
   UserRelationListType,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
+import { fetchMediaRange } from "../services/media-proxy";
 import { handleIpc } from "./safe-handler";
 
 export function registerBiliIpc(): void {
@@ -53,6 +54,11 @@ export function registerBiliIpc(): void {
       options?: { preferMp4?: boolean },
     ) => biliApi.getPlayUrl(bvid, cid, qn, options),
   );
+  ipcMain.handle(
+    IPC.BILI_MEDIA_RANGE,
+    (_e, url: string, range: string | undefined, referer: string) =>
+      fetchMediaRange(url, referer, range),
+  );
   ipcMain.handle(IPC.BILI_VIDEO_RELATION, (_e, bvid: string, aid: number) =>
     biliApi.getVideoRelation(bvid, aid),
   );
@@ -96,6 +102,13 @@ export function registerBiliIpc(): void {
   );
   ipcMain.handle(IPC.BILI_REPLY_EMOTES, () => biliApi.getReplyEmotes());
   ipcMain.handle(IPC.BILI_FAV_FOLDERS, () => biliApi.getFavFolders());
+  ipcMain.handle(
+    IPC.BILI_FAV_FOLDER_CREATE,
+    (
+      _e,
+      payload: { title: string; intro?: string; privacy?: 0 | 1 },
+    ) => biliApi.createFavFolder(payload),
+  );
   ipcMain.handle(IPC.BILI_VIDEO_FAV_FOLDERS, (_e, aid: number) =>
     biliApi.getVideoFavFolders(aid),
   );

@@ -1,6 +1,7 @@
 import { BrowserWindow, shell, app, nativeImage } from "electron";
 import { existsSync } from "fs";
 import { join } from "path";
+import { IPC } from "@shared/ipc-channels";
 
 function resolveAppIcon(): Electron.NativeImage | undefined {
   const candidates = app.isPackaged
@@ -45,13 +46,27 @@ export function createMainWindow(): BrowserWindow {
 
   win.on("ready-to-show", () => win.show());
 
+  win.on("enter-full-screen", () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IPC.APP_FULLSCREEN_CHANGED, true);
+    }
+  });
+  win.on("leave-full-screen", () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IPC.APP_FULLSCREEN_CHANGED, false);
+    }
+  });
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    win.loadURL(process.env.ELECTRON_RENDERER_URL);
+    // localhost 访问 127.0.0.1 会被 Chromium Private Network Access 拦截
+    win.loadURL(
+      process.env.ELECTRON_RENDERER_URL.replace("localhost", "127.0.0.1"),
+    );
   } else {
     win.loadFile(join(__dirname, "../renderer/index.html"));
   }

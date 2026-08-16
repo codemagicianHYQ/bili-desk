@@ -7,6 +7,7 @@ import {
   filterAssignmentsByCategory,
 } from "@shared/utils/local-category";
 import { CategoryTree } from "@/components/taxonomy/CategoryTree";
+import { CreateFavFolderControl } from "@/components/favorites/CreateFavFolderControl";
 import { FavMoveDialog } from "@/components/favorites/FavMoveDialog";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
@@ -569,6 +570,16 @@ export function FavoritesPage() {
       <div className="flex w-60 shrink-0 flex-col border-r border-border">
         <div className="space-y-3 border-b border-border p-3">
           <p className="text-sm font-medium">收藏夹</p>
+          <CreateFavFolderControl
+            className="w-full justify-center"
+            onCreated={(folder) => {
+              setSidebarMode("bilibili");
+              setFolderError("");
+              setListReady(false);
+              if (scrollRef.current) scrollRef.current.scrollTop = 0;
+              setSelectedFolder(folder.id);
+            }}
+          />
           <div className="flex rounded-lg bg-secondary p-1">
             <button
               type="button"

@@ -111,7 +111,10 @@ export function TopBar({ title, subtitle }: TopBarProps) {
                 : "刷新稍后再看";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-6">
+    <header
+      data-app-chrome
+      className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-6"
+    >
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0">

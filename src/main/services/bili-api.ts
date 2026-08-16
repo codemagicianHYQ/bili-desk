@@ -1,11 +1,18 @@
-import axios, { type AxiosInstance, type AxiosResponse } from "axios";
+import axios, {
+  AxiosHeaders,
+  type AxiosInstance,
+  type AxiosResponse,
+  type InternalAxiosRequestConfig,
+} from "axios";
 import { createHash } from "crypto";
 import { session } from "electron";
 import { defaultHeaders, getCsrf, invalidateWbiCache, signParams } from "./wbi";
-import { buildDashMpdUri } from "@shared/utils/bilibili-dash";
+import { buildDashMpdXml } from "@shared/utils/bilibili-dash";
+import { wrapMediaUrl, wrapMpd } from "./media-proxy";
 import {
-  buildQualityOptions,
   formatBiliQualityLabel,
+  mergeQualityOptions,
+  parsePlayQualities,
   resolvePlayQn,
 } from "@shared/utils/bilibili-quality";
 import {
@@ -93,10 +100,39 @@ const COOKIE_KEYS = [
   "buvid3",
 ] as const;
 const TV_APPKEY = "4409e2ce8ffd12b8";
+const TV_PLAYURL_HOST = "https://api.snm0516.aisee.tv";
+const BV_XOR = 23442827791579n;
+const BV_MASK = 2251799813685247n;
+const BV_TABLE = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf";
+
+function bvToAid(bvid: string): number {
+  const chars = Array.from(bvid);
+  if (chars.length < 12) return 0;
+  [chars[3], chars[9]] = [chars[9], chars[3]];
+  [chars[4], chars[7]] = [chars[7], chars[4]];
+  const body = chars.slice(3);
+  let tmp = 0n;
+  for (const ch of body) {
+    tmp = tmp * 58n + BigInt(BV_TABLE.indexOf(ch));
+  }
+  return Number((tmp & BV_MASK) ^ BV_XOR);
+}
 const TV_APPSEC = "59b43e04ad6965f34319062b478f83dd";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function applyRequestHeaders(
+  cfg: InternalAxiosRequestConfig,
+  extra?: Record<string, string>,
+): InternalAxiosRequestConfig {
+  const headers = AxiosHeaders.from(defaultHeaders());
+  if (extra) headers.set(extra);
+  headers.set(cfg.headers);
+  headers.set("Cookie", getCookieString());
+  cfg.headers = headers;
+  return cfg;
 }
 
 function colorIntToHex(color: number): string {
@@ -128,7 +164,9 @@ function orderMediaUrls(
   ];
   if (unique.length === 0) return null;
   unique.sort((a, b) => rankMediaUrl(b) - rankMediaUrl(a));
-  return { url: unique[0], backupUrls: unique.slice(1) };
+  const playable = unique.filter((item) => rankMediaUrl(item) > 0);
+  const list = playable.length > 0 ? playable : unique;
+  return { url: list[0], backupUrls: list.slice(1) };
 }
 
 const BILI_CODE_TEXT: Record<number, string> = {
@@ -210,6 +248,10 @@ class BiliApiService {
   private passportClient: AxiosInstance;
   private memberClient: AxiosInstance;
   private liveClient: AxiosInstance;
+  private playQualityCache = new Map<
+    string,
+    Array<{ qn: number; label: string }>
+  >();
 
   constructor() {
     this.client = axios.create({
@@ -234,41 +276,22 @@ class BiliApiService {
 
     this.client.interceptors.request.use(async (cfg) => {
       await this.ensureBuvid3();
-      cfg.headers = {
-        ...defaultHeaders(),
-        ...cfg.headers,
-        Cookie: getCookieString(),
-      } as typeof cfg.headers;
-      return cfg;
+      return applyRequestHeaders(cfg);
     });
     this.passportClient.interceptors.request.use(async (cfg) => {
       await this.ensureBuvid3();
-      cfg.headers = {
-        ...defaultHeaders(),
-        ...cfg.headers,
-        Cookie: getCookieString(),
-      } as typeof cfg.headers;
-      return cfg;
+      return applyRequestHeaders(cfg);
     });
     this.memberClient.interceptors.request.use(async (cfg) => {
       await this.ensureBuvid3();
-      cfg.headers = {
-        ...defaultHeaders(),
-        ...cfg.headers,
-        Cookie: getCookieString(),
-      } as typeof cfg.headers;
-      return cfg;
+      return applyRequestHeaders(cfg);
     });
     this.liveClient.interceptors.request.use(async (cfg) => {
       await this.ensureBuvid3();
-      cfg.headers = {
-        ...defaultHeaders(),
+      return applyRequestHeaders(cfg, {
         Referer: "https://live.bilibili.com/",
         Origin: "https://live.bilibili.com",
-        ...cfg.headers,
-        Cookie: getCookieString(),
-      } as typeof cfg.headers;
-      return cfg;
+      });
     });
   }
 
@@ -346,10 +369,18 @@ class BiliApiService {
     if (code === 0 && res.data?.data) {
       await this.applyCookiesFromTvLogin(res.data.data);
 
-      const refreshToken = res.data.data.refresh_token as string | undefined;
-      if (refreshToken) {
-        appStore.set("refreshToken", refreshToken);
-      }
+      const payload = res.data.data as Record<string, unknown>;
+      const tokenInfo = payload.token_info as
+        | { access_token?: string; refresh_token?: string }
+        | undefined;
+      const accessToken = String(
+        tokenInfo?.access_token ?? payload.access_token ?? "",
+      );
+      const refreshToken = String(
+        tokenInfo?.refresh_token ?? payload.refresh_token ?? "",
+      );
+      if (accessToken) appStore.set("accessToken", accessToken);
+      if (refreshToken) appStore.set("refreshToken", refreshToken);
 
       const user = await this.fetchCurrentUser();
       if (!user?.isLogin) {
@@ -1874,74 +1905,186 @@ class BiliApiService {
     const requestedQn = resolvePlayQn(qn);
     const referer = `https://www.bilibili.com/video/${bvid}`;
     const preferMp4 = options?.preferMp4 !== false;
-    const fourk = requestedQn >= 120 ? 1 : 0;
+    const fourk = requestedQn >= 80 ? 1 : 0;
+    const aid = bvToAid(bvid);
+    const loggedIn = isLoggedIn();
 
     const reasons: string[] = [];
 
-    const tryDash = async (): Promise<VideoPlayInfo | null> => {
-      const dashParams = await signParams({
+    const requestPlayurl = async (
+      fnval: number,
+      extra: Record<string, string | number> = {},
+    ) => {
+      const params = await signParams({
+        ...(aid > 0 ? { avid: aid } : {}),
         bvid,
         cid,
         qn: requestedQn,
-        fnval: 16,
+        fnval,
         fnver: 0,
         fourk,
-        platform: "pc",
-        high_quality: 1,
+        otype: "json",
+        ...extra,
       });
-
-      const dashRes = await this.client.get("/x/player/wbi/playurl", {
-        params: dashParams,
+      return this.client.get("/x/player/wbi/playurl", {
+        params,
         headers: { Referer: referer },
         validateStatus: () => true,
       });
-      if (dashRes.data?.code !== 0) {
-        const reason =
-          `DASH 接口 code=${dashRes.data?.code ?? dashRes.status} ${dashRes.data?.message ?? ""}`.trim();
-        reasons.push(reason);
-        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn: requestedQn });
-        return null;
-      }
-      const built = this.buildPlayInfoFromDash(dashRes.data?.data, requestedQn);
-      if (!built) {
-        const reason = "DASH 响应无可用视频轨或缺少 SegmentBase";
-        reasons.push(reason);
-        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn: requestedQn });
-      }
-      return built;
     };
 
-    const tryMp4 = async (): Promise<VideoPlayInfo | null> => {
-      const mp4Params = await signParams({
-        bvid,
-        cid,
-        qn: requestedQn,
-        fnval: 1,
-        fnver: 0,
-        fourk,
-        platform: "pc",
-      });
+    const dashQuery = (fnval: number) => ({
+      fnval,
+      // BBDown / yt-dlp WEB 取流参数：不要用 html5 / platform=pc
+      from_client: "BROWSER",
+      support_multi_audio: "true",
+      ...(loggedIn ? {} : { try_look: 1 }),
+    });
 
-      const mp4Res = await this.client.get("/x/player/wbi/playurl", {
-        params: mp4Params,
-        headers: { Referer: referer },
-        validateStatus: () => true,
+    const fetchDashData = async (
+      fnval = 16,
+    ): Promise<Record<string, unknown> | null> => {
+      const dashRes = await requestPlayurl(fnval, dashQuery(fnval));
+      if (dashRes.data?.code !== 0) {
+        const reason =
+          `DASH 接口 fnval=${fnval} code=${dashRes.data?.code ?? dashRes.status} ${dashRes.data?.message ?? ""}`.trim();
+        reasons.push(reason);
+        console.warn("[BiliDesk][playurl]", reason, {
+          bvid,
+          cid,
+          qn: requestedQn,
+        });
+        return null;
+      }
+      const data = dashRes.data?.data as Record<string, unknown> | undefined;
+      if (!data) return null;
+      this.rememberPlayQualities(bvid, cid, parsePlayQualities(data));
+      return data;
+    };
+
+    const tryDash = async (fnval = 16): Promise<VideoPlayInfo | null> => {
+      const dashData = await fetchDashData(fnval);
+      if (!dashData) return null;
+      const built = this.buildPlayInfoFromDash(dashData, requestedQn, referer);
+      if (!built) {
+        const reason = `DASH fnval=${fnval} 无可用视频轨或缺少 SegmentBase`;
+        reasons.push(reason);
+        console.warn("[BiliDesk][playurl]", reason, {
+          bvid,
+          cid,
+          qn: requestedQn,
+        });
+        return null;
+      }
+      console.warn("[BiliDesk][playurl] dash", {
+        bvid,
+        fnval,
+        qn: requestedQn,
+        quality: built.quality,
+        format: built.format,
+        url: built.url.slice(0, 48),
+      });
+      return this.withFullQualities(bvid, cid, built);
+    };
+
+    const tryTvDash = async (): Promise<VideoPlayInfo | null> => {
+      const accessKey = appStore.get("accessToken");
+      if (!accessKey || !aid) return null;
+      const params = this.buildTvSignedParams({
+        access_key: accessKey,
+        build: 106500,
+        cid,
+        device: "android",
+        fnval: 4048,
+        fnver: 0,
+        fourk: 1,
+        mid: 0,
+        mobi_app: "android_tv_yst",
+        object_id: aid,
+        platform: "android",
+        playurl_type: 1,
+        qn: requestedQn,
+      });
+      try {
+        const tvRes = await axios.get(`${TV_PLAYURL_HOST}/x/tv/playurl`, {
+          params,
+          headers: {
+            ...defaultHeaders(),
+            Cookie: getCookieString(),
+          },
+          validateStatus: () => true,
+          timeout: 15000,
+        });
+        const code = tvRes.data?.code as number | undefined;
+        if (code !== undefined && code !== 0) {
+          const reason =
+            `TV playurl code=${code} ${tvRes.data?.message ?? ""}`.trim();
+          reasons.push(reason);
+          console.warn("[BiliDesk][playurl]", reason, { bvid, cid });
+          return null;
+        }
+        const payload = (tvRes.data?.data ?? tvRes.data) as
+          | Record<string, unknown>
+          | undefined;
+        if (!payload) return null;
+        this.rememberPlayQualities(bvid, cid, parsePlayQualities(payload));
+        const built = this.buildPlayInfoFromDash(payload, requestedQn, referer);
+        if (!built) {
+          reasons.push("TV playurl 无可用 DASH 轨");
+          return null;
+        }
+        console.warn("[BiliDesk][playurl] tv-dash", {
+          bvid,
+          qn: requestedQn,
+          quality: built.quality,
+        });
+        return this.withFullQualities(bvid, cid, built);
+      } catch (error) {
+        reasons.push(
+          `TV playurl 请求失败：${error instanceof Error ? error.message : "unknown"}`,
+        );
+        return null;
+      }
+    };
+
+    const tryMp4 = async (
+      platform: "pc" | "html5" = "pc",
+    ): Promise<VideoPlayInfo | null> => {
+      const mp4Res = await requestPlayurl(1, {
+        platform,
+        ...(platform === "html5"
+          ? { high_quality: 1, ...(loggedIn ? {} : { try_look: 1 }) }
+          : {}),
       });
       if (mp4Res.data?.code !== 0) {
         const reason =
           `MP4 接口 code=${mp4Res.data?.code ?? mp4Res.status} ${mp4Res.data?.message ?? ""}`.trim();
         reasons.push(reason);
-        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn: requestedQn });
+        console.warn("[BiliDesk][playurl]", reason, {
+          bvid,
+          cid,
+          qn: requestedQn,
+        });
         return null;
       }
-      const mp4Data = mp4Res.data?.data;
-      const mp4Stream = mp4Data?.durl?.[0] as
-        | { url?: string; format?: string; backup_url?: string[] }
+      const mp4Data = mp4Res.data?.data as Record<string, unknown> | undefined;
+      const codecId = Number(mp4Data?.video_codecid ?? 0);
+      if (codecId === 12 || codecId === 13) {
+        reasons.push(`${platform} MP4 为 HEVC/AV1，Electron 可能无法解码`);
+        return null;
+      }
+      const durl = mp4Data?.durl as
+        | Array<{ url?: string; format?: string; backup_url?: string[] }>
         | undefined;
+      const mp4Stream = durl?.[0];
       if (!mp4Stream?.url) {
         const reason = "MP4 无 durl 播放地址";
         reasons.push(reason);
-        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn: requestedQn });
+        console.warn("[BiliDesk][playurl]", reason, {
+          bvid,
+          cid,
+          qn: requestedQn,
+        });
         return null;
       }
       const ordered = orderMediaUrls(mp4Stream.url, mp4Stream.backup_url);
@@ -1949,25 +2092,76 @@ class BiliApiService {
         reasons.push("MP4 地址无效");
         return null;
       }
-      return this.buildPlayInfoFromDurl(
-        mp4Data,
-        { ...mp4Stream, url: ordered.url },
-        requestedQn,
+      if (rankMediaUrl(ordered.url) === 0) {
+        reasons.push(`${platform} MP4 仅有 mcdn`);
+        return null;
+      }
+      if (mp4Data) {
+        this.rememberPlayQualities(bvid, cid, parsePlayQualities(mp4Data));
+      }
+      const actualQn = Number(mp4Data?.quality ?? 0);
+      const proxied =
+        platform === "html5" || actualQn >= 80
+          ? wrapMediaUrl(ordered.url, referer)
+          : ordered.url;
+      console.warn("[BiliDesk][playurl] mp4", {
+        bvid,
+        platform,
+        qn: requestedQn,
+        quality: mp4Data?.quality,
+        host: (() => {
+          try {
+            return new URL(ordered.url).hostname;
+          } catch {
+            return "";
+          }
+        })(),
+      });
+      return this.withFullQualities(
+        bvid,
+        cid,
+        this.buildPlayInfoFromDurl(
+          mp4Data ?? {},
+          { ...mp4Stream, url: proxied },
+          requestedQn,
+        ),
       );
     };
 
-    // 串行：先 MP4（首帧快、少一次无用等待），没有再 DASH
-    // 以前 Promise.all 会等两路都结束，反而更慢、更容易触发风控
-    if (preferMp4) {
-      const mp4 = await tryMp4();
-      if (mp4) return mp4;
-      const dash = await tryDash();
+    const attachQualities = async (info: VideoPlayInfo) => {
+      const cached = this.playQualityCache.get(`${bvid}:${cid}`);
+      const has1080 = (cached ?? info.qualities).some((item) => item.qn >= 80);
+      if (!has1080) {
+        await Promise.race([fetchDashData(16), sleep(1500)]);
+      }
+      return this.withFullQualities(bvid, cid, info);
+    };
+
+    // 1080P+：跟 BBDown / yt-dlp 一样走 WEB DASH（fnval=4048），html5 MP4 最高经常只有 720P
+    if (requestedQn >= 80) {
+      const dashAll = await tryDash(4048);
+      if (dashAll && dashAll.quality >= 80) return dashAll;
+      const dashBasic = await tryDash(16);
+      if (dashBasic && dashBasic.quality >= 80) return dashBasic;
+      const tv = await tryTvDash();
+      if (tv && tv.quality >= 80) return tv;
+      const pc = await tryMp4("pc");
+      if (pc) return attachQualities(pc);
+      const html5 = await tryMp4("html5");
+      if (html5) return attachQualities(html5);
+      if (dashAll) return dashAll;
+      if (dashBasic) return dashBasic;
+      if (tv) return tv;
+    } else if (preferMp4) {
+      const mp4 = await tryMp4("pc");
+      if (mp4) return attachQualities(mp4);
+      const dash = await tryDash(16);
       if (dash) return dash;
     } else {
-      const dash = await tryDash();
+      const dash = await tryDash(16);
       if (dash) return dash;
-      const mp4 = await tryMp4();
-      if (mp4) return mp4;
+      const mp4 = await tryMp4("pc");
+      if (mp4) return attachQualities(mp4);
     }
 
     throw new Error(
@@ -2324,14 +2518,8 @@ class BiliApiService {
     const format: VideoPlayInfo["format"] =
       streamFormat.includes("flv") || url.includes(".flv") ? "flv" : "mp4";
 
-    const acceptQuality = (data.accept_quality as number[] | undefined) ?? [
-      (data.quality as number) ?? requestedQn,
-    ];
-    const acceptDescription = data.accept_description as string[] | undefined;
-    const qualities = buildQualityOptions(acceptQuality, acceptDescription);
-
+    const qualities = parsePlayQualities(data);
     const quality = (data.quality as number) ?? requestedQn;
-    const qualityIndex = acceptQuality.indexOf(quality);
 
     return {
       url,
@@ -2339,15 +2527,24 @@ class BiliApiService {
       quality,
       qualityLabel: formatBiliQualityLabel(
         quality,
-        acceptDescription?.[qualityIndex],
+        qualities.find((item) => item.qn === quality)?.label,
       ),
-      qualities,
+      qualities:
+        qualities.length > 0
+          ? qualities
+          : [
+              {
+                qn: quality,
+                label: formatBiliQualityLabel(quality),
+              },
+            ],
     };
   }
 
   private buildPlayInfoFromDash(
     data: Record<string, unknown>,
     requestedQn: number,
+    referer: string,
   ): VideoPlayInfo | null {
     const dash = data.dash as Record<string, unknown> | undefined;
     if (!dash) return null;
@@ -2405,7 +2602,13 @@ class BiliApiService {
       );
     };
 
-    const video = pickByQn(videos, requestedQn);
+    const exactAvc = avcVideos.find((item) => item.id === requestedQn);
+    const exactHevc = hevcVideos.find((item) => item.id === requestedQn);
+    const video =
+      exactAvc ??
+      (requestedQn >= 80 ? exactHevc : undefined) ??
+      pickByQn(videos, requestedQn);
+    if (!video) return null;
     const audios = ((dash.audio as DashStream[] | undefined) ?? []).filter(
       (item) =>
         !item.codecs?.includes("ec-3") && !item.codecs?.includes("ac-3"),
@@ -2429,8 +2632,22 @@ class BiliApiService {
       audio.baseUrl ?? audio.base_url,
       collectBackupUrls(audio),
     );
-    const videoSeg = video.SegmentBase ?? video.segment_base;
-    const audioSeg = audio.SegmentBase ?? audio.segment_base;
+    const videoSeg = (video.SegmentBase ?? video.segment_base) as
+      | {
+          Initialization?: string;
+          initialization?: string;
+          indexRange?: string;
+          index_range?: string;
+        }
+      | undefined;
+    const audioSeg = (audio.SegmentBase ?? audio.segment_base) as
+      | {
+          Initialization?: string;
+          initialization?: string;
+          indexRange?: string;
+          index_range?: string;
+        }
+      | undefined;
     if (!videoOrdered || !audioOrdered || !videoSeg || !audioSeg) return null;
 
     const videoInit = videoSeg.Initialization ?? videoSeg.initialization;
@@ -2439,12 +2656,7 @@ class BiliApiService {
     const audioIndex = audioSeg.indexRange ?? audioSeg.index_range;
     if (!videoInit || !videoIndex || !audioInit || !audioIndex) return null;
 
-    const acceptQuality = (data.accept_quality as number[] | undefined) ?? [
-      video.id,
-    ];
-    const acceptDescription = data.accept_description as string[] | undefined;
-    const qualities = buildQualityOptions(acceptQuality, acceptDescription);
-
+    const qualities = parsePlayQualities(data);
     if (qualities.length === 0) {
       qualities.push({
         qn: video.id,
@@ -2453,7 +2665,13 @@ class BiliApiService {
     }
 
     const quality = video.id;
-    const qualityIndex = acceptQuality.indexOf(quality);
+    console.warn("[BiliDesk][playurl] dash-track", {
+      requestedQn,
+      quality,
+      codecs: video.codecs,
+      height: video.height,
+      ids: [...new Set(allVideos.map((item) => item.id))].sort((a, b) => b - a),
+    });
 
     const timeLengthSec = Number(data.timelength)
       ? Number(data.timelength) / 1000
@@ -2466,7 +2684,7 @@ class BiliApiService {
       video: {
         id: video.id,
         baseUrl: videoOrdered.url,
-        backupUrls: videoOrdered.backupUrls,
+        backupUrls: [],
         bandwidth: video.bandwidth,
         mimeType: video.mimeType ?? video.mime_type ?? "video/mp4",
         codecs: video.codecs,
@@ -2481,7 +2699,7 @@ class BiliApiService {
       audio: {
         id: audio.id,
         baseUrl: audioOrdered.url,
-        backupUrls: audioOrdered.backupUrls,
+        backupUrls: [],
         bandwidth: audio.bandwidth,
         mimeType: audio.mimeType ?? audio.mime_type ?? "audio/mp4",
         codecs: audio.codecs,
@@ -2493,15 +2711,82 @@ class BiliApiService {
     };
 
     return {
-      url: buildDashMpdUri(dashPayload),
+      url: wrapMpd(
+        buildDashMpdXml({
+          ...dashPayload,
+          video: {
+            ...dashPayload.video,
+            baseUrl: wrapMediaUrl(videoOrdered.url, referer),
+          },
+          audio: {
+            ...dashPayload.audio,
+            baseUrl: wrapMediaUrl(audioOrdered.url, referer),
+          },
+        }),
+      ),
       format: "dash",
       quality,
       qualityLabel: formatBiliQualityLabel(
         quality,
-        acceptDescription?.[qualityIndex],
+        qualities.find((item) => item.qn === quality)?.label,
       ),
       qualities,
+      dash: {
+        duration,
+        video: {
+          url: videoOrdered.url,
+          backupUrls: videoOrdered.backupUrls,
+          referer,
+          mimeType: dashPayload.video.mimeType,
+          codecs: video.codecs,
+          initRange: videoInit,
+          indexRange: videoIndex,
+        },
+        audio: {
+          url: audioOrdered.url,
+          backupUrls: audioOrdered.backupUrls,
+          referer,
+          mimeType: dashPayload.audio.mimeType,
+          codecs: audio.codecs,
+          initRange: audioInit,
+          indexRange: audioIndex,
+        },
+      },
     };
+  }
+
+  private rememberPlayQualities(
+    bvid: string,
+    cid: number,
+    qualities: Array<{ qn: number; label: string }>,
+  ) {
+    if (qualities.length === 0) return;
+    const key = `${bvid}:${cid}`;
+    const merged = mergeQualityOptions(
+      this.playQualityCache.get(key),
+      qualities,
+    );
+    this.playQualityCache.set(key, merged);
+    if (this.playQualityCache.size > 80) {
+      const first = this.playQualityCache.keys().next().value;
+      if (first) this.playQualityCache.delete(first);
+    }
+  }
+
+  private withFullQualities(
+    bvid: string,
+    cid: number,
+    info: VideoPlayInfo,
+  ): VideoPlayInfo {
+    const key = `${bvid}:${cid}`;
+    const merged = mergeQualityOptions(
+      this.playQualityCache.get(key),
+      info.qualities,
+    );
+    if (merged.length > 0) {
+      this.playQualityCache.set(key, merged);
+    }
+    return merged.length > 0 ? { ...info, qualities: merged } : info;
   }
 
   private subscribedSeasonsCache: UserCollectionItem[] | null = null;
@@ -2795,6 +3080,66 @@ class BiliApiService {
     if (res.data?.code !== 0) {
       throw new Error((res.data?.message as string) || "收藏操作失败");
     }
+  }
+
+  /** 新建 B 站收藏夹，对应官网 /x/v3/fav/folder/add */
+  async createFavFolder(payload: {
+    title: string;
+    intro?: string;
+    privacy?: 0 | 1;
+  }): Promise<FavFolder> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再创建收藏夹");
+
+    const title = payload.title.trim();
+    if (!title) throw new Error("请输入收藏夹名称");
+    if (title.length > 20) throw new Error("收藏夹名称最多 20 个字");
+
+    const body: Record<string, string> = {
+      title,
+      intro: payload.intro?.trim() ?? "",
+      privacy: String(payload.privacy === 1 ? 1 : 0),
+      csrf,
+    };
+
+    const res = await this.client.post(
+      "/x/v3/fav/folder/add",
+      new URLSearchParams(body),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/",
+          Origin: "https://www.bilibili.com",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+
+    const code = Number(res.data?.code);
+    if (code === 11007 || String(res.data?.message ?? "").includes("上限")) {
+      throw new Error("收藏夹数量已达上限");
+    }
+    if (code !== 0) {
+      throw new Error((res.data?.message as string) || "创建收藏夹失败");
+    }
+
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const id = Number(data.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new Error("创建收藏夹成功，但未返回收藏夹信息");
+    }
+
+    return {
+      id,
+      fid: Number(data.fid) || 0,
+      title: String(data.title || title),
+      mediaCount: Number(data.media_count) || 0,
+      cover: String(data.cover ?? ""),
+    };
   }
 
   /** 从指定收藏夹批量移除视频（resources 格式 aid:2） */
@@ -4534,6 +4879,7 @@ class BiliApiService {
     });
     appStore.set("user", null);
     appStore.set("refreshToken", "");
+    appStore.set("accessToken", "");
   }
 
   getAuthStatus(): UserInfo {
@@ -5011,10 +5357,10 @@ class BiliApiService {
     if (!filters) return false;
     return Boolean(
       Boolean(filters.keyword?.trim()) ||
-        (filters.duration && filters.duration !== 0) ||
-        (filters.device && filters.device !== "all") ||
-        filters.fromTime ||
-        filters.toTime,
+      Boolean(filters.duration) ||
+      (filters.device && filters.device !== "all") ||
+      filters.fromTime ||
+      filters.toTime,
     );
   }
 
@@ -5025,7 +5371,7 @@ class BiliApiService {
     if (!filters) return true;
     if (filters.fromTime && item.viewAt < filters.fromTime) return false;
     if (filters.toTime && item.viewAt > filters.toTime) return false;
-    if (filters.duration && filters.duration !== 0) {
+    if (filters.duration) {
       const seconds = item.duration;
       if (seconds <= 0) return false;
       if (filters.duration === 1 && seconds >= 600) return false;

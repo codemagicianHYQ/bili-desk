@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { VideoFavFolder } from "@shared/types";
+import { CreateFavFolderControl } from "@/components/favorites/CreateFavFolderControl";
 import { Button } from "@/components/ui/button";
 import { cn, formatCount } from "@/lib/utils";
 import { Bookmark, Folder, Loader2, X } from "lucide-react";
@@ -174,6 +175,23 @@ export function VideoFavButton({
           </button>
         </div>
 
+        <div className="px-4 pt-3">
+          <CreateFavFolderControl
+            disabled={saving}
+            onCreated={(folder) => {
+              setFolders((prev) => {
+                if (prev.some((item) => item.id === folder.id)) return prev;
+                return [
+                  ...prev,
+                  { ...folder, collected: false, isDefault: false },
+                ];
+              });
+              setSelected((prev) => new Set(prev).add(folder.id));
+              setError("");
+            }}
+          />
+        </div>
+
         <div className="scrollbar-overlay max-h-80 overflow-y-auto p-2">
           {loading ? (
             <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
@@ -182,7 +200,7 @@ export function VideoFavButton({
             </div>
           ) : folders.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-              {error || "暂无收藏夹，请先在 B 站创建收藏夹"}
+              {error || "暂无收藏夹，点击左上角新建"}
             </p>
           ) : (
             <div className="space-y-1">

@@ -2,6 +2,13 @@ import { app, BrowserWindow, session } from "electron";
 import { createMainWindow } from "./window";
 import { registerAllIpc } from "./ipc";
 import { initDb } from "./db";
+import {
+  attachMediaProtocol,
+  registerMediaScheme,
+  startMediaProxy,
+} from "./services/media-proxy";
+
+registerMediaScheme();
 
 // Chromium 在视频解码器初始化/探测时可能输出无害的 ffmpeg_common 日志（播放正常时可忽略）
 if (!app.isPackaged) {
@@ -9,7 +16,7 @@ if (!app.isPackaged) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const mediaUrls = [
     "*://*.bilibili.com/*",
     "*://*.hdslb.com/*",
@@ -49,7 +56,34 @@ app.whenReady().then(() => {
     },
   );
 
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: mediaUrls },
+    (details, callback) => {
+      const headers = { ...(details.responseHeaders ?? {}) };
+      const isCdn =
+        details.url.includes("bilivideo.com") ||
+        details.url.includes("bilivideo.cn") ||
+        details.url.includes("akamaized.net");
+      if (isCdn) {
+        for (const key of Object.keys(headers)) {
+          if (key.toLowerCase().startsWith("access-control-")) {
+            delete headers[key];
+          }
+        }
+        headers["Access-Control-Allow-Origin"] = ["*"];
+        headers["Access-Control-Allow-Headers"] = ["Range"];
+        headers["Access-Control-Allow-Methods"] = ["GET, HEAD, OPTIONS"];
+        headers["Access-Control-Expose-Headers"] = [
+          "Content-Length, Content-Range, Accept-Ranges, Content-Type",
+        ];
+      }
+      callback({ responseHeaders: headers });
+    },
+  );
+
   initDb();
+  await startMediaProxy();
+  attachMediaProtocol();
   registerAllIpc();
   mainWindow = createMainWindow();
 

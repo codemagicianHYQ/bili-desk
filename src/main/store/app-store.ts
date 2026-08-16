@@ -13,6 +13,7 @@ interface StoreSchema {
   user: UserInfo | null
   ai: AiConfig
   refreshToken: string
+  accessToken: string
   localDb: unknown
 }
 
@@ -27,6 +28,7 @@ const defaults: StoreSchema = {
   },
   user: null,
   refreshToken: '',
+  accessToken: '',
   ai: {
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: '',
@@ -57,6 +59,8 @@ export function setCookies(cookies: Partial<StoreSchema['cookies']>): void {
 export function clearAuth(): void {
   appStore.set('cookies', defaults.cookies)
   appStore.set('user', null)
+  appStore.set('refreshToken', '')
+  appStore.set('accessToken', '')
 }
 
 export function isLoggedIn(): boolean {

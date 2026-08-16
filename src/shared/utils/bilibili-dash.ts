@@ -76,13 +76,13 @@ function encodeMpdToDataUri(mpd: string): string {
   return `data:application/dash+xml;base64,${encoded}`;
 }
 
-/** 将 B 站 DASH 音视频轨转为 dash.js 可识别的 MPD Data URI */
-export function buildDashMpdUri(data: BiliDashPlayData): string {
+/** 将 B 站 DASH 音视频轨转为 MPD XML（给本地代理 / dash.js 用） */
+export function buildDashMpdXml(data: BiliDashPlayData): string {
   const duration = Math.max(1, Math.ceil(data.duration));
   const videoRep = buildRepresentation(data.video, "video");
   const audioRep = buildRepresentation(data.audio, "audio");
 
-  const mpd = `<?xml version="1.0" encoding="UTF-8"?>
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" type="static" mediaPresentationDuration="PT${duration}S" minBufferTime="PT1.5S">
   <Period>
     <AdaptationSet contentType="video" mimeType="${escapeXml(data.video.mimeType)}" segmentAlignment="true" subsegmentAlignment="true" bitstreamSwitching="true">
@@ -93,6 +93,9 @@ export function buildDashMpdUri(data: BiliDashPlayData): string {
     </AdaptationSet>
   </Period>
 </MPD>`;
+}
 
-  return encodeMpdToDataUri(mpd);
+/** 将 B 站 DASH 音视频轨转为 dash.js 可识别的 MPD Data URI */
+export function buildDashMpdUri(data: BiliDashPlayData): string {
+  return encodeMpdToDataUri(buildDashMpdXml(data));
 }
