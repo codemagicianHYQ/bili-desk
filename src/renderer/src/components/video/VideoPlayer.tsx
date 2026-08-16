@@ -5,6 +5,8 @@ import flvjs from "flv.js";
 import dashjs from "dashjs";
 import type { VideoPlayInfo } from "@shared/types";
 import { createPlaybackRateControl } from "@/components/video/playback-rate-setting";
+import { createQualityControl } from "@/components/video/quality-setting";
+import { BILI_AUTO_QN } from "@shared/utils/bilibili-quality";
 import {
   clearPlaybackProgress,
   getPlaybackProgress,
@@ -28,6 +30,8 @@ interface VideoPlayerProps {
   /** 优先于本地缓存的续播秒数（如历史记录进度） */
   initialTime?: number;
   reloadKey?: number;
+  /** 0 = 自动，其余为 B 站 qn */
+  selectedQn?: number;
   onQualityChange: (qn: number) => void;
   onError?: (
     message: string,
@@ -79,6 +83,7 @@ export function VideoPlayer({
   active = true,
   initialTime,
   reloadKey = 0,
+  selectedQn = BILI_AUTO_QN,
   onQualityChange,
   onError,
   onWatchFromStart,
@@ -266,7 +271,13 @@ export function VideoPlayer({
       fullscreenWeb: true,
       pip: true,
       mutex: true,
-      controls: [createPlaybackRateControl()],
+      controls: [
+        createQualityControl(playInfo, selectedQn, (qn) => {
+          saveCurrentProgress();
+          onQualityChangeRef.current(qn);
+        }),
+        createPlaybackRateControl(),
+      ],
       theme: playerThemeColor(),
       lang: "zh-cn",
       type: resolvePlayerType(playInfo.format),
@@ -342,26 +353,7 @@ export function VideoPlayer({
           });
         },
       },
-      settings: [
-        {
-          html: "清晰度",
-          selector: playInfo.qualities.map((item) => ({
-            html: item.label,
-            default: item.qn === playInfo.quality,
-            qn: item.qn,
-          })),
-          onSelect(item) {
-            const qn = item.qn as number;
-            // 初始化时 Artplayer 可能回传默认项；仅用户切换到其他清晰度才请求新流
-            if (!Number.isFinite(qn) || qn === playInfo.quality) {
-              return item.html;
-            }
-            saveCurrentProgress();
-            onQualityChangeRef.current(qn);
-            return item.html;
-          },
-        },
-      ],
+      settings: [],
       plugins: [
         artplayerPluginDanmuku({
           danmuku: async () => {
@@ -490,6 +482,7 @@ export function VideoPlayer({
     playInfo.url,
     playInfo.format,
     playInfo.quality,
+    selectedQn,
     poster,
     aid,
     bvid,

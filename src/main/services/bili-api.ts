@@ -4,6 +4,11 @@ import { session } from "electron";
 import { defaultHeaders, getCsrf, invalidateWbiCache, signParams } from "./wbi";
 import { buildDashMpdUri } from "@shared/utils/bilibili-dash";
 import {
+  buildQualityOptions,
+  formatBiliQualityLabel,
+  resolvePlayQn,
+} from "@shared/utils/bilibili-quality";
+import {
   appStore,
   getCookieString,
   isLoggedIn,
@@ -1861,13 +1866,15 @@ class BiliApiService {
   async getPlayUrl(
     bvid: string,
     cid: number,
-    qn = 64,
+    qn?: number,
     options?: { preferMp4?: boolean },
   ): Promise<VideoPlayInfo> {
     await this.ensureBuvid3();
 
+    const requestedQn = resolvePlayQn(qn);
     const referer = `https://www.bilibili.com/video/${bvid}`;
     const preferMp4 = options?.preferMp4 !== false;
+    const fourk = requestedQn >= 120 ? 1 : 0;
 
     const reasons: string[] = [];
 
@@ -1875,10 +1882,10 @@ class BiliApiService {
       const dashParams = await signParams({
         bvid,
         cid,
-        qn,
+        qn: requestedQn,
         fnval: 16,
         fnver: 0,
-        fourk: 0,
+        fourk,
         platform: "pc",
         high_quality: 1,
       });
@@ -1892,14 +1899,14 @@ class BiliApiService {
         const reason =
           `DASH 接口 code=${dashRes.data?.code ?? dashRes.status} ${dashRes.data?.message ?? ""}`.trim();
         reasons.push(reason);
-        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn });
+        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn: requestedQn });
         return null;
       }
-      const built = this.buildPlayInfoFromDash(dashRes.data?.data, qn);
+      const built = this.buildPlayInfoFromDash(dashRes.data?.data, requestedQn);
       if (!built) {
         const reason = "DASH 响应无可用视频轨或缺少 SegmentBase";
         reasons.push(reason);
-        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn });
+        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn: requestedQn });
       }
       return built;
     };
@@ -1908,10 +1915,10 @@ class BiliApiService {
       const mp4Params = await signParams({
         bvid,
         cid,
-        qn,
+        qn: requestedQn,
         fnval: 1,
         fnver: 0,
-        fourk: 0,
+        fourk,
         platform: "pc",
       });
 
@@ -1924,7 +1931,7 @@ class BiliApiService {
         const reason =
           `MP4 接口 code=${mp4Res.data?.code ?? mp4Res.status} ${mp4Res.data?.message ?? ""}`.trim();
         reasons.push(reason);
-        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn });
+        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn: requestedQn });
         return null;
       }
       const mp4Data = mp4Res.data?.data;
@@ -1934,7 +1941,7 @@ class BiliApiService {
       if (!mp4Stream?.url) {
         const reason = "MP4 无 durl 播放地址";
         reasons.push(reason);
-        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn });
+        console.warn("[BiliDesk][playurl]", reason, { bvid, cid, qn: requestedQn });
         return null;
       }
       const ordered = orderMediaUrls(mp4Stream.url, mp4Stream.backup_url);
@@ -1945,7 +1952,7 @@ class BiliApiService {
       return this.buildPlayInfoFromDurl(
         mp4Data,
         { ...mp4Stream, url: ordered.url },
-        qn,
+        requestedQn,
       );
     };
 
@@ -2320,14 +2327,8 @@ class BiliApiService {
     const acceptQuality = (data.accept_quality as number[] | undefined) ?? [
       (data.quality as number) ?? requestedQn,
     ];
-    const acceptDescription =
-      (data.accept_description as string[] | undefined) ??
-      acceptQuality.map((value: number) => `${value}P`);
-
-    const qualities = acceptQuality.map((value: number, index: number) => ({
-      qn: value,
-      label: acceptDescription[index] ?? `${value}P`,
-    }));
+    const acceptDescription = data.accept_description as string[] | undefined;
+    const qualities = buildQualityOptions(acceptQuality, acceptDescription);
 
     const quality = (data.quality as number) ?? requestedQn;
     const qualityIndex = acceptQuality.indexOf(quality);
@@ -2336,7 +2337,10 @@ class BiliApiService {
       url,
       format,
       quality,
-      qualityLabel: acceptDescription[qualityIndex] ?? `${quality}P`,
+      qualityLabel: formatBiliQualityLabel(
+        quality,
+        acceptDescription?.[qualityIndex],
+      ),
       qualities,
     };
   }
@@ -2438,20 +2442,14 @@ class BiliApiService {
     const acceptQuality = (data.accept_quality as number[] | undefined) ?? [
       video.id,
     ];
-    const acceptDescription =
-      (data.accept_description as string[] | undefined) ??
-      acceptQuality.map((value: number) => `${value}P`);
-
-    const avcQnSet = new Set(videos.map((item) => item.id));
-    const qualities = acceptQuality
-      .filter((value) => avcQnSet.has(value))
-      .map((value) => ({
-        qn: value,
-        label: acceptDescription[acceptQuality.indexOf(value)] ?? `${value}P`,
-      }));
+    const acceptDescription = data.accept_description as string[] | undefined;
+    const qualities = buildQualityOptions(acceptQuality, acceptDescription);
 
     if (qualities.length === 0) {
-      qualities.push({ qn: video.id, label: `${video.id}P` });
+      qualities.push({
+        qn: video.id,
+        label: formatBiliQualityLabel(video.id),
+      });
     }
 
     const quality = video.id;
@@ -2498,7 +2496,10 @@ class BiliApiService {
       url: buildDashMpdUri(dashPayload),
       format: "dash",
       quality,
-      qualityLabel: acceptDescription[qualityIndex] ?? `${quality}P`,
+      qualityLabel: formatBiliQualityLabel(
+        quality,
+        acceptDescription?.[qualityIndex],
+      ),
       qualities,
     };
   }

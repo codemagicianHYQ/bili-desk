@@ -11,6 +11,10 @@ import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import {
+  readQualityPref,
+  writeQualityPref,
+} from "@/components/video/quality-pref";
 import { ArrowUp, RefreshCw } from "lucide-react";
 
 interface VideoPageProps {
@@ -30,7 +34,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [video, setVideo] = useState<VideoDetail | null>(null);
   const [playInfo, setPlayInfo] = useState<VideoPlayInfo | null>(null);
   const [selectedCid, setSelectedCid] = useState<number | null>(null);
-  const [quality, setQuality] = useState<number | undefined>(undefined);
+  const [quality, setQuality] = useState(readQualityPref);
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState("");
   const [playError, setPlayError] = useState("");
@@ -143,14 +147,16 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
             ? resumeCid
             : (detail.pages[0]?.cid ?? null);
         setSelectedCid(preferredCid);
-        setQuality(undefined);
       })
       .catch((e: Error) => setError(e.message));
   }, [bvid, resumeCid]);
 
   useEffect(() => {
     streamModeRef.current = "mp4";
-    loweredQnRef.current = false;
+    if (loweredQnRef.current) {
+      loweredQnRef.current = false;
+      setQuality(readQualityPref());
+    }
   }, [bvid, selectedCid]);
 
   useEffect(() => {
@@ -159,6 +165,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   }, [bvid, selectedCid, quality, fetchPlayUrl]);
 
   const handleQualityChange = useCallback((qn: number) => {
+    writeQualityPref(qn);
     setQuality((prev) => (prev === qn ? prev : qn));
   }, []);
 
@@ -290,6 +297,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     active={active}
                     initialTime={initialTime}
                     reloadKey={reloadKey}
+                    selectedQn={quality}
                     onQualityChange={handleQualityChange}
                     onError={handlePlayerError}
                     onWatchFromStart={handleWatchFromStart}
@@ -328,7 +336,6 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                           selectedCid === part.cid ? "default" : "outline"
                         }
                         onClick={() => {
-                          setQuality(undefined);
                           setSelectedCid(part.cid);
                         }}
                       >
