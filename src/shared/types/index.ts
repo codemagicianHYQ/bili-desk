@@ -151,14 +151,32 @@ export interface BiliDashPlayInfo {
   audio: BiliDashTrackInfo;
 }
 
+export interface VideoPlayQuality {
+  qn: number;
+  label: string;
+  needVip?: boolean;
+  needLogin?: boolean;
+  superscript?: string;
+}
+
 export interface VideoPlayInfo {
   url: string;
   format: "mp4" | "flv" | "dash";
   quality: number;
   qualityLabel: string;
-  qualities: Array<{ qn: number; label: string }>;
+  qualities: VideoPlayQuality[];
   /** DASH 音视频轨：由主进程 IPC 拉分片，不走 dash.js 跨域 */
   dash?: BiliDashPlayInfo;
+  /** 当前登录账号是否为有效大会员 */
+  isVip?: boolean;
+  /** 高画质试看是否仍可用（普通会员每月 5 次） */
+  trialAble?: boolean;
+  /** 高画质试看剩余次数；null 表示接口未返回 */
+  trialRemaining?: number | null;
+  /** 请求了大会员画质但服务端未授权 */
+  qualityDenied?: boolean;
+  /** 播放器内提示：试看剩余 / 请开通大会员 */
+  qualityNotice?: string;
 }
 
 export interface UserInfo {
@@ -166,6 +184,7 @@ export interface UserInfo {
   name: string;
   face: string;
   isLogin: boolean;
+  isVip?: boolean;
 }
 
 export interface QrLoginResult {
@@ -937,6 +956,7 @@ export interface BiliDeskApi {
     ) => Promise<void>;
     getFollowings: (page?: number) => Promise<FollowingUp[]>;
     getFollowTags: () => Promise<FollowTag[]>;
+    createFollowTag: (name: string) => Promise<FollowTag>;
     getFollowingsInTag: (
       tagId: number,
       page?: number,

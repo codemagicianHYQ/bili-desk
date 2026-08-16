@@ -40,6 +40,7 @@ export const IPC = {
   BILI_FAV_RESOURCES_MOVE: "bili:fav-resources-move",
   BILI_FOLLOWINGS: "bili:followings",
   BILI_FOLLOW_TAGS: "bili:follow-tags",
+  BILI_FOLLOW_TAG_CREATE: "bili:follow-tag-create",
   BILI_FOLLOW_TAG_MEMBERS: "bili:follow-tag-members",
   BILI_USER_RELATION_LIST: "bili:user-relation-list",
   BILI_FOLLOW_USER_TAGS: "bili:follow-user-tags",

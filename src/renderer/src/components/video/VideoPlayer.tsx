@@ -513,6 +513,9 @@ export function VideoPlayer({
     });
 
     artRef.current = art;
+    if (playInfo.qualityNotice) {
+      art.notice.show = playInfo.qualityNotice;
+    }
 
     return () => {
       window.clearTimeout(stallTimer);

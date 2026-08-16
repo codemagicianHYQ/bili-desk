@@ -11,9 +11,9 @@ import type {
   WatchHeartbeatPayload,
   Theme,
   DynamicFeedType,
-    HistoryCursor,
-    HistoryFeedType,
-    HistoryFilters,
+  HistoryCursor,
+  HistoryFeedType,
+  HistoryFilters,
   UpGroupSelection,
   UpGroupTreeNode,
   UpVideosOrder,
@@ -140,6 +140,8 @@ const api = {
         ? ipcRenderer.invoke(IPC.BILI_FOLLOWINGS, page)
         : ipcRenderer.invoke(IPC.BILI_FOLLOWINGS),
     getFollowTags: () => ipcRenderer.invoke(IPC.BILI_FOLLOW_TAGS),
+    createFollowTag: (name: string) =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_CREATE, name),
     getFollowingsInTag: (tagId: number, page?: number) =>
       page != null
         ? ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_MEMBERS, tagId, page)

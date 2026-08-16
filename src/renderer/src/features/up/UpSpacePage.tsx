@@ -11,7 +11,7 @@ import type {
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { FollowButton } from "@/components/video/FollowButton";
+import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { VideoCard } from "@/components/video/VideoCard";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { UpRelationListPanel } from "@/features/up/UpRelationListPanel";
@@ -43,6 +43,7 @@ export function UpSpacePage() {
   const { mid: midParam } = useParams<{ mid: string }>();
   const mid = parseMid(midParam);
   const homeGridColumns = useAppStore((state) => state.homeGridColumns);
+  const currentMid = useAppStore((state) => state.user?.mid ?? 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadSeqRef = useRef(0);
   const [profile, setProfile] = useState<UpProfile | null>(null);
@@ -52,7 +53,6 @@ export function UpSpacePage() {
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [order, setOrder] = useState<UpVideosOrder>("pubdate");
-  const [loadingFollow, setLoadingFollow] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [videosError, setVideosError] = useState("");
   const [videosLoading, setVideosLoading] = useState(true);
@@ -204,19 +204,6 @@ export function UpSpacePage() {
     void loadVideos(mid, nextPage, order);
   };
 
-  const handleFollow = async () => {
-    if (!relation) return;
-    setLoadingFollow(true);
-    try {
-      await window.biliDesk.bili.modifyFollow(mid, !relation.isFollowing);
-      setRelation({ ...relation, isFollowing: !relation.isFollowing });
-    } catch (e) {
-      setProfileError(formatUserSpaceError(e));
-    } finally {
-      setLoadingFollow(false);
-    }
-  };
-
   const openRelationList = useCallback((type: UserRelationListType) => {
     setRelationPanel(type);
   }, []);
@@ -314,14 +301,25 @@ export function UpSpacePage() {
                   </p>
                 </div>
 
-                <FollowButton
-                  size="default"
-                  isFollowing={relation?.isFollowing ?? false}
-                  loading={loadingFollow}
-                  disabled={!relation}
-                  onClick={() => void handleFollow()}
-                  className="shrink-0 self-start"
-                />
+                {currentMid !== profile.mid && (
+                  <FollowActionButton
+                    mid={profile.mid}
+                    uname={profile.name}
+                    face={profile.face}
+                    isFollowing={relation?.isFollowing ?? false}
+                    disabled={!relation}
+                    size="default"
+                    className="self-start"
+                    onFollowingChange={(following) => {
+                      setRelation((prev) =>
+                        prev
+                          ? { ...prev, isFollowing: following }
+                          : { isFollowing: following, attribute: 0 },
+                      );
+                    }}
+                    onError={showToast}
+                  />
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

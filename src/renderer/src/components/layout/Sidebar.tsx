@@ -98,7 +98,7 @@ export function Sidebar() {
 
   const handleLogout = async () => {
     await window.biliDesk.auth.logout();
-    setUser({ mid: 0, name: "未登录", face: "", isLogin: false });
+    setUser({ mid: 0, name: "未登录", face: "", isLogin: false, isVip: false });
     useWatchLaterStore.getState().reset();
     navigate("/login");
   };

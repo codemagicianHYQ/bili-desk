@@ -44,6 +44,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const playRequestIdRef = useRef(0);
   const streamModeRef = useRef<"mp4" | "dash">("mp4");
   const loweredQnRef = useRef(false);
+  const skipQualityFetchRef = useRef(false);
 
   const resumeCid = useMemo(
     () => parsePositiveInt(searchParams.get("cid")),
@@ -68,6 +69,21 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     return selectedCid === video.pages[0]?.cid ? resumeTimeRaw : undefined;
   }, [resumeCancelled, resumeCid, resumeTimeRaw, selectedCid, video]);
 
+  const applyPlayInfo = useCallback((info: VideoPlayInfo, requestedQn?: number) => {
+    setPlayInfo(info);
+    setPlayError("");
+    setPlayErrorDetail("");
+    if (
+      info.qualityDenied &&
+      requestedQn != null &&
+      requestedQn !== info.quality
+    ) {
+      writeQualityPref(info.quality);
+      skipQualityFetchRef.current = true;
+      setQuality(info.quality);
+    }
+  }, []);
+
   const fetchPlayUrl = useCallback(
     (targetBvid: string, cid: number, qn?: number) => {
       const requestId = ++playRequestIdRef.current;
@@ -77,9 +93,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
         })
         .then((info) => {
           if (requestId !== playRequestIdRef.current) return;
-          setPlayInfo(info);
-          setPlayError("");
-          setPlayErrorDetail("");
+          applyPlayInfo(info, qn);
         })
         .catch((e: Error) => {
           if (requestId !== playRequestIdRef.current) return;
@@ -99,9 +113,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               .getPlayUrl(targetBvid, cid, qn, { preferMp4: false })
               .then((info) => {
                 if (requestId !== playRequestIdRef.current) return;
-                setPlayInfo(info);
-                setPlayError("");
-                setPlayErrorDetail("");
+                applyPlayInfo(info, qn);
               })
               .catch((dashErr: Error) => {
                 if (requestId !== playRequestIdRef.current) return;
@@ -124,7 +136,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
           );
         });
     },
-    [],
+    [applyPlayInfo],
   );
 
   useEffect(() => {
@@ -161,6 +173,10 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
   useEffect(() => {
     if (!bvid || !selectedCid) return;
+    if (skipQualityFetchRef.current) {
+      skipQualityFetchRef.current = false;
+      return;
+    }
     void fetchPlayUrl(bvid, selectedCid, quality);
   }, [bvid, selectedCid, quality, fetchPlayUrl]);
 

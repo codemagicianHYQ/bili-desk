@@ -5,6 +5,11 @@ interface ByteRange {
   end: number;
 }
 
+interface MediaFragment extends ByteRange {
+  time: number;
+  duration: number;
+}
+
 function parseRange(raw: string): ByteRange | null {
   const match = raw.trim().match(/^(\d+)\s*-\s*(\d+)$/);
   if (!match) return null;
@@ -44,7 +49,10 @@ function findBox(buffer: ArrayBuffer, target: string): number {
   return 0;
 }
 
-function parseSidx(buffer: ArrayBuffer, sidxFileOffset: number): ByteRange[] {
+function parseSidx(
+  buffer: ArrayBuffer,
+  sidxFileOffset: number,
+): MediaFragment[] {
   const boxAt = findBox(buffer, "sidx");
   const view = new DataView(buffer, boxAt);
   if (view.byteLength < 32) return [];
@@ -60,13 +68,18 @@ function parseSidx(buffer: ArrayBuffer, sidxFileOffset: number): ByteRange[] {
   }
   const version = view.getUint8(i);
   i += 4;
-  i += 8;
+  i += 4;
+  const timescale = view.getUint32(i) || 1000;
+  i += 4;
+  let earliest = 0;
   let firstOffset = 0;
   if (version === 0) {
+    earliest = view.getUint32(i);
     i += 4;
     firstOffset = view.getUint32(i);
     i += 4;
   } else {
+    earliest = Number(view.getBigUint64(i));
     i += 8;
     firstOffset = Number(view.getBigUint64(i));
     i += 8;
@@ -75,16 +88,25 @@ function parseSidx(buffer: ArrayBuffer, sidxFileOffset: number): ByteRange[] {
   const count = view.getUint16(i);
   i += 2;
   let mediaPos = sidxFileOffset + boxAt + boxSize + firstOffset;
-  const fragments: ByteRange[] = [];
+  let timeUnits = earliest;
+  const fragments: MediaFragment[] = [];
   for (let n = 0; n < count && i + 12 <= view.byteLength; n += 1) {
     const mixed = view.getUint32(i);
-    i += 12;
+    i += 4;
+    const durationUnits = view.getUint32(i);
+    i += 8;
     const refType = mixed >>> 31;
     const refSize = mixed & 0x7fffffff;
     if (refType === 0 && refSize > 0) {
-      fragments.push({ start: mediaPos, end: mediaPos + refSize - 1 });
+      fragments.push({
+        start: mediaPos,
+        end: mediaPos + refSize - 1,
+        time: timeUnits / timescale,
+        duration: durationUnits / timescale,
+      });
     }
     mediaPos += refSize;
+    timeUnits += durationUnits;
   }
   return fragments;
 }
@@ -180,6 +202,40 @@ function sourceMime(track: BiliDashTrackInfo): string {
   return `${mime}; codecs="${track.codecs}"`;
 }
 
+function fragIndexAt(frags: MediaFragment[], time: number): number {
+  if (frags.length === 0) return 0;
+  for (let i = 0; i < frags.length; i += 1) {
+    const end = frags[i].time + Math.max(frags[i].duration, 0.05);
+    if (time < end) return i;
+  }
+  return frags.length - 1;
+}
+
+function hasTime(video: HTMLVideoElement, time: number): boolean {
+  const ranges = video.buffered;
+  for (let i = 0; i < ranges.length; i += 1) {
+    if (ranges.start(i) - 0.25 <= time && time < ranges.end(i) - 0.08) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function aheadAt(video: HTMLVideoElement, time: number): number {
+  const ranges = video.buffered;
+  for (let i = 0; i < ranges.length; i += 1) {
+    if (ranges.start(i) - 0.25 <= time && time < ranges.end(i)) {
+      return ranges.end(i) - time;
+    }
+  }
+  return 0;
+}
+
+function rangeHeader(frag: MediaFragment): string {
+  if (frag.end >= 0x7fffffff) return `${frag.start}-`;
+  return `${frag.start}-${frag.end}`;
+}
+
 export function attachBiliDash(
   video: HTMLVideoElement,
   dash: BiliDashPlayInfo,
@@ -210,6 +266,8 @@ export function attachBiliDash(
         }
         const videoSb = mediaSource.addSourceBuffer(videoType);
         const audioSb = mediaSource.addSourceBuffer(audioType);
+        videoSb.mode = "segments";
+        audioSb.mode = "segments";
 
         const videoInit = parseRange(dash.video.initRange);
         const audioInit = parseRange(dash.audio.initRange);
@@ -232,56 +290,119 @@ export function attachBiliDash(
         let videoFrags = parseSidx(toArrayBuffer(vIdx), videoIndex.start);
         let audioFrags = parseSidx(toArrayBuffer(aIdx), audioIndex.start);
         if (videoFrags.length === 0) {
-          videoFrags = [{ start: videoIndex.end + 1, end: 0x7fffffff }];
+          videoFrags = [
+            {
+              start: videoIndex.end + 1,
+              end: 0x7fffffff,
+              time: 0,
+              duration: dash.duration || 1,
+            },
+          ];
         }
         if (audioFrags.length === 0) {
-          audioFrags = [{ start: audioIndex.end + 1, end: 0x7fffffff }];
+          audioFrags = [
+            {
+              start: audioIndex.end + 1,
+              end: 0x7fffffff,
+              time: 0,
+              duration: dash.duration || 1,
+            },
+          ];
         }
 
-        let videoCursor = 0;
-        let audioCursor = 0;
+        const videoDone = new Set<number>();
+        const audioDone = new Set<number>();
+        let filling = false;
+        let seekEpoch = 0;
 
-        const appendNext = async (
+        const appendFrag = async (
           sb: SourceBuffer,
           track: BiliDashTrackInfo,
-          frags: ByteRange[],
-          cursor: number,
+          frags: MediaFragment[],
+          index: number,
+          done: Set<number>,
         ) => {
-          if (cursor >= frags.length || abort.signal.aborted) return cursor;
-          const frag = frags[cursor];
-          const range =
-            frag.end >= 0x7fffffff
-              ? `${frag.start}-`
-              : `${frag.start}-${frag.end}`;
-          const data = await fetchRange(track, range);
+          if (
+            index < 0 ||
+            index >= frags.length ||
+            done.has(index) ||
+            abort.signal.aborted
+          ) {
+            return;
+          }
+          const data = await fetchRange(track, rangeHeader(frags[index]));
+          if (abort.signal.aborted || done.has(index)) return;
           await appendBuffer(sb, data, abort.signal);
-          return cursor + 1;
+          done.add(index);
         };
 
-        videoCursor = await appendNext(
-          videoSb,
-          dash.video,
-          videoFrags,
-          videoCursor,
-        );
-        audioCursor = await appendNext(
-          audioSb,
-          dash.audio,
-          audioFrags,
-          audioCursor,
-        );
-        videoCursor = await appendNext(
-          videoSb,
-          dash.video,
-          videoFrags,
-          videoCursor,
-        );
-        audioCursor = await appendNext(
-          audioSb,
-          dash.audio,
-          audioFrags,
-          audioCursor,
-        );
+        const fill = async () => {
+          if (filling || abort.signal.aborted || !video.isConnected) return;
+          filling = true;
+          const epoch = seekEpoch;
+          try {
+            const target = Math.max(0, video.currentTime);
+            let vIdx = fragIndexAt(videoFrags, target);
+            let aIdx = fragIndexAt(audioFrags, target);
+            let added = 0;
+            while (added < 8 && epoch === seekEpoch && !abort.signal.aborted) {
+              if (hasTime(video, target) && aheadAt(video, target) >= 12) {
+                break;
+              }
+              const needVideo =
+                vIdx < videoFrags.length && !videoDone.has(vIdx);
+              const needAudio =
+                aIdx < audioFrags.length && !audioDone.has(aIdx);
+              if (!needVideo && !needAudio) {
+                vIdx += 1;
+                aIdx += 1;
+                if (vIdx >= videoFrags.length && aIdx >= audioFrags.length) {
+                  break;
+                }
+                continue;
+              }
+              await Promise.all([
+                needVideo
+                  ? appendFrag(videoSb, dash.video, videoFrags, vIdx, videoDone)
+                  : Promise.resolve(),
+                needAudio
+                  ? appendFrag(audioSb, dash.audio, audioFrags, aIdx, audioDone)
+                  : Promise.resolve(),
+              ]);
+              added += 1;
+              vIdx += 1;
+              aIdx += 1;
+            }
+          } catch (error) {
+            if (abort.signal.aborted || epoch !== seekEpoch) return;
+            const message =
+              error instanceof Error ? error.message : "DASH 缓冲失败";
+            console.warn("[BiliDesk][dash-mse]", message, error);
+            onError(message);
+          } finally {
+            filling = false;
+            if (epoch !== seekEpoch) {
+              void fill();
+              return;
+            }
+            const t = Math.max(0, video.currentTime);
+            const idx = fragIndexAt(videoFrags, t);
+            if (!hasTime(video, t) && !videoDone.has(idx)) {
+              void fill();
+            }
+          }
+        };
+
+        await Promise.all([
+          appendFrag(videoSb, dash.video, videoFrags, 0, videoDone),
+          appendFrag(audioSb, dash.audio, audioFrags, 0, audioDone),
+        ]);
+        if (videoFrags.length > 1) {
+          await Promise.all([
+            appendFrag(videoSb, dash.video, videoFrags, 1, videoDone),
+            appendFrag(audioSb, dash.audio, audioFrags, 1, audioDone),
+          ]);
+        }
 
         try {
           if (abort.signal.aborted || !video.isConnected) return;
@@ -291,68 +412,24 @@ export function attachBiliDash(
           // 浏览器可能拦截自动播放，交给 Artplayer 处理
         }
 
-        const ahead = () => {
-          if (video.buffered.length === 0) return 0;
-          return (
-            video.buffered.end(video.buffered.length - 1) - video.currentTime
-          );
-        };
-
-        let filling = false;
-        const fill = async () => {
-          if (filling || abort.signal.aborted || !video.isConnected) return;
-          filling = true;
-          try {
-            let added = 0;
-            while (
-              videoCursor < videoFrags.length &&
-              ahead() < 12 &&
-              added < 3
-            ) {
-              videoCursor = await appendNext(
-                videoSb,
-                dash.video,
-                videoFrags,
-                videoCursor,
-              );
-              if (audioCursor < audioFrags.length) {
-                audioCursor = await appendNext(
-                  audioSb,
-                  dash.audio,
-                  audioFrags,
-                  audioCursor,
-                );
-              }
-              added += 1;
-            }
-            if (
-              videoCursor >= videoFrags.length &&
-              audioCursor >= audioFrags.length &&
-              mediaSource.readyState === "open"
-            ) {
-              mediaSource.endOfStream();
-            }
-          } catch (error) {
-            if (abort.signal.aborted) return;
-            const message =
-              error instanceof Error ? error.message : "DASH 缓冲失败";
-            console.warn("[BiliDesk][dash-mse]", message, error);
-            onError(message);
-          } finally {
-            filling = false;
-          }
-        };
-
         const onTimeUpdate = () => {
+          void fill();
+        };
+        const onSeeking = () => {
+          seekEpoch += 1;
           void fill();
         };
         video.addEventListener("timeupdate", onTimeUpdate);
         video.addEventListener("waiting", onTimeUpdate);
+        video.addEventListener("seeking", onSeeking);
+        video.addEventListener("seeked", onTimeUpdate);
         abort.signal.addEventListener(
           "abort",
           () => {
             video.removeEventListener("timeupdate", onTimeUpdate);
             video.removeEventListener("waiting", onTimeUpdate);
+            video.removeEventListener("seeking", onSeeking);
+            video.removeEventListener("seeked", onTimeUpdate);
             try {
               if (videoSb.updating) videoSb.abort();
             } catch {

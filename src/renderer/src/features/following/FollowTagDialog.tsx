@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import type { FollowTag, FollowingUp } from "@shared/types";
+import type { FollowTag } from "@shared/types";
 import { Button } from "@/components/ui/button";
+import { CreateFollowTagControl } from "@/components/following/CreateFollowTagControl";
 import { Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface FollowTagDialogProps {
-  up: FollowingUp | null;
+  up: { mid: number; uname: string } | null;
   tags: FollowTag[];
   onClose: () => void;
   onSaved: (change: { prevTagIds: number[]; nextTagIds: number[] }) => void;
@@ -84,6 +85,22 @@ export function FollowTagDialog({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+
+        <div className="px-4 pt-3">
+          <CreateFollowTagControl
+            disabled={loading || saving}
+            className="w-full justify-center"
+            onCreated={(tag) => {
+              setSelected((prev) => {
+                const next = new Set(prev);
+                next.add(tag.tagId);
+                if (!next.has(0)) next.add(0);
+                return next;
+              });
+              setError("");
+            }}
+          />
         </div>
 
         <div className="max-h-80 overflow-y-auto p-2">

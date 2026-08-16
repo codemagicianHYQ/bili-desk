@@ -1,73 +1,39 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-
 import { Link } from "react-router-dom";
-
 import type { UpProfile, UpRelation } from "@shared/types";
-
 import { BiliImage } from "@/components/ui/bili-image";
-
-import { FollowButton } from "@/components/video/FollowButton";
-
+import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { formatCount } from "@/lib/utils";
+import { useAppStore } from "@/stores/app-store";
 
 interface UpOwnerCardProps {
   mid: number;
-
   name: string;
-
   face: string;
-
   trailing?: ReactNode;
 }
 
 export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
+  const currentMid = useAppStore((state) => state.user?.mid ?? 0);
   const [profile, setProfile] = useState<UpProfile | null>(null);
-
   const [relation, setRelation] = useState<UpRelation | null>(null);
-
-  const [loadingFollow, setLoadingFollow] = useState(false);
-
   const [error, setError] = useState("");
 
   useEffect(() => {
     setError("");
-
     Promise.all([
       window.biliDesk.bili.getUpProfile(mid),
-
       window.biliDesk.bili.getUpRelation(mid),
     ])
-
       .then(([upProfile, upRelation]) => {
         setProfile(upProfile);
-
         setRelation(upRelation);
       })
-
       .catch((e: Error) => setError(e.message));
   }, [mid]);
 
-  const handleFollow = async () => {
-    if (!relation) return;
-
-    setLoadingFollow(true);
-
-    setError("");
-
-    try {
-      await window.biliDesk.bili.modifyFollow(mid, !relation.isFollowing);
-
-      setRelation({ ...relation, isFollowing: !relation.isFollowing });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "操作失败");
-    } finally {
-      setLoadingFollow(false);
-    }
-  };
-
   const displayName = profile?.name || name;
-
   const displayFace = profile?.face || face;
 
   return (
@@ -82,7 +48,6 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
             alt={displayName}
             className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-border"
           />
-
           <div className="min-w-0 text-left">
             <div className="flex flex-wrap items-center gap-1.5">
               <p className="truncate font-medium">{displayName}</p>
@@ -100,10 +65,8 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
                 </span>
               )}
             </div>
-
             <p className="text-xs text-muted-foreground">
               {profile ? `${formatCount(profile.fans)} 粉丝` : "加载中..."}
-
               {profile ? ` · ${formatCount(profile.videos)} 投稿` : ""}
               {profile?.likes != null && profile.likes > 0
                 ? ` · ${formatCount(profile.likes)} 获赞`
@@ -113,12 +76,23 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
         </Link>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <FollowButton
-            isFollowing={relation?.isFollowing ?? false}
-            loading={loadingFollow}
-            disabled={!relation}
-            onClick={() => void handleFollow()}
-          />
+          {currentMid !== mid && (
+            <FollowActionButton
+              mid={mid}
+              uname={displayName}
+              face={displayFace}
+              isFollowing={relation?.isFollowing ?? false}
+              disabled={!relation}
+              onFollowingChange={(following) => {
+                setRelation((prev) =>
+                  prev
+                    ? { ...prev, isFollowing: following }
+                    : { isFollowing: following, attribute: 0 },
+                );
+              }}
+              onError={setError}
+            />
+          )}
           {trailing}
         </div>
       </div>

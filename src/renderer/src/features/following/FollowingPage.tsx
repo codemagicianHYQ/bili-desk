@@ -13,6 +13,7 @@ import { Folder, Loader2, Sparkles } from "lucide-react";
 import { FollowTagDialog } from "./FollowTagDialog";
 import { FollowingUpCard } from "./FollowingUpCard";
 import { UnfollowConfirmDialog } from "./UnfollowConfirmDialog";
+import { CreateFollowTagControl } from "@/components/following/CreateFollowTagControl";
 
 function isSpecialFollowTag(
   tagId: number | null,
@@ -426,6 +427,13 @@ export function FollowingPage() {
       <div className="flex w-60 shrink-0 flex-col border-r border-border">
         <div className="space-y-3 border-b border-border p-3">
           <p className="text-sm font-medium">关注</p>
+          <CreateFollowTagControl
+            className="w-full justify-center"
+            onCreated={(tag) => {
+              setSidebarMode("bilibili");
+              handleSelectTag(tag.tagId);
+            }}
+          />
           <div className="flex rounded-lg bg-secondary p-1">
             <button
               type="button"

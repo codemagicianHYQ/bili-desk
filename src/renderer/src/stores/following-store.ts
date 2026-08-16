@@ -33,6 +33,7 @@ interface FollowingState {
   patchFollowTagCount: (tagId: number, delta: number) => void;
   patchSpecialFollowCount: (delta: number) => void;
   refreshFollowTags: () => Promise<void>;
+  addFollowTag: (tag: FollowTag) => void;
 }
 
 async function fetchAllFollowingsFromApi(): Promise<FollowingUp[]> {
@@ -211,5 +212,13 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
   refreshFollowTags: async () => {
     const tags = await window.biliDesk.bili.getFollowTags();
     set({ followTags: tags });
+  },
+
+  addFollowTag: (tag) => {
+    const tags = get().followTags;
+    if (tags.some((item) => item.tagId === tag.tagId)) return;
+    const system = tags.filter((item) => item.tagId <= 0);
+    const custom = tags.filter((item) => item.tagId > 0);
+    set({ followTags: [...system, ...custom, tag] });
   },
 }));

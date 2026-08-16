@@ -10,10 +10,19 @@ import { defaultHeaders, getCsrf, invalidateWbiCache, signParams } from "./wbi";
 import { buildDashMpdXml } from "@shared/utils/bilibili-dash";
 import { wrapMediaUrl, wrapMpd } from "./media-proxy";
 import {
+  BILI_DEFAULT_QN,
+  canUseVipQuality,
   formatBiliQualityLabel,
+  isVipQuality,
+  mergePlayPrivilege,
   mergeQualityOptions,
+  parsePlayPrivilegeFromPayload,
   parsePlayQualities,
   resolvePlayQn,
+  vipQualityBlockedNotice,
+  vipQualityTrialNotice,
+  type PlayPrivilege,
+  type PlayQualityOption,
 } from "@shared/utils/bilibili-quality";
 import {
   appStore,
@@ -248,10 +257,7 @@ class BiliApiService {
   private passportClient: AxiosInstance;
   private memberClient: AxiosInstance;
   private liveClient: AxiosInstance;
-  private playQualityCache = new Map<
-    string,
-    Array<{ qn: number; label: string }>
-  >();
+  private playQualityCache = new Map<string, PlayQualityOption[]>();
 
   constructor() {
     this.client = axios.create({
@@ -560,7 +566,7 @@ class BiliApiService {
     await this.ensureBuvid3();
 
     if (!isLoggedIn()) {
-      return { mid: 0, name: "未登录", face: "", isLogin: false };
+      return { mid: 0, name: "未登录", face: "", isLogin: false, isVip: false };
     }
 
     try {
@@ -572,6 +578,7 @@ class BiliApiService {
           name: data.uname,
           face: data.face,
           isLogin: true,
+          isVip: Number(data.vip?.status) === 1 || Number(data.vipStatus) === 1,
         };
         appStore.set("user", user);
         return user;
@@ -587,12 +594,13 @@ class BiliApiService {
         name: `UID ${dedeId}`,
         face: "",
         isLogin: true,
+        isVip: false,
       };
       appStore.set("user", user);
       return user;
     }
 
-    return { mid: 0, name: "未登录", face: "", isLogin: false };
+    return { mid: 0, name: "未登录", face: "", isLogin: false, isVip: false };
   }
 
   private async ensureBuvid3(): Promise<void> {
@@ -1894,6 +1902,81 @@ class BiliApiService {
     }
   }
 
+  private navPlayPrivilege(): Partial<PlayPrivilege> {
+    return { isVip: Boolean(appStore.get("user")?.isVip) };
+  }
+
+  private async fetchPlayPrivilege(
+    bvid: string,
+    cid: number,
+    aid: number,
+  ): Promise<PlayPrivilege> {
+    const fromNav = this.navPlayPrivilege();
+    try {
+      const params = await signParams({
+        ...(aid > 0 ? { aid } : {}),
+        bvid,
+        cid,
+        isGaiaAvoided: "false",
+        web_location: 1315873,
+      });
+      const res = await this.client.get("/x/player/wbi/v2", {
+        params,
+        headers: { Referer: `https://www.bilibili.com/video/${bvid}` },
+        validateStatus: () => true,
+      });
+      if (res.data?.code !== 0) {
+        return mergePlayPrivilege(fromNav);
+      }
+      return mergePlayPrivilege(
+        fromNav,
+        parsePlayPrivilegeFromPayload(
+          res.data?.data as Record<string, unknown> | undefined,
+        ),
+      );
+    } catch {
+      return mergePlayPrivilege(fromNav);
+    }
+  }
+
+  private attachPlayMeta(
+    info: VideoPlayInfo,
+    privilege: PlayPrivilege,
+    requestedQn: number,
+  ): VideoPlayInfo {
+    const denied =
+      isVipQuality(requestedQn) &&
+      info.quality !== requestedQn &&
+      !privilege.isVip;
+    let qualityNotice: string | undefined;
+    if (denied) {
+      qualityNotice = vipQualityBlockedNotice(requestedQn);
+    } else if (
+      isVipQuality(info.quality) &&
+      !privilege.isVip &&
+      privilege.trialRemaining != null
+    ) {
+      qualityNotice = vipQualityTrialNotice(
+        info.quality,
+        Math.max(0, privilege.trialRemaining - 1),
+      );
+    }
+    return {
+      ...info,
+      isVip: privilege.isVip,
+      trialAble: privilege.trialAble,
+      trialRemaining: privilege.isVip
+        ? null
+        : isVipQuality(info.quality) &&
+            !privilege.isVip &&
+            privilege.trialRemaining != null
+          ? Math.max(0, privilege.trialRemaining - 1)
+          : privilege.trialRemaining,
+      qualityDenied: denied,
+      qualityNotice,
+    };
+  }
+
   async getPlayUrl(
     bvid: string,
     cid: number,
@@ -1908,6 +1991,7 @@ class BiliApiService {
     const fourk = requestedQn >= 80 ? 1 : 0;
     const aid = bvToAid(bvid);
     const loggedIn = isLoggedIn();
+    const privilegeP = this.fetchPlayPrivilege(bvid, cid, aid);
 
     const reasons: string[] = [];
 
@@ -1965,7 +2049,17 @@ class BiliApiService {
     const tryDash = async (fnval = 16): Promise<VideoPlayInfo | null> => {
       const dashData = await fetchDashData(fnval);
       if (!dashData) return null;
-      const built = this.buildPlayInfoFromDash(dashData, requestedQn, referer);
+      const privilege = mergePlayPrivilege(
+        await privilegeP,
+        parsePlayPrivilegeFromPayload(dashData),
+      );
+      const built = this.buildPlayInfoFromDash(
+        dashData,
+        requestedQn,
+        referer,
+        privilege,
+        "web",
+      );
       if (!built) {
         const reason = `DASH fnval=${fnval} 无可用视频轨或缺少 SegmentBase`;
         reasons.push(reason);
@@ -1984,7 +2078,11 @@ class BiliApiService {
         format: built.format,
         url: built.url.slice(0, 48),
       });
-      return this.withFullQualities(bvid, cid, built);
+      return this.withFullQualities(
+        bvid,
+        cid,
+        this.attachPlayMeta(built, privilege, requestedQn),
+      );
     };
 
     const tryTvDash = async (): Promise<VideoPlayInfo | null> => {
@@ -2028,7 +2126,17 @@ class BiliApiService {
           | undefined;
         if (!payload) return null;
         this.rememberPlayQualities(bvid, cid, parsePlayQualities(payload));
-        const built = this.buildPlayInfoFromDash(payload, requestedQn, referer);
+        const privilege = mergePlayPrivilege(
+          await privilegeP,
+          parsePlayPrivilegeFromPayload(payload),
+        );
+        const built = this.buildPlayInfoFromDash(
+          payload,
+          requestedQn,
+          referer,
+          privilege,
+          "tv",
+        );
         if (!built) {
           reasons.push("TV playurl 无可用 DASH 轨");
           return null;
@@ -2038,7 +2146,11 @@ class BiliApiService {
           qn: requestedQn,
           quality: built.quality,
         });
-        return this.withFullQualities(bvid, cid, built);
+        return this.withFullQualities(
+          bvid,
+          cid,
+          this.attachPlayMeta(built, privilege, requestedQn),
+        );
       } catch (error) {
         reasons.push(
           `TV playurl 请求失败：${error instanceof Error ? error.message : "unknown"}`,
@@ -2117,12 +2229,20 @@ class BiliApiService {
           }
         })(),
       });
+      const privilege = mergePlayPrivilege(
+        await privilegeP,
+        parsePlayPrivilegeFromPayload(mp4Data),
+      );
       return this.withFullQualities(
         bvid,
         cid,
-        this.buildPlayInfoFromDurl(
-          mp4Data ?? {},
-          { ...mp4Stream, url: proxied },
+        this.attachPlayMeta(
+          this.buildPlayInfoFromDurl(
+            mp4Data ?? {},
+            { ...mp4Stream, url: proxied },
+            requestedQn,
+          ),
+          privilege,
           requestedQn,
         ),
       );
@@ -2134,7 +2254,16 @@ class BiliApiService {
       if (!has1080) {
         await Promise.race([fetchDashData(16), sleep(1500)]);
       }
-      return this.withFullQualities(bvid, cid, info);
+      const privilege = mergePlayPrivilege(await privilegeP, {
+        isVip: info.isVip,
+        trialAble: info.trialAble,
+        trialRemaining: info.trialRemaining ?? null,
+      });
+      return this.withFullQualities(
+        bvid,
+        cid,
+        this.attachPlayMeta(info, privilege, requestedQn),
+      );
     };
 
     // 1080P+：跟 BBDown / yt-dlp 一样走 WEB DASH（fnval=4048），html5 MP4 最高经常只有 720P
@@ -2545,6 +2674,8 @@ class BiliApiService {
     data: Record<string, unknown>,
     requestedQn: number,
     referer: string,
+    privilege: PlayPrivilege,
+    source: "web" | "tv" = "web",
   ): VideoPlayInfo | null {
     const dash = data.dash as Record<string, unknown> | undefined;
     if (!dash) return null;
@@ -2587,6 +2718,19 @@ class BiliApiService {
           : allVideos;
     if (videos.length === 0) return null;
 
+    const grantedQn = Number(data.quality) || 0;
+    let targetQn = requestedQn;
+    if (isVipQuality(requestedQn) && grantedQn !== requestedQn) {
+      targetQn =
+        grantedQn > 0 && !isVipQuality(grantedQn) ? grantedQn : BILI_DEFAULT_QN;
+    } else if (
+      source === "tv" &&
+      isVipQuality(grantedQn) &&
+      !canUseVipQuality(privilege)
+    ) {
+      targetQn = BILI_DEFAULT_QN;
+    }
+
     const pickByQn = (items: DashStream[], qn: number) => {
       const exact = items.find((item) => item.id === qn);
       if (exact) return exact;
@@ -2602,12 +2746,25 @@ class BiliApiService {
       );
     };
 
-    const exactAvc = avcVideos.find((item) => item.id === requestedQn);
-    const exactHevc = hevcVideos.find((item) => item.id === requestedQn);
+    const allowedVideos = isVipQuality(targetQn)
+      ? videos
+      : videos.filter((item) => !isVipQuality(item.id));
+    const allowedAvc = isVipQuality(targetQn)
+      ? avcVideos
+      : avcVideos.filter((item) => !isVipQuality(item.id));
+    const allowedHevc = isVipQuality(targetQn)
+      ? hevcVideos
+      : hevcVideos.filter((item) => !isVipQuality(item.id));
+    const pool = allowedVideos.length > 0 ? allowedVideos : videos;
+    const avcPool = allowedAvc.length > 0 ? allowedAvc : avcVideos;
+    const hevcPool = allowedHevc.length > 0 ? allowedHevc : hevcVideos;
+
+    const exactAvc = avcPool.find((item) => item.id === targetQn);
+    const exactHevc = hevcPool.find((item) => item.id === targetQn);
     const video =
       exactAvc ??
-      (requestedQn >= 80 ? exactHevc : undefined) ??
-      pickByQn(videos, requestedQn);
+      (targetQn >= 80 ? exactHevc : undefined) ??
+      pickByQn(pool, targetQn);
     if (!video) return null;
     const audios = ((dash.audio as DashStream[] | undefined) ?? []).filter(
       (item) =>
@@ -2758,7 +2915,7 @@ class BiliApiService {
   private rememberPlayQualities(
     bvid: string,
     cid: number,
-    qualities: Array<{ qn: number; label: string }>,
+    qualities: PlayQualityOption[],
   ) {
     if (qualities.length === 0) return;
     const key = `${bvid}:${cid}`;
@@ -3411,6 +3568,52 @@ class BiliApiService {
       name: tag.name as string,
       count: (tag.count as number) ?? 0,
     }));
+  }
+
+  /** 新建 B 站关注分组，对应官网 /x/relation/tag/create */
+  async createFollowTag(name: string): Promise<FollowTag> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再创建分组");
+
+    const tag = name.trim();
+    if (!tag) throw new Error("请输入分组名称");
+    if (tag.length > 16) throw new Error("分组名称最多 16 个字");
+
+    const res = await this.client.post(
+      "/x/relation/tag/create",
+      new URLSearchParams({ tag, csrf }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://space.bilibili.com/",
+          Origin: "https://space.bilibili.com",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+
+    const code = Number(res.data?.code);
+    if (code === 22106) throw new Error("该分组已经存在");
+    if (code === 22103) throw new Error("分组名称最多 16 个字");
+    if (code === 22101 || String(res.data?.message ?? "").includes("上限")) {
+      throw new Error("关注分组数量已达上限");
+    }
+    if (code !== 0) {
+      throw new Error((res.data?.message as string) || "创建分组失败");
+    }
+
+    const tagId = Number(
+      (res.data?.data as { tagid?: number } | undefined)?.tagid,
+    );
+    if (!Number.isFinite(tagId) || tagId <= 0) {
+      throw new Error("创建分组成功，但未返回分组信息");
+    }
+
+    return { tagId, name: tag, count: 0 };
   }
 
   async getFollowingsInTag(
@@ -4885,7 +5088,7 @@ class BiliApiService {
   getAuthStatus(): UserInfo {
     const user = appStore.get("user");
     if (user?.isLogin) return user;
-    return { mid: 0, name: "未登录", face: "", isLogin: false };
+    return { mid: 0, name: "未登录", face: "", isLogin: false, isVip: false };
   }
 
   private normalizeVideo(item: Record<string, unknown>): VideoItem {
