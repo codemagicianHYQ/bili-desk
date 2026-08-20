@@ -4,9 +4,8 @@ import type { LivePlayInfo, LiveRoomDetail } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { BiliImage } from "@/components/ui/bili-image";
 import { LivePlayer } from "@/components/live/LivePlayer";
-import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { formatCount } from "@/lib/utils";
-import { Loader2, Radio, RefreshCw } from "lucide-react";
+import { Loader2, Radio } from "lucide-react";
 
 interface LivePageProps {
   roomId: number;
@@ -94,6 +93,14 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
     loadRoom(roomId);
   }, [roomId, loadRoom]);
 
+  useEffect(() => {
+    const onRefresh = () => loadRoom(roomId);
+    window.addEventListener("bilidesk:refresh-live", onRefresh);
+    return () => {
+      window.removeEventListener("bilidesk:refresh-live", onRefresh);
+    };
+  }, [roomId, loadRoom]);
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-muted-foreground">
@@ -105,41 +112,18 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
 
   if (error || !room) {
     return (
-      <div className="flex h-full flex-col">
-        <PageBackHeader fallback="/" label="返回" />
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-red-400">
-          <p>{error || "直播间加载失败"}</p>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => loadRoom(roomId)}
-          >
-            重试
-          </Button>
-        </div>
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-red-400">
+        <p>{error || "直播间加载失败"}</p>
+        <Button variant="secondary" size="sm" onClick={() => loadRoom(roomId)}>
+          重试
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="scrollbar-overlay flex h-full flex-col overflow-y-auto">
-      <PageBackHeader
-        fallback="/"
-        label="返回"
-        trailing={
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => loadRoom(roomId)}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            刷新
-          </Button>
-        }
-      />
-
-      <div className="mx-auto w-full max-w-6xl space-y-4 px-6 py-4">
+      <div className="bili-watch-column mx-auto w-full space-y-4 px-4 py-4 lg:px-6">
         {playInfo && active ? (
           <LivePlayer
             key={`${roomId}-${playInfo.quality}-${playInfo.url}`}

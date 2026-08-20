@@ -7,6 +7,7 @@ import type { VideoPlayInfo } from "@shared/types";
 import { attachBiliDash } from "@/components/video/dash-mse";
 import { createPlaybackRateControl } from "@/components/video/playback-rate-setting";
 import {
+  bindPlayerResize,
   createOsFullscreenControl,
   setOsFullscreenLayout,
 } from "@/components/video/os-fullscreen-control";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/playback-log";
 
 Artplayer.FULLSCREEN_WEB_IN_BODY = false;
+Artplayer.DBCLICK_FULLSCREEN = false;
 
 interface VideoPlayerProps {
   playInfo: VideoPlayInfo;
@@ -276,7 +278,7 @@ export function VideoPlayer({
       playbackRate: false,
       aspectRatio: true,
       fullscreen: false,
-      fullscreenWeb: true,
+      fullscreenWeb: false,
       pip: true,
       mutex: true,
       controls: [
@@ -513,11 +515,13 @@ export function VideoPlayer({
     });
 
     artRef.current = art;
+    const unbindResize = bindPlayerResize(art, container);
     if (playInfo.qualityNotice) {
       art.notice.show = playInfo.qualityNotice;
     }
 
     return () => {
+      unbindResize();
       window.clearTimeout(stallTimer);
       if (seekTimer != null) window.clearTimeout(seekTimer);
       accumulateRealtime();

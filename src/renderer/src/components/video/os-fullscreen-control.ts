@@ -8,6 +8,17 @@ export function setOsFullscreenLayout(on: boolean) {
   document.documentElement.classList.toggle("bili-os-fullscreen", on);
 }
 
+export function bindPlayerResize(art: Artplayer, container: HTMLElement) {
+  const emit = () => art.emit("resize");
+  window.addEventListener("resize", emit);
+  const observer = new ResizeObserver(emit);
+  observer.observe(container);
+  return () => {
+    window.removeEventListener("resize", emit);
+    observer.disconnect();
+  };
+}
+
 function paint(element: HTMLElement, on: boolean) {
   const btn = element.querySelector<HTMLElement>(".bili-fs-btn");
   if (!btn) return;
@@ -15,7 +26,8 @@ function paint(element: HTMLElement, on: boolean) {
   btn.setAttribute("aria-label", on ? "退出全屏" : "全屏");
 }
 
-function kickPlayback(art: Artplayer) {
+function afterLayout(art: Artplayer) {
+  art.emit("resize");
   const video = art.video as HTMLVideoElement | undefined;
   if (!video || video.paused) return;
   void video.play().catch(() => undefined);
@@ -23,15 +35,18 @@ function kickPlayback(art: Artplayer) {
 
 /**
  * Electron 窗口全屏。不要走 HTML5 requestFullscreen，也不要 art.fullscreenWeb：
- * Artplayer 默认会把播放器挪到 body，DASH/MSE 画面会卡死，只剩声音。
+ * Artplayer 网页全屏只相对播放器容器 100%，会被视频页栏宽卡住；
+ * FULLSCREEN_WEB_IN_BODY 还会把节点挪到 body，DASH/MSE 画面会卡死。
  */
 export function createOsFullscreenControl(): ComponentOption {
   let controlEl: HTMLElement | null = null;
   let artRef: Artplayer | null = null;
   let osOn = false;
-  let webBeforeOs = false;
   let unsubscribe: (() => void) | null = null;
   let pending = false;
+  let onKeyDown: ((event: KeyboardEvent) => void) | null = null;
+  let onDblClick: (() => void) | null = null;
+  let onWebFullscreen: ((value: boolean) => void) | null = null;
 
   const syncIcon = () => {
     if (controlEl) paint(controlEl, osOn);
@@ -41,21 +56,19 @@ export function createOsFullscreenControl(): ComponentOption {
     if (pending || next === osOn) return;
     pending = true;
     try {
+      if (art.fullscreenWeb) art.fullscreenWeb = false;
       if (next) {
-        webBeforeOs = art.fullscreenWeb;
-        if (art.fullscreenWeb) art.fullscreenWeb = false;
         setOsFullscreenLayout(true);
         osOn = true;
         syncIcon();
         await window.biliDesk.app.setFullscreen(true);
-        requestAnimationFrame(() => kickPlayback(art));
+        requestAnimationFrame(() => afterLayout(art));
       } else {
         osOn = false;
         syncIcon();
         await window.biliDesk.app.setFullscreen(false);
         setOsFullscreenLayout(false);
-        if (webBeforeOs) art.fullscreenWeb = true;
-        requestAnimationFrame(() => kickPlayback(art));
+        requestAnimationFrame(() => afterLayout(art));
       }
     } catch {
       osOn = false;
@@ -76,6 +89,30 @@ export function createOsFullscreenControl(): ComponentOption {
       controlEl = element;
       artRef = this;
       element.classList.add("bili-fs-control");
+
+      onDblClick = () => {
+        const art = artRef;
+        if (art) void apply(art, !osOn);
+      };
+      this.on("dblclick", onDblClick);
+
+      onWebFullscreen = (value: boolean) => {
+        const art = artRef;
+        if (!art || !value) return;
+        art.fullscreenWeb = false;
+        void apply(art, true);
+      };
+      this.on("fullscreenWeb", onWebFullscreen);
+
+      onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== "Escape" || !osOn) return;
+        const art = artRef;
+        if (!art) return;
+        event.preventDefault();
+        void apply(art, false);
+      };
+      document.addEventListener("keydown", onKeyDown);
+
       unsubscribe = window.biliDesk.app.onFullscreenChange((on) => {
         const art = artRef;
         if (!art) return;
@@ -85,10 +122,7 @@ export function createOsFullscreenControl(): ComponentOption {
         }
         osOn = on;
         setOsFullscreenLayout(on);
-        if (!on && webBeforeOs && !art.fullscreenWeb) {
-          art.fullscreenWeb = true;
-        }
-        if (on) requestAnimationFrame(() => kickPlayback(art));
+        requestAnimationFrame(() => afterLayout(art));
         syncIcon();
       });
     },
@@ -100,6 +134,13 @@ export function createOsFullscreenControl(): ComponentOption {
       void apply(art, !osOn);
     },
     beforeUnmount() {
+      const art = artRef;
+      if (onDblClick) art?.off("dblclick", onDblClick);
+      if (onWebFullscreen) art?.off("fullscreenWeb", onWebFullscreen);
+      if (onKeyDown) document.removeEventListener("keydown", onKeyDown);
+      onDblClick = null;
+      onWebFullscreen = null;
+      onKeyDown = null;
       unsubscribe?.();
       unsubscribe = null;
       controlEl = null;

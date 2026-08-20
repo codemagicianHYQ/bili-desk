@@ -1,4 +1,4 @@
-import { Eye, EyeOff, RefreshCw, UserCircle2 } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, RefreshCw, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BiliImage } from "@/components/ui/bili-image";
 import { HomeGridLayoutPicker } from "@/components/layout/HomeGridLayoutPicker";
@@ -11,7 +11,7 @@ import { useHomeLiveStore } from "@/stores/home-live-store";
 import { useHomeSearchStore } from "@/stores/home-search-store";
 import { useHomeTabStore } from "@/stores/home-tab-store";
 import { useWatchLaterStore } from "@/stores/watch-later-store";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 interface TopBarProps {
@@ -21,6 +21,7 @@ interface TopBarProps {
 
 export function TopBar({ title, subtitle }: TopBarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const user = useAppStore((state) => state.user);
   const incognitoMode = useAppStore((state) => state.incognitoMode);
   const setIncognitoMode = useAppStore((state) => state.setIncognitoMode);
@@ -48,13 +49,18 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const isDynamics = location.pathname === "/dynamics";
   const isHistory = location.pathname === "/history";
   const isUpSpace = location.pathname.startsWith("/up/");
+  const isVideo = location.pathname.startsWith("/video/");
+  const isLive = location.pathname.startsWith("/live/");
+  const showBack = isVideo || isLive;
   const showRefresh =
     isHome ||
     isFollowing ||
     isFavorites ||
     isWatchLater ||
     isDynamics ||
-    isHistory;
+    isHistory ||
+    isVideo ||
+    isLive;
   const showGridPicker = isHome || isWatchLater || isUpSpace;
   const homeTabs = [
     { id: "video" as const, label: "视频" },
@@ -91,7 +97,19 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       window.dispatchEvent(new CustomEvent("bilidesk:refresh-dynamics"));
     } else if (isHistory) {
       window.dispatchEvent(new CustomEvent("bilidesk:refresh-history"));
+    } else if (isVideo) {
+      window.dispatchEvent(new CustomEvent("bilidesk:refresh-video"));
+    } else if (isLive) {
+      window.dispatchEvent(new CustomEvent("bilidesk:refresh-live"));
     }
+  };
+
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/");
   };
 
   const refreshLabel = isSearching
@@ -108,7 +126,11 @@ export function TopBar({ title, subtitle }: TopBarProps) {
               ? "刷新动态"
               : isHistory
                 ? "刷新历史"
-                : "刷新稍后再看";
+                : isVideo
+                  ? "刷新播放器"
+                  : isLive
+                    ? "刷新直播"
+                    : "刷新稍后再看";
 
   return (
     <header
@@ -116,6 +138,17 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-6"
     >
       <div className="flex min-w-0 items-center gap-3">
+        {showBack && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1.5"
+            onClick={handleBack}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            返回
+          </Button>
+        )}
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0">
             <h2 className="text-base font-semibold">{title}</h2>

@@ -2,10 +2,14 @@ import { useEffect, useRef } from "react";
 import Artplayer from "artplayer";
 import flvjs from "flv.js";
 import type { LivePlayInfo } from "@shared/types";
-import { createOsFullscreenControl } from "@/components/video/os-fullscreen-control";
+import {
+  bindPlayerResize,
+  createOsFullscreenControl,
+} from "@/components/video/os-fullscreen-control";
 import { cn } from "@/lib/utils";
 
 Artplayer.FULLSCREEN_WEB_IN_BODY = false;
+Artplayer.DBCLICK_FULLSCREEN = false;
 
 interface LivePlayerProps {
   playInfo: LivePlayInfo;
@@ -205,7 +209,7 @@ export function LivePlayer({
       playbackRate: false,
       aspectRatio: true,
       fullscreen: false,
-      fullscreenWeb: true,
+      fullscreenWeb: false,
       pip: false,
       mutex: true,
       theme: playerThemeColor(),
@@ -252,8 +256,10 @@ export function LivePlayer({
     });
 
     artRef.current = art;
+    const unbindResize = bindPlayerResize(art, container);
 
     return () => {
+      unbindResize();
       disposed = true;
       clearRetryTimer();
       const video = art.video as HTMLVideoElement | undefined;

@@ -19,6 +19,25 @@ import type {
   UpVideosOrder,
 } from "@shared/types";
 
+const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
+let fullscreenIpcBound = false;
+
+function subscribeFullscreenChange(callback: (on: boolean) => void) {
+  if (!fullscreenIpcBound) {
+    fullscreenIpcBound = true;
+    ipcRenderer.on(IPC.APP_FULLSCREEN_CHANGED, (_event, on: boolean) => {
+      const value = Boolean(on);
+      for (const cb of fullscreenChangeCallbacks) {
+        cb(value);
+      }
+    });
+  }
+  fullscreenChangeCallbacks.add(callback);
+  return () => {
+    fullscreenChangeCallbacks.delete(callback);
+  };
+}
+
 const api = {
   auth: {
     getQrCode: () => ipcRenderer.invoke(IPC.AUTH_GET_QR),
@@ -357,13 +376,8 @@ const api = {
     setFullscreen: (on: boolean) =>
       ipcRenderer.invoke(IPC.APP_SET_FULLSCREEN, on),
     isFullscreen: () => ipcRenderer.invoke(IPC.APP_GET_FULLSCREEN),
-    onFullscreenChange: (callback: (on: boolean) => void) => {
-      const listener = (_event: unknown, on: boolean) => callback(Boolean(on));
-      ipcRenderer.on(IPC.APP_FULLSCREEN_CHANGED, listener);
-      return () => {
-        ipcRenderer.removeListener(IPC.APP_FULLSCREEN_CHANGED, listener);
-      };
-    },
+    onFullscreenChange: (callback: (on: boolean) => void) =>
+      subscribeFullscreenChange(callback),
   },
 };
 

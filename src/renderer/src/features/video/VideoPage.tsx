@@ -8,14 +8,13 @@ import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { UpOwnerCard } from "@/components/video/UpOwnerCard";
 import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
-import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import {
   readQualityPref,
   writeQualityPref,
 } from "@/components/video/quality-pref";
-import { ArrowUp, RefreshCw } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 
 interface VideoPageProps {
   bvid: string;
@@ -69,20 +68,23 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     return selectedCid === video.pages[0]?.cid ? resumeTimeRaw : undefined;
   }, [resumeCancelled, resumeCid, resumeTimeRaw, selectedCid, video]);
 
-  const applyPlayInfo = useCallback((info: VideoPlayInfo, requestedQn?: number) => {
-    setPlayInfo(info);
-    setPlayError("");
-    setPlayErrorDetail("");
-    if (
-      info.qualityDenied &&
-      requestedQn != null &&
-      requestedQn !== info.quality
-    ) {
-      writeQualityPref(info.quality);
-      skipQualityFetchRef.current = true;
-      setQuality(info.quality);
-    }
-  }, []);
+  const applyPlayInfo = useCallback(
+    (info: VideoPlayInfo, requestedQn?: number) => {
+      setPlayInfo(info);
+      setPlayError("");
+      setPlayErrorDetail("");
+      if (
+        info.qualityDenied &&
+        requestedQn != null &&
+        requestedQn !== info.quality
+      ) {
+        writeQualityPref(info.quality);
+        skipQualityFetchRef.current = true;
+        setQuality(info.quality);
+      }
+    },
+    [],
+  );
 
   const fetchPlayUrl = useCallback(
     (targetBvid: string, cid: number, qn?: number) => {
@@ -196,6 +198,14 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     void fetchPlayUrl(bvid, selectedCid, quality);
   }, [bvid, selectedCid, quality, fetchPlayUrl]);
 
+  useEffect(() => {
+    const onRefresh = () => handleRefresh();
+    window.addEventListener("bilidesk:refresh-video", onRefresh);
+    return () => {
+      window.removeEventListener("bilidesk:refresh-video", onRefresh);
+    };
+  }, [handleRefresh]);
+
   const handlePlayerError = useCallback(
     (message: string, kind?: "stall" | "decode" | "other", detail?: string) => {
       if (detail) setPlayErrorDetail(detail);
@@ -302,28 +312,12 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <PageBackHeader
-        trailing={
-          playInfo ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 text-muted-foreground"
-              onClick={handleRefresh}
-            >
-              <RefreshCw className="h-4 w-4" />
-              刷新
-            </Button>
-          ) : undefined
-        }
-      />
-
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
           className="scrollbar-overlay h-full overflow-y-auto"
         >
-          <div className="mx-auto max-w-4xl space-y-6 p-6 pt-4">
+          <div className="bili-watch-column mx-auto w-full space-y-6 px-4 py-4 lg:px-6">
             <div className="rounded-2xl border border-border bg-card">
               {playInfo && selectedCid ? (
                 <div className="overflow-hidden rounded-t-2xl">
