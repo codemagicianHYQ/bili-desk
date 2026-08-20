@@ -1,5 +1,11 @@
 import { taxonomyRepo } from "../db/repositories/taxonomy";
 import type { FavResource } from "@shared/types";
+import {
+  FOLDER_TOPIC_ALIASES,
+  isGeneratedPrefixedFolderTitle,
+} from "@shared/utils/fav-folder-groups";
+
+export { isGeneratedPrefixedFolderTitle };
 
 interface CategoryMatch {
   categoryL1Id: number | null;
@@ -227,6 +233,7 @@ const TITLE_RULES: ScoredRule[] = [
       k("nginx|jenkins|terraform|ansible|prometheus", 36),
       k("ci/?cd|持续集成|容器化", 32),
       k("运维|centos|ubuntu服务器|shell脚本", 30),
+      k("linux命令行|bash|zsh", 26),
       k("\\blinux\\b(?!.*(评测|开箱|装机|数码))", 24),
     ],
   },
@@ -289,8 +296,11 @@ const TITLE_RULES: ScoredRule[] = [
     l2: "操作系统",
     keywords: [
       k("操作系统|\\bos原理\\b|计算机组成", 42),
+      k("windows命令行|命令行与批处理|批处理基础|\\bpowershell\\b", 40),
       k("进程调度|内存管理|虚拟内存|内核|linux内核|cpu缓存", 36),
       k("编译原理|链接器|操作系统实验", 32),
+      k("命令行|批处理|\\bcmd\\b|windows终端|bat脚本", 28),
+      k("\\bwindows\\b(?!.*(评测|开箱|激活|重装))", 20),
     ],
   },
   {
@@ -362,6 +372,8 @@ const TITLE_RULES: ScoredRule[] = [
       k("黑马程序员|尚硅谷|狂神说", 22),
       k("\\bgit\\b|\\bgithub\\b|gitlab|开源项目", 18),
       k("\\b计算机\\b", 18),
+      k("命令行|批处理|\\bpowershell\\b|\\bcmd\\b|windows终端", 22),
+      k("\\bppt\\b|excel|\\bwps\\b|办公软件|翻译软件|效率工具", 20),
       k("环境搭建|开发环境|实战项目|技术教程", 16),
     ],
     exclude: /考研|408|肖秀荣|计算机二级|计算机等级/i,
@@ -449,6 +461,7 @@ const TITLE_RULES: ScoredRule[] = [
     l1: "生活",
     l2: "家居",
     keywords: [k("装修|家居|户型|室内设计|别墅|全屋定制", 28)],
+    exclude: /租房|房东|宿舍|寝室|校园网|内网|学术界/i,
   },
   {
     l1: "生活",
@@ -488,7 +501,11 @@ const TITLE_RULES: ScoredRule[] = [
   {
     l1: "生活",
     l2: "财经",
-    keywords: [k("财经|股票|基金|理财|投资|房价", 26)],
+    keywords: [
+      k("财经|股票|基金|理财|投资|房价", 26),
+      k("信用卡|银行卡|储蓄卡|visa|mastercard", 28),
+      k("跨境|汇丰|\\bbybit\\b|开卡|实体卡|虚拟卡", 26),
+    ],
   },
   {
     l1: "生活",
@@ -509,6 +526,10 @@ const TITLE_RULES: ScoredRule[] = [
       k("时评|时事|社会议题|公共讨论|热点评论", 28),
       k("访谈|对谈|对线|人物志|传记|口述|纪实", 24),
       k("祛魅|精气神|看世界|睁眼", 30),
+      k("社交|人际关系|向上社交|社交恐惧|社恐", 28),
+      k("心理|情绪内耗|自尊|\\bpua\\b|沟通技巧|被侮辱", 24),
+      k("认知|底层逻辑|思维模型|顶级大佬", 20),
+      k("\\bmcn\\b|自媒体|内容行业|网红生态", 22),
       k("职场|实习|打工人|大厂|双非|校招故事", 22),
       k("首富|发家|商业传奇|创业故事|人物故事", 24),
       k("摄影|纪实摄影|人文摄影", 26),
@@ -516,6 +537,11 @@ const TITLE_RULES: ScoredRule[] = [
       k("高校|学霸|北大|清华(?!.*(开发|编程|算法))", 16),
     ],
     exclude: /考研政治|408|java|vue|react|leetcode|前端|后端|编程教程/i,
+  },
+  {
+    l1: "生活",
+    keywords: [k("procreate|板绘|数字绘画|ipad绘画|插画教程", 26)],
+    exclude: /编程|代码|开发教程/i,
   },
 ];
 
@@ -613,11 +639,15 @@ function resolveCloseL3(
 function fallbackCategory(
   text: string,
 ): { l1: string; l2?: string; l3?: string } | null {
-  if (/哲学|人文|女权|时评|访谈|社会议题|精气神|祛魅/.test(text)) {
+  if (
+    /哲学|人文|女权|时评|访谈|社会议题|精气神|祛魅|社交|心理|mcn|自媒体/.test(
+      text,
+    )
+  ) {
     return { l1: "生活", l2: "社会人文" };
   }
   if (
-    /编程|写代码|源码|开发教程|软件工程|环境搭建|从零.*(开发|编程)|第\d+讲.*(java|vue|react|python|算法)/.test(
+    /编程|写代码|源码|开发教程|软件工程|环境搭建|命令行|批处理|powershell|windows|从零.*(开发|编程)|第\d+讲.*(java|vue|react|python|算法)/.test(
       text,
     )
   ) {
@@ -641,29 +671,6 @@ const BILI_DEFAULT_FOLDER_TITLES = new Set(["默认收藏夹", "default"]);
 const EXISTING_FOLDER_MIN_SCORE = 12;
 const CANONICAL_FOLDER_MIN_SCORE = 20;
 
-/** 同一主题的叫法，避免「算法与数据结构」旁边再新建「计算机-算法」 */
-const FOLDER_TOPIC_ALIASES: string[][] = [
-  ["算法", "数据结构", "leetcode", "力扣", "oj"],
-  ["前端", "vue", "react", "javascript", "css", "html"],
-  ["后端", "java", "spring", "golang", "go语言", "node"],
-  ["人工智能", "大模型", "机器学习", "深度学习", "llm", "ai"],
-  ["量化", "量化交易", "quant", "量化投资"],
-  ["逆向", "逆向工程", "反编译", "二进制"],
-  ["爬虫", "scrapy", "selenium", "crawler"],
-  ["rust", "rustlang", "rust语言"],
-  ["脑科学", "神经科学", "认知科学"],
-  ["公开课", "opencourse", "mooc", "stanford"],
-  ["数据库", "mysql", "redis", "sql"],
-  ["操作系统", "os", "linux内核"],
-  ["计算机网络", "网络", "tcp"],
-  ["嵌入式", "单片机", "stm32", "fpga"],
-  ["安全", "网络安全", "渗透"],
-  ["社会人文", "历史人文", "人文", "哲学"],
-  ["影视", "电影", "剧"],
-  ["mac", "macmini", "macbook", "imac", "苹果电脑", "mac 相关"],
-  ["自行车", "骑行", "公路车", "山地车"],
-];
-
 const MAC_VIDEO_RE =
   /mac\s*mini|macmini|macbook|\bimac\b|mac\s*studio|苹果电脑|apple\s*silicon/i;
 const BIKE_FOLDER_RE = /自行车|骑行|公路车|山地车/;
@@ -671,15 +678,6 @@ const BIKE_VIDEO_RE = /自行车|骑行|公路车|山地车|后拨|变速器|碟
 
 export function isDumpFolderTitle(name: string): boolean {
   return /^其他(-\d+)?$/.test(name.trim());
-}
-
-export function isGeneratedPrefixedFolderTitle(name: string): boolean {
-  return /^(计算机|学习|娱乐|生活)-/.test(name.trim());
-}
-
-function generatedTopic(name: string): string {
-  const match = name.trim().match(/^(?:计算机|学习|娱乐|生活)-(.+)$/);
-  return match?.[1] ?? "";
 }
 
 function normalizeClassifyText(text: string): string {
@@ -691,6 +689,28 @@ function folderNameTokens(name: string): string[] {
     .split(/[\s\-_/|·,，]+/)
     .filter((token) => token.length >= 2);
 }
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 英文夹名按词边界匹配，避免 silencedream 命中 dream house */
+function textHasFolderToken(text: string, token: string): boolean {
+  if (!token) return false;
+  if (/^[a-z0-9]+$/i.test(token)) {
+    return new RegExp(
+      `(^|[^a-z0-9])${escapeRegExp(token)}([^a-z0-9]|$)`,
+      "i",
+    ).test(text);
+  }
+  return text.includes(token);
+}
+
+const HOUSE_FOLDER_RE = /house|家居|装修|户型|dream\s*house/;
+const HOUSE_VIDEO_RE =
+  /装修|家居|户型|室内设计|室内装修|别墅|furniture|interior|dream\s*house|全屋定制|老破别墅/;
+const NOT_HOUSE_VIDEO_RE =
+  /租房|二房东|大房东|宿舍|寝室|校园网|内网|学术界|离开学术/;
 
 function taxonomyFolderOverlapScore(
   folderTitle: string,
@@ -752,39 +772,6 @@ export function findCanonicalExistingFolder(
   return bestScore >= CANONICAL_FOLDER_MIN_SCORE ? bestName : null;
 }
 
-/** 「计算机-算法」这类生成夹，若已有「算法与数据结构」则视为重复源，应并回去 */
-export function listDuplicateGeneratedFolderTitles(
-  folders: Array<{ title: string; isDefault?: boolean }>,
-): string[] {
-  const titles = folders
-    .filter(
-      (folder) =>
-        !folder.isDefault &&
-        !BILI_DEFAULT_FOLDER_TITLES.has(folder.title.toLowerCase()) &&
-        !isDumpFolderTitle(folder.title),
-    )
-    .map((folder) => folder.title);
-
-  const duplicates: string[] = [];
-  for (const title of titles) {
-    if (!isGeneratedPrefixedFolderTitle(title)) continue;
-    const topic = generatedTopic(title);
-    if (topic.length < 2) continue;
-    const canonical = titles.find(
-      (other) =>
-        other !== title &&
-        !isGeneratedPrefixedFolderTitle(other) &&
-        (normalizeClassifyText(other).includes(normalizeClassifyText(topic)) ||
-          FOLDER_TOPIC_ALIASES.some(
-            (group) =>
-              group.some((key) => normalizeClassifyText(other).includes(key)) &&
-              group.some((key) => normalizeClassifyText(topic).includes(key)),
-          )),
-    );
-    if (canonical) duplicates.push(title);
-  }
-  return duplicates;
-}
 
 function existingFolderHintScore(
   folderTitle: string,
@@ -821,14 +808,15 @@ function existingFolderHintScore(
     score += 12;
   }
   if (
-    /house|家居|装修|户型/.test(folder) &&
-    /装修|家居|户型|室内|别墅|房子|furniture|interior|dream house/.test(video)
+    HOUSE_FOLDER_RE.test(folder) &&
+    HOUSE_VIDEO_RE.test(video) &&
+    !NOT_HOUSE_VIDEO_RE.test(video)
   ) {
-    score += 18;
+    score += 24;
   }
   if (
     /社会|人文|历史|哲学|思想/.test(folder) &&
-    /社会|人文|哲学|女权|历史|访谈|时评|思想|职场|实习|摄影|传记|人物|祛魅|精气神|对线/.test(
+    /社会|人文|哲学|女权|历史|访谈|时评|思想|职场|实习|摄影|传记|人物|祛魅|精气神|对线|社交|心理|pua|mcn|自媒体/.test(
       video,
     )
   ) {
@@ -849,6 +837,12 @@ function existingFolderHintScore(
     score += 22;
   }
   if (/量化/.test(folder) && /量化|quant|回测|因子|cta/.test(video)) {
+    score += 22;
+  }
+  if (
+    /操作系统|运维|linux/.test(folder) &&
+    /windows|命令行|批处理|powershell|\bcmd\b/.test(video)
+  ) {
     score += 22;
   }
   if (
@@ -889,6 +883,13 @@ export function folderConflictsWithVideoTitle(
   const video = normalizeClassifyText(videoTitle);
   if (MAC_VIDEO_RE.test(video) && BIKE_FOLDER_RE.test(folder)) return true;
   if (BIKE_VIDEO_RE.test(video) && /mac|苹果电脑/.test(folder)) return true;
+  if (
+    HOUSE_FOLDER_RE.test(folder) &&
+    NOT_HOUSE_VIDEO_RE.test(video) &&
+    !HOUSE_VIDEO_RE.test(video)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -907,8 +908,10 @@ function scoreExistingFolder(
   let score = 0;
   if (video.includes(folder)) score += 42;
 
+  const titleLine = video.split("\n")[0] ?? video;
   for (const token of folderNameTokens(folderTitle)) {
-    if (video.includes(token)) {
+    const haystack = /^[a-z0-9]+$/i.test(token) ? titleLine : video;
+    if (textHasFolderToken(haystack, token)) {
       score += token.length >= 4 ? 16 : 10;
     }
   }

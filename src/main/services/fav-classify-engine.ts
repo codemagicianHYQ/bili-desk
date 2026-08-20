@@ -1,12 +1,16 @@
 import type { FavFolder, FavResource } from "@shared/types";
+import {
+  listDuplicateGeneratedFolderPairs,
+  listUngroupedFavFolders,
+  type FavFolderGroupOverrides,
+} from "@shared/utils/fav-folder-groups";
 import { taxonomyRepo } from "../db/repositories/taxonomy";
+import { appStore } from "../store/app-store";
 import { biliApi } from "./bili-api";
 import {
   buildFavClassifyText,
   classifyFavoriteItemsAsync,
   isDumpFolderTitle,
-  listDuplicateGeneratedFolderTitles,
-  pickClassifyCommentSnippets,
   resolveBiliOrganizeFolderTitle,
   folderConflictsWithVideoTitle,
 } from "./fav-classifier";
@@ -22,21 +26,43 @@ function sleepJitter(baseMs: number): Promise<void> {
   return sleep(Math.round(baseMs * factor));
 }
 
+/** 规则升级后清掉旧的「对不上」名单，让 Windows 命令行这类视频能再扫一遍 */
+const CLASSIFIER_RULES_VERSION = 2;
+
+function loadOrganizeSkipAids(): Set<number> {
+  const version = appStore.get("organizeSkipRulesVersion" as never) as unknown;
+  if (version !== CLASSIFIER_RULES_VERSION) {
+    appStore.set("organizeSkipRulesVersion" as never, CLASSIFIER_RULES_VERSION);
+    appStore.set("organizeSkipAids" as never, []);
+    return new Set();
+  }
+  const raw = appStore.get("organizeSkipAids" as never) as unknown;
+  if (!Array.isArray(raw)) return new Set();
+  return new Set(
+    raw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0),
+  );
+}
+
+function saveOrganizeSkipAids(aids: Set<number>) {
+  appStore.set("organizeSkipAids" as never, [...aids].slice(-3000));
+}
+
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
 const BILI_FOLDER_SOFT_CAP = 98;
 const BILI_FOLDER_MEDIA_CAP = 990;
-const MOVE_CHUNK = 40;
-const ORGANIZE_BATCH_SIZE = 100;
-const ORGANIZE_SCAN_CAP = 120;
-const DELAY_AFTER_MOVE_MS = 1800;
-const DELAY_AFTER_CREATE_MS = 1400;
-const DELAY_BETWEEN_SOURCE_FOLDERS_MS = 900;
-const DELAY_BETWEEN_LIST_PAGES_MS = 800;
-const DELAY_BETWEEN_COMMENTS_MS = 520;
-const DELAY_PER_ITEM_FALLBACK_MS = 900;
+const MOVE_CHUNK = 1;
+const ORGANIZE_BATCH_SIZE = 40;
+/** 对不上的会跳过继续往后扫，避免每次卡在 default 最前面同一批 */
+const ORGANIZE_LOOKAHEAD_CAP = 240;
+const DELAY_AFTER_MOVE_MS = 3200;
+const DELAY_AFTER_CREATE_MS = 2200;
+const DELAY_BETWEEN_SOURCE_FOLDERS_MS = 1600;
+const DELAY_BETWEEN_LIST_PAGES_MS = 1400;
+const LIST_PAGE_SIZE = 20;
+const DELAY_PER_ITEM_FALLBACK_MS = 1200;
 /** 412 后逐步拉长等待，而不是几秒内连打 */
 const RISK_BACKOFF_MS = [12_000, 30_000, 60_000, 90_000];
 
@@ -59,7 +85,7 @@ function formatFavTaskError(error: unknown, fallback: string): string {
     return "某个普通收藏夹满了（大约 1000 条）。请再整理一次，满了会自动拆到「原名-2」";
   }
   if (error instanceof Error && isRetryableFavWrite(error)) {
-    return "请求太密，被 B 站风控拦了。请先停 2～3 分钟，不要连点整理，已经搬走的会留在新夹里";
+    return "请求太密，被 B 站风控拦了。请先停 3～5 分钟，不要连点整理，已经搬走的会留在新夹里";
   }
   return error instanceof Error ? error.message : fallback;
 }
@@ -115,6 +141,7 @@ function pickDefaultFolder(folders: FavFolder[]): FavFolder | null {
 function pickOrganizeSources(
   folders: FavFolder[],
   defaultFolder: FavFolder,
+  overrides: FavFolderGroupOverrides = {},
 ): FavFolder[] {
   const seen = new Set<number>();
   const take = (list: FavFolder[]) => {
@@ -130,33 +157,13 @@ function pickOrganizeSources(
   const defaults = folders.filter(
     (folder) => folder.id === defaultFolder.id || folder.isDefault,
   );
-  const defaultHasItems = defaults.some((folder) => folder.mediaCount > 0);
-  // 先清空 default，积压时不要混扫「其他」
-  if (defaultHasItems) return take(defaults);
-
-  const dumps = folders
-    .filter((folder) => isDumpFolderTitle(folder.title))
-    .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
-  const duplicateTitles = new Set(listDuplicateGeneratedFolderTitles(folders));
-  const duplicates = folders.filter((folder) =>
-    duplicateTitles.has(folder.title),
+  const ungrouped = listUngroupedFavFolders(folders, overrides).filter(
+    (folder) =>
+      folder.id !== defaultFolder.id &&
+      !folder.isDefault &&
+      !isDumpFolderTitle(folder.title),
   );
-  return take([...dumps, ...duplicates]);
-}
-
-function capGroupedItems<T>(
-  groups: Map<string, T[]>,
-  maxItems: number,
-): Map<string, T[]> {
-  const capped = new Map<string, T[]>();
-  let left = maxItems;
-  for (const [title, items] of groups) {
-    if (left <= 0) break;
-    const slice = items.slice(0, left);
-    capped.set(title, slice);
-    left -= slice.length;
-  }
-  return capped;
+  return take([...defaults, ...ungrouped]);
 }
 
 function createTaskReporter(taskId: number) {
@@ -195,7 +202,28 @@ export class FavClassifyEngine {
     return task.id;
   }
 
-  startOrganizeBiliFolders(): number {
+  startOrganizeBiliFolders(overrides: FavFolderGroupOverrides = {}): number {
+    return this.startExclusiveFavTask("fav_organize_bili", (taskId) =>
+      this.runOrganizeBiliFolders(taskId, overrides),
+    );
+  }
+
+  startMergeDumpIntoDefault(): number {
+    return this.startExclusiveFavTask("fav_merge_dump", (taskId) =>
+      this.runMergeDumpIntoDefault(taskId),
+    );
+  }
+
+  startMergeDuplicateTopics(): number {
+    return this.startExclusiveFavTask("fav_merge_dup_topics", (taskId) =>
+      this.runMergeDuplicateTopics(taskId),
+    );
+  }
+
+  private startExclusiveFavTask(
+    type: string,
+    run: (taskId: number) => Promise<void>,
+  ): number {
     if (this.organizeTaskId != null) {
       const current = taxonomyRepo.getTask(this.organizeTaskId);
       if (
@@ -205,9 +233,9 @@ export class FavClassifyEngine {
         return this.organizeTaskId;
       }
     }
-    const task = taxonomyRepo.createTask("fav_organize_bili");
+    const task = taxonomyRepo.createTask(type);
     this.organizeTaskId = task.id;
-    void this.runOrganizeBiliFolders(task.id).finally(() => {
+    void run(task.id).finally(() => {
       if (this.organizeTaskId === task.id) this.organizeTaskId = null;
     });
     return task.id;
@@ -369,7 +397,10 @@ export class FavClassifyEngine {
     }
   }
 
-  private async runOrganizeBiliFolders(taskId: number): Promise<void> {
+  private async runOrganizeBiliFolders(
+    taskId: number,
+    overrides: FavFolderGroupOverrides = {},
+  ): Promise<void> {
     const report = createTaskReporter(taskId);
 
     try {
@@ -379,7 +410,7 @@ export class FavClassifyEngine {
         message: "正在获取 B 站收藏夹列表...",
       });
 
-      const folders = await biliApi.getFavFolders();
+      let folders = await biliApi.getFavFolders();
       const defaultFolder = pickDefaultFolder(folders);
       if (!defaultFolder) {
         report({
@@ -391,74 +422,15 @@ export class FavClassifyEngine {
       }
 
       report({
-        progress: 5,
-        message: `每次只整理约 ${ORGANIZE_BATCH_SIZE} 条，先清空 default，再整理「其他」...`,
+        progress: 6,
+        message: `一条一条看标题并搬走，本轮最多 ${ORGANIZE_BATCH_SIZE} 条，先 default 再未分组...`,
       });
 
-      const sourceFolders = pickOrganizeSources(folders, defaultFolder);
-      const sourceTotal = sourceFolders.reduce(
-        (sum, folder) => sum + folder.mediaCount,
-        0,
+      const sourceFolders = pickOrganizeSources(
+        folders,
+        defaultFolder,
+        overrides,
       );
-
-      const movable: Array<FavResource & { sourceFolderId: number }> = [];
-      const seenAids = new Set<number>();
-
-      for (
-        let sourceIndex = 0;
-        sourceIndex < sourceFolders.length &&
-        movable.length < ORGANIZE_SCAN_CAP;
-        sourceIndex++
-      ) {
-        const source = sourceFolders[sourceIndex];
-        let page = 1;
-        while (movable.length < ORGANIZE_SCAN_CAP) {
-          const result = await biliApi.getFavResources(
-            source.id,
-            page,
-            40,
-            "long",
-          );
-          for (const item of result.resources) {
-            if (item.id <= 0 || seenAids.has(item.id)) continue;
-            seenAids.add(item.id);
-            movable.push({ ...item, sourceFolderId: source.id });
-            if (movable.length >= ORGANIZE_SCAN_CAP) break;
-          }
-          report({
-            progress: Math.min(
-              18,
-              Math.round(5 + (movable.length / ORGANIZE_SCAN_CAP) * 13),
-            ),
-            message: `本批已拉取「${source.title}」${movable.length}/${ORGANIZE_SCAN_CAP} 条...`,
-          });
-          await yieldToEventLoop();
-          if (!result.hasMore || movable.length >= ORGANIZE_SCAN_CAP) break;
-          page += 1;
-          await sleepJitter(DELAY_BETWEEN_LIST_PAGES_MS);
-        }
-
-        if (
-          sourceIndex < sourceFolders.length - 1 &&
-          movable.length < ORGANIZE_SCAN_CAP
-        ) {
-          await sleepJitter(DELAY_BETWEEN_SOURCE_FOLDERS_MS);
-        }
-      }
-
-      if (movable.length === 0) {
-        report({
-          status: "done",
-          progress: 100,
-          message: "默认收藏夹和「其他」里没有可整理的视频",
-        });
-        return;
-      }
-
-      report({
-        progress: 20,
-        message: `本批扫描 ${movable.length} 条，正在按标题、简介、UP 和热评归类...`,
-      });
 
       const folderByTitle = new Map(
         folders.map((folder) => [folder.title, folder]),
@@ -500,123 +472,11 @@ export class FavClassifyEngine {
         return null;
       };
 
-      const groups = new Map<
-        string,
-        Array<FavResource & { sourceFolderId: number }>
-      >();
-      const unmatched: Array<FavResource & { sourceFolderId: number }> = [];
       let skippedUnmatched = 0;
-
-      const assignItem = (
-        item: FavResource & { sourceFolderId: number },
-        targetTitle: string,
-      ) => {
-        const sourceTitle =
-          folders.find((folder) => folder.id === item.sourceFolderId)?.title ??
-          "";
-        if (sourceTitle === targetTitle) return;
-        addMidVote(item.upper.mid, targetTitle);
-        const list = groups.get(targetTitle);
-        if (list) list.push(item);
-        else groups.set(targetTitle, [item]);
-      };
-
-      let commentsBlocked = false;
-      const loadCommentSnippets = async (aid: number): Promise<string> => {
-        if (commentsBlocked || aid <= 0) return "";
-        try {
-          const texts = await biliApi.getHotCommentTexts(aid, 8);
-          return pickClassifyCommentSnippets(texts);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "";
-          if (message.includes("412") || message.includes("安全策略")) {
-            commentsBlocked = true;
-          }
-          return "";
-        }
-      };
-
-      for (const [index, item] of movable.entries()) {
-        report({
-          progress: Math.min(
-            42,
-            Math.round(20 + ((index + 1) / Math.max(movable.length, 1)) * 22),
-          ),
-          message: commentsBlocked
-            ? `评论接口被风控，改用标题归类（${index + 1}/${movable.length}）...`
-            : `正在读热评并归类（${index + 1}/${movable.length}）...`,
-        });
-
-        const comments = await loadCommentSnippets(item.id);
-        if (!commentsBlocked && item.id > 0 && index < movable.length - 1) {
-          await sleepJitter(DELAY_BETWEEN_COMMENTS_MS);
-        }
-
-        const targetTitle = resolveBiliOrganizeFolderTitle(
-          buildFavClassifyText({ ...item, comments }),
-          userFolderTitles,
-        );
-        if (!targetTitle || isDumpFolderTitle(targetTitle)) {
-          unmatched.push(item);
-          continue;
-        }
-        assignItem(item, targetTitle);
-        await yieldToEventLoop();
-      }
-
-      for (const item of unmatched) {
-        const voted = majorityFolderForMid(item.upper.mid);
-        if (
-          voted &&
-          !isDumpFolderTitle(voted) &&
-          !folderConflictsWithVideoTitle(voted, item.title)
-        ) {
-          assignItem(item, voted);
-          continue;
-        }
-
-        const upMatch = item.upper.name
-          ? classifyUpText(item.upper.name)
-          : null;
-        if (upMatch) {
-          const created = upMatch.l2
-            ? `${upMatch.l1}-${upMatch.l2}`
-            : upMatch.l1;
-          const upFolder = created.slice(0, 20);
-          if (folderConflictsWithVideoTitle(upFolder, item.title)) {
-            skippedUnmatched += 1;
-            continue;
-          }
-          const fromUp = resolveBiliOrganizeFolderTitle(
-            item.title,
-            userFolderTitles,
-          );
-          if (
-            fromUp &&
-            !isDumpFolderTitle(fromUp) &&
-            !folderConflictsWithVideoTitle(fromUp, item.title)
-          ) {
-            assignItem(item, fromUp);
-            continue;
-          }
-          assignItem(item, upFolder);
-          continue;
-        }
-
-        skippedUnmatched += 1;
-      }
-
-      const queuedMoves = [...groups.values()].reduce(
-        (sum, items) => sum + items.length,
-        0,
-      );
-      if (queuedMoves > ORGANIZE_BATCH_SIZE) {
-        const capped = capGroupedItems(groups, ORGANIZE_BATCH_SIZE);
-        groups.clear();
-        for (const [title, items] of capped) {
-          groups.set(title, items);
-        }
-      }
+      let skippedKnown = 0;
+      let looked = 0;
+      const seenAids = new Set<number>();
+      const skipAids = loadOrganizeSkipAids();
 
       const onRiskWait = (waitMs: number) => {
         report({
@@ -628,6 +488,7 @@ export class FavClassifyEngine {
       let createdCount = 0;
       let movedCount = 0;
       let overflowCount = 0;
+      let splitHint = false;
 
       const ensureFolder = async (
         title: string,
@@ -658,6 +519,9 @@ export class FavClassifyEngine {
             onRiskWait,
           );
           folderByTitle.set(created.title, created);
+          if (!userFolderTitles.includes(created.title)) {
+            userFolderTitles.push(created.title);
+          }
           folderCount += 1;
           createdCount += 1;
           await sleepJitter(DELAY_AFTER_CREATE_MS);
@@ -673,186 +537,188 @@ export class FavClassifyEngine {
         }
       };
 
-      const neededTitles = [...groups.keys()].filter(
-        (title) => title !== defaultFolder.title && !isDumpFolderTitle(title),
-      );
-
-      report({
-        progress: 28,
-        message: `准备 ${neededTitles.length} 个目标收藏夹...`,
-      });
-
-      const allocateByCapacity = async (
-        baseTitle: string,
-        startFolder: FavFolder,
-        aids: number[],
-      ): Promise<Array<{ folder: FavFolder; aids: number[] }>> => {
-        const uniqueAids = [...new Set(aids)];
-        const batches: Array<{ folder: FavFolder; aids: number[] }> = [];
-        let index = 1;
-        let folder = startFolder;
-        let room = Math.max(0, BILI_FOLDER_MEDIA_CAP - folder.mediaCount);
-        let bucket: number[] = [];
-
-        const flush = () => {
-          if (bucket.length === 0) return;
-          batches.push({ folder, aids: bucket });
-          folder = {
-            ...folder,
-            mediaCount: folder.mediaCount + bucket.length,
-          };
-          folderByTitle.set(folder.title, folder);
-          bucket = [];
-        };
-
-        const advance = async () => {
-          flush();
-          for (let guard = 0; guard < 20; guard++) {
-            index += 1;
-            const nextTitle = numberedFavTitle(baseTitle, index);
-            const nextFolder = await ensureFolder(nextTitle, {
-              splitOverflow: true,
-            });
-            if (!nextFolder) continue;
-            folder = nextFolder;
-            room = Math.max(0, BILI_FOLDER_MEDIA_CAP - folder.mediaCount);
-            if (room > 0) return;
-          }
-          throw new Error("FAV_FOLDER_FULL");
-        };
-
-        for (const aid of uniqueAids) {
-          if (room <= 0) await advance();
-          bucket.push(aid);
-          room -= 1;
-        }
-        flush();
-        return batches;
+      const resolveTarget = (item: FavResource): string | null => {
+        const targetTitle = resolveBiliOrganizeFolderTitle(
+          buildFavClassifyText(item),
+          userFolderTitles,
+        );
+        if (!targetTitle || isDumpFolderTitle(targetTitle)) return null;
+        return targetTitle;
       };
 
-      const moveJobs: Array<{
-        folder: FavFolder;
-        aids: number[];
-        sourceId: number;
-      }> = [];
-      for (let index = 0; index < neededTitles.length; index++) {
-        const title = neededTitles[index];
-        const itemsInGroup = groups.get(title) ?? [];
-        report({
-          progress: Math.round(
-            28 + ((index + 1) / Math.max(neededTitles.length, 1)) * 17,
-          ),
-          message: `正在准备收藏夹「${title}」(${index + 1}/${neededTitles.length})...`,
-        });
+      const tryResolve = (item: FavResource): string | null => {
+        const fromText = resolveTarget(item);
+        if (fromText) return fromText;
 
-        const target = await ensureFolder(title);
-        if (!target || target.id === defaultFolder.id) {
-          skippedUnmatched += itemsInGroup.length;
-          continue;
+        const voted = majorityFolderForMid(item.upper.mid);
+        if (
+          voted &&
+          !isDumpFolderTitle(voted) &&
+          !folderConflictsWithVideoTitle(voted, item.title)
+        ) {
+          return voted;
         }
 
-        const bySource = new Map<number, number[]>();
-        for (const item of itemsInGroup) {
-          const aids = bySource.get(item.sourceFolderId) ?? [];
-          aids.push(item.id);
-          bySource.set(item.sourceFolderId, aids);
+        const upMatch = item.upper.name
+          ? classifyUpText(item.upper.name)
+          : null;
+        if (!upMatch) return null;
+        const upFolder = (
+          upMatch.l2 ? `${upMatch.l1}-${upMatch.l2}` : upMatch.l1
+        ).slice(0, 20);
+        if (folderConflictsWithVideoTitle(upFolder, item.title)) return null;
+        const fromUp = resolveBiliOrganizeFolderTitle(
+          item.title,
+          userFolderTitles,
+        );
+        if (
+          fromUp &&
+          !isDumpFolderTitle(fromUp) &&
+          !folderConflictsWithVideoTitle(fromUp, item.title)
+        ) {
+          return fromUp;
         }
+        return upFolder;
+      };
 
-        for (const [sourceId, aids] of bySource) {
-          if (sourceId === target.id) continue;
-          const batches = await allocateByCapacity(target.title, target, aids);
-          for (const batch of batches) {
-            moveJobs.push({ ...batch, sourceId });
+      const pickDestFolder = async (
+        title: string,
+      ): Promise<FavFolder | null> => {
+        let dest = await ensureFolder(title);
+        if (!dest || dest.id === defaultFolder.id) return null;
+        if (dest.mediaCount >= BILI_FOLDER_MEDIA_CAP) {
+          const parsed = parseFavTitleIndex(dest.title);
+          dest = await ensureFolder(
+            numberedFavTitle(parsed.base, parsed.index + 1),
+            { splitOverflow: true },
+          );
+          splitHint = true;
+        }
+        return dest;
+      };
+
+      scan: for (
+        let sourceIndex = 0;
+        sourceIndex < sourceFolders.length &&
+        movedCount < ORGANIZE_BATCH_SIZE &&
+        looked < ORGANIZE_LOOKAHEAD_CAP;
+        sourceIndex++
+      ) {
+        const source = sourceFolders[sourceIndex];
+        let page = 1;
+        while (
+          movedCount < ORGANIZE_BATCH_SIZE &&
+          looked < ORGANIZE_LOOKAHEAD_CAP
+        ) {
+          const result = await biliApi.getFavResources(
+            source.id,
+            page,
+            LIST_PAGE_SIZE,
+            "long",
+          );
+          for (const raw of result.resources) {
+            if (movedCount >= ORGANIZE_BATCH_SIZE) break scan;
+            if (looked >= ORGANIZE_LOOKAHEAD_CAP) break scan;
+            if (raw.id <= 0 || seenAids.has(raw.id)) continue;
+            seenAids.add(raw.id);
+            if (skipAids.has(raw.id)) {
+              skippedKnown += 1;
+              continue;
+            }
+
+            looked += 1;
+            report({
+              progress: Math.min(
+                96,
+                Math.round(8 + (movedCount / ORGANIZE_BATCH_SIZE) * 88),
+              ),
+              message: `「${source.title}」看过 ${looked}，已搬走 ${movedCount}/${ORGANIZE_BATCH_SIZE}：${raw.title.slice(0, 18)}`,
+            });
+
+            const targetTitle = tryResolve(raw);
+            if (!targetTitle || targetTitle === source.title) {
+              if (!targetTitle) {
+                skipAids.add(raw.id);
+                skippedUnmatched += 1;
+              }
+              await yieldToEventLoop();
+              continue;
+            }
+
+            try {
+              const dest = await pickDestFolder(targetTitle);
+              if (!dest) {
+                skippedUnmatched += 1;
+                await yieldToEventLoop();
+                continue;
+              }
+              await this.moveAidsBestEffort(
+                source.id,
+                dest.id,
+                [raw.id],
+                onRiskWait,
+              );
+              dest.mediaCount += 1;
+              folderByTitle.set(dest.title, dest);
+              addMidVote(raw.upper.mid, dest.title);
+              movedCount += 1;
+              await sleepJitter(DELAY_AFTER_MOVE_MS);
+            } catch (error) {
+              if (isFavFolderFullError(error)) {
+                overflowCount += 1;
+                await yieldToEventLoop();
+                continue;
+              }
+              saveOrganizeSkipAids(skipAids);
+              if (movedCount > 0 && isRetryableFavWrite(error)) {
+                report({
+                  status: "done",
+                  progress: 100,
+                  message: `已一条一条搬走 ${movedCount} 个后被风控打断。请停 3～5 分钟再点一次，已搬走的会留在新夹里`,
+                });
+                return;
+              }
+              throw error;
+            }
+            await yieldToEventLoop();
           }
+
+          if (!result.hasMore) break;
+          page += 1;
+          await sleepJitter(DELAY_BETWEEN_LIST_PAGES_MS);
         }
-        await yieldToEventLoop();
+
+        if (
+          sourceIndex < sourceFolders.length - 1 &&
+          movedCount < ORGANIZE_BATCH_SIZE
+        ) {
+          await sleepJitter(DELAY_BETWEEN_SOURCE_FOLDERS_MS);
+        }
       }
 
-      const totalMoves = moveJobs.reduce(
-        (sum, job) => sum + job.aids.length,
-        0,
-      );
-      if (totalMoves === 0) {
+      saveOrganizeSkipAids(skipAids);
+
+      if (movedCount === 0 && looked === 0 && skippedKnown === 0) {
         report({
           status: "done",
           progress: 100,
-          message:
-            skippedUnmatched > 0
-              ? `本批扫描了 ${movable.length} 条，暂时没有能搬走的（${skippedUnmatched} 条对不上）。隔几分钟再点一次会扫下一批`
-              : "默认收藏夹和「其他」里没有可整理的视频",
+          message: "default 和未分组里没有可整理的视频",
+        });
+        return;
+      }
+      if (movedCount === 0) {
+        const skipHint =
+          skippedUnmatched + skippedKnown > 0
+            ? `已跳过 ${skippedUnmatched + skippedKnown} 条对不上的（下次会从后面继续扫）`
+            : "暂时没有能搬走的";
+        report({
+          status: "done",
+          progress: 100,
+          message: `本轮看过 ${looked} 条，${skipHint}。隔几分钟再点一次，每次最多 ${ORGANIZE_BATCH_SIZE} 条`,
         });
         return;
       }
 
-      let movedSoFar = 0;
-      let splitHint = false;
-      try {
-        for (const job of moveJobs) {
-          let currentFolder = job.folder;
-          const { base, index: startIndex } = parseFavTitleIndex(
-            currentFolder.title,
-          );
-          let splitIndex = startIndex;
-          const uniqueAids = [...new Set(job.aids)];
-          let offset = 0;
-          let splitAttempts = 0;
-
-          while (offset < uniqueAids.length) {
-            const chunk = uniqueAids.slice(offset, offset + MOVE_CHUNK);
-            report({
-              progress: Math.min(
-                96,
-                Math.round(45 + (movedSoFar / totalMoves) * 51),
-              ),
-              message: `正在移入「${currentFolder.title}」${movedSoFar + chunk.length}/${totalMoves}...`,
-            });
-
-            try {
-              await this.moveAidsBestEffort(
-                job.sourceId,
-                currentFolder.id,
-                chunk,
-                onRiskWait,
-              );
-              currentFolder.mediaCount += chunk.length;
-              folderByTitle.set(currentFolder.title, currentFolder);
-              movedCount += chunk.length;
-              movedSoFar += chunk.length;
-              offset += chunk.length;
-              splitAttempts = 0;
-              await sleepJitter(DELAY_AFTER_MOVE_MS);
-            } catch (error) {
-              if (!isFavFolderFullError(error)) throw error;
-              splitAttempts += 1;
-              if (splitAttempts > 15) throw error;
-
-              splitIndex += 1;
-              splitHint = true;
-              const nextFolder = await ensureFolder(
-                numberedFavTitle(base, splitIndex),
-                { splitOverflow: true },
-              );
-              if (!nextFolder) throw error;
-              currentFolder = nextFolder;
-              report({
-                message: `「${base}」已满，自动拆到「${currentFolder.title}」接着搬...`,
-              });
-            }
-          }
-        }
-      } catch (error) {
-        if (movedCount > 0 && isRetryableFavWrite(error)) {
-          report({
-            status: "done",
-            progress: 100,
-            message: `已整理 ${movedCount} 个视频后被风控打断。请停 2～3 分钟再点一次，会继续整理下一批`,
-          });
-          return;
-        }
-        throw error;
-      }
-
-      const remain = Math.max(0, sourceTotal - movedCount);
       const leftoverHint =
         skippedUnmatched > 0
           ? `，另有 ${skippedUnmatched} 个对不上先留在原夹`
@@ -862,7 +728,9 @@ export class FavClassifyEngine {
       const splitText = splitHint ? "，超过 1000 条的分类已拆到带编号的夹" : "";
 
       let deletedDump = 0;
-      let defaultLeft = defaultFolder.mediaCount;
+      let defaultLeft = Math.max(0, defaultFolder.mediaCount - movedCount);
+      let dumpLeft = 0;
+      let ungroupedLeft = 0;
       try {
         const latest = await biliApi.getFavFolders();
         defaultLeft =
@@ -872,7 +740,23 @@ export class FavClassifyEngine {
               folder.isDefault ||
               folder.title.toLowerCase() === "default" ||
               folder.title === "默认收藏夹",
-          )?.mediaCount ?? Math.max(0, defaultFolder.mediaCount - movedCount);
+          )?.mediaCount ?? defaultLeft;
+        dumpLeft = latest
+          .filter(
+            (folder) =>
+              isDumpFolderTitle(folder.title) &&
+              folder.id !== defaultFolder.id &&
+              !folder.isDefault,
+          )
+          .reduce((sum, folder) => sum + folder.mediaCount, 0);
+        ungroupedLeft = listUngroupedFavFolders(latest, overrides)
+          .filter(
+            (folder) =>
+              folder.id !== defaultFolder.id &&
+              !folder.isDefault &&
+              !isDumpFolderTitle(folder.title),
+          )
+          .reduce((sum, folder) => sum + folder.mediaCount, 0);
         for (const folder of latest) {
           if (
             folder.isDefault ||
@@ -894,21 +778,23 @@ export class FavClassifyEngine {
           }
         }
       } catch {
-        defaultLeft = Math.max(0, defaultFolder.mediaCount - movedCount);
+        // 列表刷新失败就用估算
       }
       const dumpHint =
         deletedDump > 0 ? `，已删掉 ${deletedDump} 个空的「其他」夹` : "";
 
+      const remainParts: string[] = [];
+      if (defaultLeft > 0) remainParts.push(`default ${defaultLeft}`);
+      if (ungroupedLeft > 0) remainParts.push(`未分组 ${ungroupedLeft}`);
+      if (dumpLeft > 0) remainParts.push(`官方「其他」${dumpLeft}`);
       const nextHint =
-        defaultLeft >= ORGANIZE_BATCH_SIZE
-          ? `。default 还剩约 ${defaultLeft} 个（≥${ORGANIZE_BATCH_SIZE}），打开收藏页会自动再整理`
-          : remain > 0
-            ? `。源夹大约还剩 ${remain} 个，隔几分钟再点一次继续，每次约 ${ORGANIZE_BATCH_SIZE} 条`
-            : "";
+        remainParts.length > 0
+          ? `。还剩 ${remainParts.join("、")}，隔几分钟再点一次，每次最多 ${ORGANIZE_BATCH_SIZE} 条`
+          : "";
       report({
         status: "done",
         progress: 100,
-        message: `本批已整理 ${movedCount} 个视频，新建 ${createdCount} 个收藏夹${overflowHint}${splitText}${leftoverHint}${dumpHint}${nextHint}`,
+        message: `本轮已一条一条搬走 ${movedCount} 个视频，新建 ${createdCount} 个收藏夹${overflowHint}${splitText}${leftoverHint}${dumpHint}${nextHint}`,
       });
     } catch (error) {
       report({
@@ -917,6 +803,244 @@ export class FavClassifyEngine {
         message: formatFavTaskError(error, "整理 B 站收藏夹失败"),
       });
     }
+  }
+
+  private async runMergeDumpIntoDefault(taskId: number): Promise<void> {
+    const report = createTaskReporter(taskId);
+
+    try {
+      report({
+        status: "running",
+        progress: 0,
+        message: "正在查找官方「其他」收藏夹...",
+      });
+
+      const folders = await biliApi.getFavFolders();
+      const defaultFolder = pickDefaultFolder(folders);
+      if (!defaultFolder) {
+        report({
+          status: "failed",
+          progress: 100,
+          message: "请先登录后再操作收藏夹",
+        });
+        return;
+      }
+
+      const dumps = folders.filter(
+        (folder) =>
+          isDumpFolderTitle(folder.title) &&
+          folder.id !== defaultFolder.id &&
+          !folder.isDefault,
+      );
+      if (dumps.length === 0) {
+        report({
+          status: "done",
+          progress: 100,
+          message: "没有名叫「其他」的收藏夹",
+        });
+        return;
+      }
+
+      const onRiskWait = (waitMs: number) => {
+        report({
+          message: `请求有点密，暂停 ${Math.ceil(waitMs / 1000)} 秒后自动继续...`,
+        });
+      };
+
+      let movedCount = 0;
+      let deletedCount = 0;
+      const totalEstimate = Math.max(
+        dumps.reduce((sum, folder) => sum + folder.mediaCount, 0),
+        1,
+      );
+
+      for (const dump of dumps) {
+        report({
+          progress: Math.min(90, Math.round((movedCount / totalEstimate) * 80)),
+          message: `正在把「${dump.title}」搬进 default...`,
+        });
+
+        const items = await biliApi.getAllFavResourcesInFolder(
+          dump.id,
+          (fetched) => {
+            report({
+              progress: Math.min(
+                90,
+                Math.round(((movedCount + fetched) / totalEstimate) * 80),
+              ),
+              message: `正在读取「${dump.title}」${fetched} 条...`,
+            });
+          },
+        );
+        const aids = [
+          ...new Set(items.map((item) => item.id).filter((id) => id > 0)),
+        ];
+
+        for (let offset = 0; offset < aids.length; offset += MOVE_CHUNK) {
+          const chunk = aids.slice(offset, offset + MOVE_CHUNK);
+          await this.moveAidsBestEffort(
+            dump.id,
+            defaultFolder.id,
+            chunk,
+            onRiskWait,
+          );
+          movedCount += chunk.length;
+          report({
+            progress: Math.min(
+              92,
+              Math.round((movedCount / Math.max(aids.length, 1)) * 88),
+            ),
+            message: `已搬入 default ${movedCount} 条（「${dump.title}」）...`,
+          });
+          await sleepJitter(DELAY_AFTER_MOVE_MS);
+        }
+
+        await withFavWriteRetry(
+          () => biliApi.deleteFavFolder(dump.id),
+          onRiskWait,
+        );
+        deletedCount += 1;
+        await sleepJitter(DELAY_AFTER_CREATE_MS);
+      }
+
+      report({
+        status: "done",
+        progress: 100,
+        message: `已把 ${movedCount} 个视频从「其他」搬进 default，并删除 ${deletedCount} 个「其他」夹`,
+      });
+    } catch (error) {
+      report({
+        status: "failed",
+        progress: 100,
+        message: formatFavTaskError(error, "把「其他」并入 default 失败"),
+      });
+    }
+  }
+
+  private async runMergeDuplicateTopics(taskId: number): Promise<void> {
+    const report = createTaskReporter(taskId);
+    try {
+      report({
+        status: "running",
+        progress: 0,
+        message: "正在查找同主题重复收藏夹...",
+      });
+      const onRiskWait = (waitMs: number) => {
+        report({
+          message: `请求有点密，暂停 ${Math.ceil(waitMs / 1000)} 秒后自动继续...`,
+        });
+      };
+      const result = await this.mergeDuplicateTopicFolders(report, onRiskWait);
+      if (result.pairs === 0) {
+        report({
+          status: "done",
+          progress: 100,
+          message: "没有需要合并的同主题收藏夹",
+        });
+        return;
+      }
+      report({
+        status: "done",
+        progress: 100,
+        message: `已把 ${result.moved} 个视频并入已有夹，删除 ${result.deleted} 个重复夹`,
+      });
+    } catch (error) {
+      report({
+        status: "failed",
+        progress: 100,
+        message: formatFavTaskError(error, "合并同主题收藏夹失败"),
+      });
+    }
+  }
+
+  private async mergeDuplicateTopicFolders(
+    report: (patch: {
+      progress?: number;
+      message?: string;
+      status?: "running" | "done" | "failed";
+    }) => void,
+    onRiskWait: (waitMs: number, attempt: number) => void,
+  ): Promise<{ pairs: number; moved: number; deleted: number }> {
+    const folders = await biliApi.getFavFolders();
+    const pairs = listDuplicateGeneratedFolderPairs(folders);
+    if (pairs.length === 0) {
+      return { pairs: 0, moved: 0, deleted: 0 };
+    }
+
+    const folderByTitle = new Map(
+      folders.map((folder) => [folder.title, folder]),
+    );
+    let moved = 0;
+    let deleted = 0;
+    const totalEstimate = Math.max(
+      pairs.reduce((sum, pair) => {
+        const src = folderByTitle.get(pair.duplicateTitle);
+        return sum + (src?.mediaCount ?? 0);
+      }, 0),
+      1,
+    );
+
+    for (const pair of pairs) {
+      const src = folderByTitle.get(pair.duplicateTitle);
+      const dest = folderByTitle.get(pair.canonicalTitle);
+      if (!src || !dest || src.id === dest.id) continue;
+
+      report({
+        progress: Math.min(90, Math.round((moved / totalEstimate) * 80)),
+        message: `正在把「${src.title}」并入「${dest.title}」...`,
+      });
+
+      const items = await biliApi.getAllFavResourcesInFolder(
+        src.id,
+        (fetched) => {
+          report({
+            progress: Math.min(
+              90,
+              Math.round(((moved + fetched) / totalEstimate) * 80),
+            ),
+            message: `正在读取「${src.title}」${fetched} 条...`,
+          });
+        },
+      );
+      const aids = [
+        ...new Set(items.map((item) => item.id).filter((id) => id > 0)),
+      ];
+
+      for (let offset = 0; offset < aids.length; offset += MOVE_CHUNK) {
+        const chunk = aids.slice(offset, offset + MOVE_CHUNK);
+        await this.moveAidsBestEffort(src.id, dest.id, chunk, onRiskWait);
+        moved += chunk.length;
+        dest.mediaCount += chunk.length;
+        src.mediaCount = Math.max(0, src.mediaCount - chunk.length);
+        report({
+          progress: Math.min(92, Math.round((moved / totalEstimate) * 88)),
+          message: `已把 ${moved} 条从「${src.title}」搬进「${dest.title}」...`,
+        });
+        await sleepJitter(DELAY_AFTER_MOVE_MS);
+      }
+
+      const leftover = await biliApi.getAllFavResourcesInFolder(src.id);
+      const leftoverIds = [
+        ...new Set(leftover.map((item) => item.id).filter((id) => id > 0)),
+      ];
+      if (leftoverIds.length > 0) {
+        await this.moveAidsBestEffort(src.id, dest.id, leftoverIds, onRiskWait);
+      }
+
+      try {
+        await withFavWriteRetry(
+          () => biliApi.deleteFavFolder(src.id),
+          onRiskWait,
+        );
+        folderByTitle.delete(src.title);
+        deleted += 1;
+        await sleepJitter(DELAY_AFTER_CREATE_MS);
+      } catch {
+        // 夹里若还剩重复收藏，删不掉也不阻断后面几对
+      }
+    }
+
+    return { pairs: pairs.length, moved, deleted };
   }
 
   private async moveAidsBestEffort(

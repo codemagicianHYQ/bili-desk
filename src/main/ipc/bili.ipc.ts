@@ -128,6 +128,9 @@ export function registerBiliIpc(): void {
       },
     ) => biliApi.editFavFolder(payload),
   );
+  ipcMain.handle(IPC.BILI_FAV_FOLDER_DELETE, (_e, mediaId: number) =>
+    biliApi.deleteFavFolder(mediaId),
+  );
   ipcMain.handle(IPC.BILI_FAV_FOLDER_SORT, (_e, mediaIds: number[]) =>
     biliApi.sortFavFolders(mediaIds),
   );
@@ -165,8 +168,15 @@ export function registerBiliIpc(): void {
     (_e, aid: number, addMediaIds: number[], delMediaIds: number[]) =>
       biliApi.setVideoFavFolders(aid, addMediaIds, delMediaIds),
   );
-  ipcMain.handle(IPC.BILI_FAV_RESOURCES, (_e, mediaId: number, page?: number) =>
-    biliApi.getFavResources(mediaId, page),
+  ipcMain.handle(
+    IPC.BILI_FAV_RESOURCES,
+    (_e, mediaId: number, page?: number, riskRetry?: "short" | "long") =>
+      biliApi.getFavResources(
+        mediaId,
+        page ?? 1,
+        20,
+        riskRetry === "long" ? "long" : "short",
+      ),
   );
   ipcMain.handle(
     IPC.BILI_FAV_RESOURCES_REMOVE,

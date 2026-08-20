@@ -34,6 +34,8 @@ import { cn, formatDuration } from "@/lib/utils";
 import {
   moveFavFolderIntoGroup,
   reorderGroupedFavFolders,
+  isDumpFolderTitle,
+  listDuplicateGeneratedFolderPairs,
   type FavFolderGroupOverrides,
 } from "@shared/utils/fav-folder-groups";
 import {
@@ -61,13 +63,16 @@ function pickDefaultFavFolder(list: FavFolder[]): FavFolder | null {
 
 const LOCAL_PAGE_SIZE = 40;
 const DEFAULT_ORGANIZE_THRESHOLD = 100;
-const AUTO_ORGANIZE_CONTINUE_MS = 150_000;
+const AUTO_ORGANIZE_CONTINUE_MS = 180_000;
 
 type SidebarMode = "bilibili" | "local";
 
-function formatFolderError(err: unknown): string {
+function formatFolderError(err: unknown, mediaCount = 0): string {
   const message = extractIpcErrorMessage(err) || "加载失败";
   if (message.includes("412") || message.includes("安全策略")) {
+    if (mediaCount > 0) {
+      return `这个夹有 ${mediaCount} 条，列表被风控拦了所以是 0。请等 2～3 分钟再点重新加载，不要连点`;
+    }
     return "请求太密，被 B 站风控拦了。请等 1～2 分钟再打开这个收藏夹";
   }
   return message;
@@ -245,6 +250,7 @@ export function FavoritesPage() {
   const [organizeConfirmOpen, setOrganizeConfirmOpen] = useState(false);
   const [draggingFolderId, setDraggingFolderId] = useState<number | null>(null);
   const [dropFolderId, setDropFolderId] = useState<number | null>(null);
+  const [dropEdge, setDropEdge] = useState<"before" | "after">("after");
   const [dropGroupName, setDropGroupName] = useState<string | null>(null);
   const [groupOverrides, setGroupOverrides] = useState<FavFolderGroupOverrides>(
     () => loadFavFolderGroupOverrides(),
@@ -254,7 +260,8 @@ export function FavoritesPage() {
   const folderDraggedRef = useRef(false);
   const folderDragClickLockTimerRef = useRef<number | null>(null);
   const autoOrganizeTimerRef = useRef<number | null>(null);
-  const autoOrganizeKickRef = useRef(false);
+  const mergeDumpKickRef = useRef(false);
+  const mergeDupKickRef = useRef(false);
   const classifyingRef = useRef(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -262,6 +269,8 @@ export function FavoritesPage() {
   const [editFolder, setEditFolder] = useState<FavFolder | null>(null);
   const [cleanFolder, setCleanFolder] = useState<FavFolder | null>(null);
   const [cleanLoading, setCleanLoading] = useState(false);
+  const [deleteFolder, setDeleteFolder] = useState<FavFolder | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [folderNotice, setFolderNotice] = useState("");
 
   const isLocalMode = sidebarMode === "local";
@@ -323,25 +332,40 @@ export function FavoritesPage() {
         setFolderHasMore(false);
       }
 
+      const expected =
+        foldersRef.current.find((folder) => folder.id === mediaId)
+          ?.mediaCount ?? 0;
+      if (!append && expected === 0) {
+        if (seq !== folderLoadSeqRef.current) return;
+        setResources([]);
+        setFolderPage(1);
+        setFolderHasMore(false);
+        setFolderError("");
+        setFolderLoading(false);
+        setFolderLoadingMore(false);
+        setListReady(true);
+        return;
+      }
+
       try {
-        let result = await window.biliDesk.bili.getFavResources(mediaId, page);
+        let result = await window.biliDesk.bili.getFavResources(
+          mediaId,
+          page,
+          "long",
+        );
         if (seq !== folderLoadSeqRef.current) return;
 
-        const expected =
+        const latestExpected =
           foldersRef.current.find((folder) => folder.id === mediaId)
-            ?.mediaCount ?? 0;
-        if (!append && result.resources.length === 0 && expected > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
-          if (seq !== folderLoadSeqRef.current) return;
-          result = await window.biliDesk.bili.getFavResources(mediaId, page);
-          if (seq !== folderLoadSeqRef.current) return;
-          if (result.resources.length === 0) {
-            setResources([]);
-            setFolderPage(1);
-            setFolderHasMore(false);
-            setFolderError("收藏夹有视频但未能加载，请点击重试");
-            return;
-          }
+            ?.mediaCount ?? expected;
+        if (!append && result.resources.length === 0 && latestExpected > 0) {
+          setResources([]);
+          setFolderPage(1);
+          setFolderHasMore(false);
+          setFolderError(
+            `这个夹有 ${latestExpected} 条，列表没返回内容，多半是风控。请等 2～3 分钟再点重新加载，不要连点`,
+          );
+          return;
         }
 
         setResources((prev) => {
@@ -360,7 +384,14 @@ export function FavoritesPage() {
       } catch (err) {
         if (seq !== folderLoadSeqRef.current) return;
         if (!append) setResources([]);
-        setFolderError(formatFolderError(err));
+        const countNow =
+          foldersRef.current.find((folder) => folder.id === mediaId)
+            ?.mediaCount ?? 0;
+        if (countNow === 0) {
+          setFolderError("");
+        } else {
+          setFolderError(formatFolderError(err, countNow));
+        }
       } finally {
         if (seq === folderLoadSeqRef.current) {
           setFolderLoading(false);
@@ -684,7 +715,8 @@ export function FavoritesPage() {
     setClassifyProgress(0);
 
     try {
-      const { taskId } = await window.biliDesk.taxonomy.organizeBiliFavorites();
+      const { taskId } =
+        await window.biliDesk.taxonomy.organizeBiliFavorites(groupOverrides);
       const message = await waitForFavTask(taskId);
       invalidateFolders();
       const list = await ensureFolders({ force: true });
@@ -694,13 +726,19 @@ export function FavoritesPage() {
 
       const def = pickDefaultFavFolder(list);
       const defaultLeft = def?.mediaCount ?? 0;
-      const movedNothing = /已整理 0 |没有可整理|暂时没有能搬走/.test(message);
+      const movedNothing =
+        /已整理 0 |没有可整理|暂时没有能搬走|看过 \d+ 条/.test(message);
+      const windControl = /风控|412|请求太密|安全策略/.test(message);
       if (autoOrganizeTimerRef.current != null) {
         window.clearTimeout(autoOrganizeTimerRef.current);
         autoOrganizeTimerRef.current = null;
       }
-      if (!movedNothing && defaultLeft >= DEFAULT_ORGANIZE_THRESHOLD) {
-        setClassifyMessage(`${message} 约 2 分钟后自动继续整理 default`);
+      if (
+        !movedNothing &&
+        !windControl &&
+        defaultLeft >= DEFAULT_ORGANIZE_THRESHOLD
+      ) {
+        setClassifyMessage(`${message} 约 3 分钟后自动继续整理 default`);
         autoOrganizeTimerRef.current = window.setTimeout(() => {
           autoOrganizeTimerRef.current = null;
           void handleOrganizeBiliFolders(true);
@@ -718,13 +756,78 @@ export function FavoritesPage() {
   const organizeBiliRef = useRef(handleOrganizeBiliFolders);
   organizeBiliRef.current = handleOrganizeBiliFolders;
 
+  const handleMergeDumpIntoDefault = async () => {
+    if (classifyingRef.current) return;
+    setClassifying(true);
+    setClassifyMessage("正在把「其他」搬进 default，随后删除该夹...");
+    setClassifyProgress(0);
+
+    try {
+      const { taskId } =
+        await window.biliDesk.taxonomy.mergeDumpFavIntoDefault();
+      await waitForFavTask(taskId);
+      invalidateFolders();
+      await ensureFolders({ force: true });
+      if (selectedFolder != null) {
+        await loadFolderPage(selectedFolder, 1, false);
+      }
+    } catch (err) {
+      mergeDumpKickRef.current = false;
+      setClassifyMessage(
+        err instanceof Error ? err.message : "把「其他」并入 default 失败",
+      );
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  const mergeDumpRef = useRef(handleMergeDumpIntoDefault);
+  mergeDumpRef.current = handleMergeDumpIntoDefault;
+
+  const handleMergeDuplicateTopics = async () => {
+    if (classifyingRef.current) return;
+    setClassifying(true);
+    setClassifyMessage("正在把「计算机-算法」这类重复夹并入已有夹...");
+    setClassifyProgress(0);
+
+    try {
+      const { taskId } =
+        await window.biliDesk.taxonomy.mergeDuplicateTopicFolders();
+      await waitForFavTask(taskId);
+      invalidateFolders();
+      await ensureFolders({ force: true });
+      if (selectedFolder != null) {
+        await loadFolderPage(selectedFolder, 1, false);
+      }
+    } catch (err) {
+      mergeDupKickRef.current = false;
+      setClassifyMessage(
+        err instanceof Error ? err.message : "合并同主题收藏夹失败",
+      );
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  const mergeDupRef = useRef(handleMergeDuplicateTopics);
+  mergeDupRef.current = handleMergeDuplicateTopics;
+
   useEffect(() => {
     if (isLocalMode || !foldersReady || classifyingRef.current) return;
-    const def = pickDefaultFavFolder(folders);
-    if (!def || def.mediaCount < DEFAULT_ORGANIZE_THRESHOLD) return;
-    if (autoOrganizeKickRef.current) return;
-    autoOrganizeKickRef.current = true;
-    void organizeBiliRef.current(true);
+    const dumps = folders.filter(
+      (folder) => isDumpFolderTitle(folder.title) && !folder.isDefault,
+    );
+    if (dumps.length > 0) {
+      if (mergeDumpKickRef.current) return;
+      mergeDumpKickRef.current = true;
+      void mergeDumpRef.current();
+      return;
+    }
+    if (listDuplicateGeneratedFolderPairs(folders).length > 0) {
+      if (mergeDupKickRef.current) return;
+      mergeDupKickRef.current = true;
+      void mergeDupRef.current();
+    }
   }, [folders, foldersReady, isLocalMode]);
 
   const persistFolderOrder = async (ordered: typeof folders) => {
@@ -784,6 +887,10 @@ export function FavoritesPage() {
     folderDraggedRef.current = true;
     setDropGroupName(null);
     setDropFolderId(folderId);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const edge =
+      event.clientY >= rect.top + rect.height / 2 ? "after" : "before";
+    setDropEdge(edge);
   };
 
   const handleGroupDragOver = (
@@ -797,8 +904,13 @@ export function FavoritesPage() {
     setDropGroupName(groupName);
   };
 
-  const handleFolderDrop = (folderId: number) => {
+  const handleFolderDrop = (
+    event: DragEvent<HTMLDivElement>,
+    folderId: number,
+  ) => {
     const fromId = dragFolderIdRef.current;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const after = event.clientY >= rect.top + rect.height / 2;
     dragFolderIdRef.current = null;
     setDraggingFolderId(null);
     setDropFolderId(null);
@@ -811,6 +923,7 @@ export function FavoritesPage() {
       fromId,
       folderId,
       groupOverrides,
+      { after },
     );
     if (!next) return;
     persistGroupOverrides(next.overrides);
@@ -868,6 +981,32 @@ export function FavoritesPage() {
       setActionError(formatFolderError(err));
     } finally {
       setCleanLoading(false);
+    }
+  };
+
+  const handleDeleteFolder = async () => {
+    if (!deleteFolder || deleteFolder.isDefault) return;
+    setDeleteLoading(true);
+    setActionError("");
+    try {
+      await window.biliDesk.bili.deleteFavFolder(deleteFolder.id);
+      clearFolderList(deleteFolder.id);
+      const nextOverrides = { ...groupOverrides };
+      delete nextOverrides[String(deleteFolder.id)];
+      persistGroupOverrides(nextOverrides);
+      invalidateFolders();
+      const list = await ensureFolders({ force: true });
+      if (selectedFolder === deleteFolder.id) {
+        const nextId = list[0]?.id ?? null;
+        if (nextId != null) handleSelectFolder(nextId);
+        else setSelectedFolder(null);
+      }
+      setFolderNotice(`已删除收藏夹「${deleteFolder.title}」`);
+      setDeleteFolder(null);
+    } catch (err) {
+      setActionError(formatFolderError(err));
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -936,7 +1075,7 @@ export function FavoritesPage() {
           <p className="text-xs text-muted-foreground">
             {isLocalMode
               ? "按标题打分归类，计算机会分到前端 / 后端 / AI 等方向；全量分类会重建本地目录"
-              : "先整理 default（满 100 条会自动跑），清空后再整理「其他」，空的「其他」会删掉。夹名会归到计算机、学习、AI、生活；认不出的在底部「未分组」。"}
+              : "一条一条看标题就搬走，不再攒一批。本轮最多约 40 条，中间会停几秒。请不要连点。官方「其他」夹仍会并进 default 后删除。"}
           </p>
           <Button
             type="button"
@@ -957,7 +1096,7 @@ export function FavoritesPage() {
             ) : (
               <Sparkles className="h-3.5 w-3.5" />
             )}
-            {isLocalMode ? "智能分类全部收藏" : "智能整理一批（约 100 条）"}
+            {isLocalMode ? "智能分类全部收藏" : "智能整理（一条一条搬）"}
           </Button>
           {classifyMessage && (
             <p className="text-xs text-muted-foreground">{classifyMessage}</p>
@@ -986,6 +1125,7 @@ export function FavoritesPage() {
                 selectedFolder={selectedFolder}
                 draggingFolderId={draggingFolderId}
                 dropFolderId={dropFolderId}
+                dropEdge={dropEdge}
                 dropGroupName={dropGroupName}
                 onSelect={handleSelectFolder}
                 onDragStart={(event, folder) => {
@@ -997,8 +1137,8 @@ export function FavoritesPage() {
                   event.dataTransfer.dropEffect = "move";
                   handleFolderDragOver(event, folderId);
                 }}
-                onDrop={(_event, folderId) => {
-                  handleFolderDrop(folderId);
+                onDrop={(event, folderId) => {
+                  handleFolderDrop(event, folderId);
                 }}
                 onDragOverGroup={(event, groupName) => {
                   event.dataTransfer.dropEffect = "move";
@@ -1014,6 +1154,10 @@ export function FavoritesPage() {
                 }}
                 onCleanInvalid={(folder) => {
                   setCleanFolder(folder);
+                  setFolderNotice("");
+                }}
+                onDelete={(folder) => {
+                  setDeleteFolder(folder);
                   setFolderNotice("");
                 }}
                 shouldIgnoreClick={() => {
@@ -1211,10 +1355,15 @@ export function FavoritesPage() {
                       ? "暂无本地分类数据，请先点击「智能分类全部收藏」"
                       : "该分类下暂无视频"}
                   </p>
+                ) : folderMediaCount === 0 ? (
+                  <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                    该收藏夹暂无视频
+                  </p>
                 ) : folderError || folderMediaCount > 0 ? (
                   <div className="col-span-full flex flex-col items-center gap-3 py-8 text-center">
                     <p className="text-sm text-muted-foreground">
-                      {folderError || "收藏夹有视频但未能加载"}
+                      {folderError ||
+                        "收藏夹有视频但列表没返回，请稍后再重新加载"}
                     </p>
                     {selectedFolder != null && (
                       <Button
@@ -1270,7 +1419,7 @@ export function FavoritesPage() {
       <ConfirmDialog
         open={organizeConfirmOpen}
         title="整理一批收藏？"
-        description="先清 default，满 100 条会自动再跑；default 空了才整理「其他」，整理完会删空夹。每次大约搬走 100 条，看标题、简介、UP 和热评，优先放进已有收藏夹。此操作会同步到官方账号。"
+        description="按标题当场分类、当场搬走，不再先抓简介/热评再成批移动。本轮最多约 40 条，每条间隔几秒，降低风控。先整理 default，再整理未分组。此操作会同步到官方账号。"
         confirmLabel="整理这一批"
         loading={classifying}
         onConfirm={() => void handleOrganizeBiliFolders()}
@@ -1289,6 +1438,23 @@ export function FavoritesPage() {
         onConfirm={() => void handleCleanInvalid()}
         onCancel={() => {
           if (!cleanLoading) setCleanFolder(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={deleteFolder != null}
+        title={`删除收藏夹「${deleteFolder?.title ?? ""}」？`}
+        description={
+          (deleteFolder?.mediaCount ?? 0) > 0
+            ? `这个夹里还有 ${deleteFolder?.mediaCount} 条。稿件本身不会删，只是从这个夹里拿掉，和官网删除收藏夹一样，会同步到官方账号。`
+            : "这个夹是空的。删除后会从账号里去掉，和官网同步。"
+        }
+        confirmLabel="删除收藏夹"
+        destructive
+        loading={deleteLoading}
+        onConfirm={() => void handleDeleteFolder()}
+        onCancel={() => {
+          if (!deleteLoading) setDeleteFolder(null);
         }}
       />
 

@@ -66,7 +66,11 @@ const FOLDER_NAME_RULES: FolderRule[] = [
     l2: "数据库",
     keys: ["数据库", "mysql", "redis", "mongodb", "sql"],
   },
-  { l1: "计算机", l2: "操作系统", keys: ["操作系统", "linux"] },
+  {
+    l1: "计算机",
+    l2: "操作系统",
+    keys: ["操作系统", "linux", "windows", "命令行", "powershell"],
+  },
   { l1: "计算机", l2: "计算机网络", keys: ["计算机网络", "tcp", "http协议"] },
   {
     l1: "计算机",
@@ -134,7 +138,11 @@ const FOLDER_NAME_RULES: FolderRule[] = [
   { l1: "生活", l2: "家居", keys: ["家居", "装修", "户型"] },
   { l1: "生活", l2: "财经", keys: ["财经", "理财", "基金"] },
   { l1: "生活", l2: "科普", keys: ["科普"] },
-  { l1: "生活", l2: "社会人文", keys: ["社会", "人文", "哲学", "历史"] },
+  {
+    l1: "生活",
+    l2: "社会人文",
+    keys: ["社会", "人文", "哲学", "历史", "社交", "心理"],
+  },
 ];
 
 export function parseFavFolderPath(title: string): {
@@ -171,8 +179,100 @@ function isDefaultFolderTitle(title: string): boolean {
   return DEFAULT_TITLES.has(title.trim().toLowerCase());
 }
 
-function isDumpFolderTitle(title: string): boolean {
+export function isDumpFolderTitle(title: string): boolean {
   return /^其他(-\d+)?$/.test(title.trim());
+}
+
+/** 智能整理生成的「计算机-算法」这类夹名 */
+export function isGeneratedPrefixedFolderTitle(name: string): boolean {
+  return /^(计算机|学习|娱乐|生活)-/.test(name.trim());
+}
+
+export function generatedFavTopic(name: string): string {
+  const match = name.trim().match(/^(?:计算机|学习|娱乐|生活)-(.+)$/);
+  if (!match) return "";
+  return match[1].replace(/-\d+$/, "").trim();
+}
+
+/** 同一主题的叫法，避免「算法与数据结构」旁边再留一个「计算机-算法」 */
+export const FOLDER_TOPIC_ALIASES: string[][] = [
+  ["算法", "数据结构", "leetcode", "力扣", "oj"],
+  ["前端", "vue", "react", "javascript", "css", "html"],
+  ["后端", "java", "spring", "golang", "go语言", "node"],
+  ["人工智能", "大模型", "机器学习", "深度学习", "llm", "ai"],
+  ["量化", "量化交易", "quant", "量化投资"],
+  ["逆向", "逆向工程", "反编译", "二进制"],
+  ["爬虫", "scrapy", "selenium", "crawler"],
+  ["rust", "rustlang", "rust语言"],
+  ["脑科学", "神经科学", "认知科学"],
+  ["公开课", "opencourse", "mooc", "stanford"],
+  ["数据库", "mysql", "redis", "sql"],
+  ["操作系统", "os", "linux内核", "windows", "命令行", "powershell"],
+  ["计算机网络", "网络", "tcp"],
+  ["嵌入式", "单片机", "stm32", "fpga"],
+  ["安全", "网络安全", "渗透"],
+  ["社会人文", "历史人文", "人文", "哲学"],
+  ["影视", "电影", "剧"],
+  ["mac", "macmini", "macbook", "imac", "苹果电脑", "mac 相关"],
+  ["自行车", "骑行", "公路车", "山地车"],
+];
+
+function normalizeTopicText(text: string): string {
+  return text.normalize("NFKC").toLowerCase().trim();
+}
+
+function foldersShareTopic(topic: string, otherTitle: string): boolean {
+  const needle = normalizeTopicText(topic);
+  const other = normalizeTopicText(otherTitle);
+  if (needle.length < 2) return false;
+  if (other.includes(needle) || needle.includes(other)) return true;
+  return FOLDER_TOPIC_ALIASES.some(
+    (group) =>
+      group.some((key) => other.includes(key)) &&
+      group.some((key) => needle.includes(key)),
+  );
+}
+
+/** 「计算机-算法」应并进已有的「算法与数据结构」 */
+export function listDuplicateGeneratedFolderPairs(
+  folders: Array<{ title: string; isDefault?: boolean }>,
+): Array<{ duplicateTitle: string; canonicalTitle: string }> {
+  const candidates = folders.filter(
+    (folder) =>
+      !folder.isDefault &&
+      !isDefaultFolderTitle(folder.title) &&
+      !isDumpFolderTitle(folder.title),
+  );
+
+  const pairs: Array<{ duplicateTitle: string; canonicalTitle: string }> = [];
+  for (const folder of candidates) {
+    if (!isGeneratedPrefixedFolderTitle(folder.title)) continue;
+    const topic = generatedFavTopic(folder.title);
+    if (topic.length < 2) continue;
+
+    let bestTitle = "";
+    let bestScore = 0;
+    for (const other of candidates) {
+      if (other.title === folder.title) continue;
+      if (isGeneratedPrefixedFolderTitle(other.title)) continue;
+      if (!foldersShareTopic(topic, other.title)) continue;
+      const otherNorm = normalizeTopicText(other.title);
+      const topicNorm = normalizeTopicText(topic);
+      const score =
+        (otherNorm.includes(topicNorm) ? 40 : 20) + other.title.length;
+      if (score > bestScore) {
+        bestScore = score;
+        bestTitle = other.title;
+      }
+    }
+    if (bestTitle) {
+      pairs.push({
+        duplicateTitle: folder.title,
+        canonicalTitle: bestTitle,
+      });
+    }
+  }
+  return pairs;
 }
 
 function stripAiPrefix(compact: string): string {
@@ -736,6 +836,16 @@ export function groupFavFolders(
   return { pinned, blocks };
 }
 
+export function listUngroupedFavFolders(
+  folders: FavFolder[],
+  overrides: FavFolderGroupOverrides = {},
+): FavFolder[] {
+  const { blocks } = groupFavFolders(folders, overrides);
+  const ungrouped = blocks.find((block) => block.kind === "ungrouped");
+  if (!ungrouped || ungrouped.kind !== "ungrouped") return [];
+  return ungrouped.folders.map((item) => item.folder);
+}
+
 function blockGroupName(block: FolderNavBlock): string | null {
   if (block.kind === "l1") return block.name;
   if (block.kind === "ungrouped") return UNGROUPED_L1;
@@ -788,13 +898,27 @@ function flattenAllBlocks(
   ];
 }
 
+function insertIndexAfterRemove(
+  from: number,
+  to: number,
+  after: boolean,
+  lengthAfterRemove: number,
+): number {
+  let insertAt = to;
+  if (from < to) insertAt -= 1;
+  if (after) insertAt += 1;
+  return Math.max(0, Math.min(lengthAfterRemove, insertAt));
+}
+
 export function reorderGroupedFavFolders(
   folders: FavFolder[],
   fromId: number,
   toId: number,
   overrides: FavFolderGroupOverrides = {},
+  options?: { after?: boolean },
 ): { folders: FavFolder[]; overrides: FavFolderGroupOverrides } | null {
   if (fromId === toId) return null;
+  const after = Boolean(options?.after);
   const { pinned, blocks } = groupFavFolders(folders, overrides);
   const fromBlockIndex = blocks.findIndex((block) =>
     flattenFolderNavBlock(block).some((folder) => folder.id === fromId),
@@ -814,7 +938,11 @@ export function reorderGroupedFavFolders(
     if (from < 0 || to < 0) return null;
     const reordered = [...members];
     const [moved] = reordered.splice(from, 1);
-    reordered.splice(to, 0, moved);
+    reordered.splice(
+      insertIndexAfterRemove(from, to, after, reordered.length),
+      0,
+      moved,
+    );
     nextBlocks[fromBlockIndex] = replaceBlockMembers(
       nextBlocks[fromBlockIndex],
       reordered,
@@ -826,9 +954,11 @@ export function reorderGroupedFavFolders(
     const moved = fromMembers.find((folder) => folder.id === fromId);
     if (!moved) return null;
     const nextFrom = fromMembers.filter((folder) => folder.id !== fromId);
-    const insertAt = toMembers.findIndex((folder) => folder.id === toId);
+    let insertAt = toMembers.findIndex((folder) => folder.id === toId);
+    if (insertAt < 0) insertAt = toMembers.length;
+    else if (after) insertAt += 1;
     const nextTo = [...toMembers];
-    nextTo.splice(insertAt < 0 ? nextTo.length : insertAt, 0, moved);
+    nextTo.splice(insertAt, 0, moved);
 
     nextOverrides[String(fromId)] = overrideForGroup(
       blockGroupName(nextBlocks[toBlockIndex]),

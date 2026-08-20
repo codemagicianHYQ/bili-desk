@@ -965,6 +965,7 @@ export interface BiliDeskApi {
     createFavFolder: (payload: CreateFavFolderPayload) => Promise<FavFolder>;
     getFavFolderInfo: (mediaId: number) => Promise<FavFolder>;
     editFavFolder: (payload: EditFavFolderPayload) => Promise<FavFolder>;
+    deleteFavFolder: (mediaId: number) => Promise<void>;
     sortFavFolders: (mediaIds: number[]) => Promise<void>;
     getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
     suggestFavFolder: (
@@ -978,6 +979,7 @@ export interface BiliDeskApi {
     getFavResources: (
       mediaId: number,
       page?: number,
+      riskRetry?: "short" | "long",
     ) => Promise<FavResourcesPage>;
     removeFavResources: (mediaId: number, aids: number[]) => Promise<void>;
     moveFavResources: (
@@ -1120,7 +1122,11 @@ export interface BiliDeskApi {
     getFavoriteAssignments: () => Promise<FavoriteItemAssignment[]>;
     classifyAllFavorites: () => Promise<{ taskId: number }>;
     classifyFolderFavorites: (mediaId: number) => Promise<{ taskId: number }>;
-    organizeBiliFavorites: () => Promise<{ taskId: number }>;
+    organizeBiliFavorites: (
+      overrides?: Record<string, string>,
+    ) => Promise<{ taskId: number }>;
+    mergeDumpFavIntoDefault: () => Promise<{ taskId: number }>;
+    mergeDuplicateTopicFolders: () => Promise<{ taskId: number }>;
     getFavTaskStatus: (taskId: number) => Promise<ClassificationTask | null>;
     enrichFavoriteCovers: () => Promise<{ updated: number; remaining: number }>;
     getUpGroups: () => Promise<UpGroup[]>;

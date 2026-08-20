@@ -18,6 +18,7 @@ import {
   GripVertical,
   MoreHorizontal,
   Pencil,
+  Trash2,
 } from "lucide-react";
 
 interface FavFolderGroupedNavProps {
@@ -26,6 +27,7 @@ interface FavFolderGroupedNavProps {
   selectedFolder: number | null;
   draggingFolderId: number | null;
   dropFolderId: number | null;
+  dropEdge: "before" | "after";
   dropGroupName: string | null;
   onSelect: (folderId: number) => void;
   onDragStart: (event: DragEvent<HTMLDivElement>, folder: FavFolder) => void;
@@ -37,6 +39,7 @@ interface FavFolderGroupedNavProps {
   shouldIgnoreClick: () => boolean;
   onEdit: (folder: FavFolder) => void;
   onCleanInvalid: (folder: FavFolder) => void;
+  onDelete: (folder: FavFolder) => void;
 }
 
 function l1CollapseKeys(blocks: FolderNavBlock[]): string[] {
@@ -111,6 +114,7 @@ export function FavFolderGroupedNav({
   selectedFolder,
   draggingFolderId,
   dropFolderId,
+  dropEdge,
   dropGroupName,
   onSelect,
   onDragStart,
@@ -122,6 +126,7 @@ export function FavFolderGroupedNav({
   shouldIgnoreClick,
   onEdit,
   onCleanInvalid,
+  onDelete,
 }: FavFolderGroupedNavProps) {
   const { pinned, blocks } = groupFavFolders(folders, groupOverrides);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -168,6 +173,7 @@ export function FavFolderGroupedNav({
   ) => {
     const folder = item.folder;
     const canDrag = options.canDrag && !folder.isDefault;
+    const canDelete = canDrag;
     const dragging = draggingFolderId === folder.id;
     const dropTarget =
       dropFolderId === folder.id &&
@@ -190,20 +196,29 @@ export function FavFolderGroupedNav({
         }}
         onDragEnd={onDragEnd}
         className={cn(
-          "group flex items-center gap-0.5 rounded-lg",
+          "group relative flex items-center gap-0.5 rounded-lg",
           options.nested && "ml-2",
           dragging && "bg-primary/20 text-primary opacity-90",
-          dropTarget && "ring-1 ring-primary/70 bg-primary/10",
           !dragging &&
-            !dropTarget &&
             selectedFolder === folder.id &&
             "bg-primary/10 text-primary",
           !dragging &&
-            !dropTarget &&
             selectedFolder !== folder.id &&
             "text-foreground hover:bg-secondary",
         )}
       >
+        {dropTarget && (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-x-1 z-10 flex items-center",
+              dropEdge === "before" ? "-top-[3px]" : "-bottom-[3px]",
+            )}
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+            <span className="h-0.5 min-w-0 flex-1 rounded-full bg-primary" />
+          </span>
+        )}
         {canDrag ? (
           <span
             className="flex h-8 w-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
@@ -283,6 +298,20 @@ export function FavFolderGroupedNav({
                 <Eraser className="h-3.5 w-3.5" />
                 清除已失效
               </button>
+              {canDelete && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-500 hover:bg-secondary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMenuFolderId(null);
+                    onDelete(folder);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  删除收藏夹
+                </button>
+              )}
             </div>
           )}
         </div>

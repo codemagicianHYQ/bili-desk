@@ -137,6 +137,8 @@ const api = {
       intro?: string;
       privacy?: 0 | 1;
     }) => ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_EDIT, payload),
+    deleteFavFolder: (mediaId: number) =>
+      ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_DELETE, mediaId),
     sortFavFolders: (mediaIds: number[]) =>
       ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_SORT, mediaIds),
     getVideoFavFolders: (aid: number) =>
@@ -154,10 +156,11 @@ const api = {
       delMediaIds: number[],
     ) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_SET, aid, addMediaIds, delMediaIds),
-    getFavResources: (mediaId: number, page?: number) =>
-      page != null
-        ? ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId, page)
-        : ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId),
+    getFavResources: (
+      mediaId: number,
+      page?: number,
+      riskRetry?: "short" | "long",
+    ) => ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId, page, riskRetry),
     removeFavResources: (mediaId: number, aids: number[]) =>
       ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES_REMOVE, mediaId, aids),
     moveFavResources: (
@@ -368,8 +371,12 @@ const api = {
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_ALL),
     classifyFolderFavorites: (mediaId: number) =>
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_FOLDER, mediaId),
-    organizeBiliFavorites: () =>
-      ipcRenderer.invoke(IPC.TAXONOMY_FAV_ORGANIZE_BILI),
+    organizeBiliFavorites: (overrides?: Record<string, string>) =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_ORGANIZE_BILI, overrides),
+    mergeDumpFavIntoDefault: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_MERGE_DUMP),
+    mergeDuplicateTopicFolders: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_MERGE_DUP_TOPICS),
     getFavTaskStatus: (taskId: number) =>
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_TASK_STATUS, taskId),
     enrichFavoriteCovers: () =>

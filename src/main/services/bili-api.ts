@@ -1689,8 +1689,12 @@ class BiliApiService {
     const params = await signParams({ bvid });
     const viewRes = await this.client.get("/x/web-interface/wbi/view", {
       params,
+      validateStatus: () => true,
     });
 
+    if (viewRes.status === 412 || viewRes.data?.code === -412) {
+      throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+    }
     if (viewRes.data?.code !== 0) {
       throw new Error(viewRes.data?.message || "视频信息获取失败");
     }
@@ -3172,8 +3176,16 @@ class BiliApiService {
       }
 
       const medias = res.data?.data?.medias;
-      // 风控软失败时常 code=0 且 medias 为 null，不能当成「空收藏夹」
+      const rawCount =
+        res.data?.data?.info?.media_count ?? res.data?.data?.media_count;
+      const infoCount = Number(rawCount);
+      const countKnown = Number.isFinite(infoCount);
+      const hasMoreFlag = Boolean(res.data?.data?.has_more);
+      // 空夹：medias 常为 null，且 info.media_count 明确为 0
       if (medias == null) {
+        if (code === 0 && countKnown && infoCount === 0) {
+          return { medias: [], hasMore: false };
+        }
         if (attempt < maxAttempts) {
           await sleep(waits[attempt - 1] ?? 2000);
           continue;
@@ -3182,6 +3194,19 @@ class BiliApiService {
       }
 
       const hasMore = res.data?.data?.has_more ?? medias.length >= pageSize;
+      // 夹里明明有稿，列表却给空数组，也是风控软失败，不能当成空夹
+      if (
+        Array.isArray(medias) &&
+        medias.length === 0 &&
+        countKnown &&
+        infoCount > 0
+      ) {
+        if (attempt < maxAttempts) {
+          await sleep(waits[attempt - 1] ?? 2000);
+          continue;
+        }
+        throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+      }
       return { medias, hasMore };
     }
 
