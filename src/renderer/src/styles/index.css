@@ -255,7 +255,7 @@
 
   /* 视频页互动栏（参考官方：图标 + 数字，轻量无边框块） */
   .bili-toolbar-action {
-    @apply relative inline-flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-muted-foreground outline-none transition-all;
+    @apply relative inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-2.5 py-2 text-sm text-muted-foreground outline-none transition-all;
     @apply hover:bg-secondary/60 hover:text-foreground;
     @apply focus-visible:ring-2 focus-visible:ring-primary/30;
   }

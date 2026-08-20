@@ -49,6 +49,7 @@ interface VideoPlayerProps {
   ) => void;
   /** 用户选择从头观看时回调（用于清掉 URL 续播参数） */
   onWatchFromStart?: () => void;
+  className?: string;
 }
 
 function resolvePlayerType(format: VideoPlayInfo["format"]): string {
@@ -97,6 +98,7 @@ export function VideoPlayer({
   onQualityChange,
   onError,
   onWatchFromStart,
+  className,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const artRef = useRef<Artplayer | null>(null);
@@ -598,7 +600,12 @@ export function VideoPlayer({
   };
 
   return (
-    <div className="bili-player-stage relative aspect-video w-full bg-black">
+    <div
+      className={cn(
+        "bili-player-stage relative bg-black",
+        className ?? "aspect-video w-full",
+      )}
+    >
       <div ref={containerRef} className="h-full w-full" />
       {resumeTipAt != null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-[3.25rem] z-30 flex justify-center px-3 sm:bottom-16">

@@ -317,11 +317,12 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
           ref={scrollRef}
           className="scrollbar-overlay h-full overflow-y-auto"
         >
-          <div className="bili-watch-column mx-auto w-full space-y-6 px-4 py-4 lg:px-6">
-            <div className="rounded-2xl border border-border bg-card">
-              {playInfo && selectedCid ? (
-                <div className="overflow-hidden rounded-t-2xl">
+          <div className="bili-watch-column mx-auto flex h-full w-full flex-col px-4 pt-3 lg:px-6">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
+              <div className="relative min-h-0 flex-1 bg-black">
+                {playInfo && selectedCid ? (
                   <VideoPlayer
+                    className="h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-contain"
                     playInfo={playInfo}
                     aid={video.aid}
                     bvid={bvid}
@@ -335,32 +336,37 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     onError={handlePlayerError}
                     onWatchFromStart={handleWatchFromStart}
                   />
-                </div>
-              ) : (
-                <div className="relative aspect-video w-full overflow-hidden rounded-t-2xl bg-black">
-                  <BiliImage
-                    src={video.cover}
-                    alt={video.title}
-                    className="h-full w-full object-cover opacity-60"
-                  />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-6 text-center text-sm text-white/80">
-                    <p>{playError || "正在加载播放器..."}</p>
-                    {playErrorDetail && (
-                      <p className="max-w-xl break-all font-mono text-xs text-white/50">
-                        {playErrorDetail}
-                      </p>
-                    )}
+                ) : (
+                  <div className="relative h-full w-full overflow-hidden bg-black">
+                    <BiliImage
+                      src={video.cover}
+                      alt={video.title}
+                      className="h-full w-full object-cover opacity-60"
+                    />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-6 text-center text-sm text-white/80">
+                      <p>{playError || "正在加载播放器..."}</p>
+                      {playErrorDetail && (
+                        <p className="max-w-xl break-all font-mono text-xs text-white/50">
+                          {playErrorDetail}
+                        </p>
+                      )}
+                    </div>
                   </div>
+                )}
+              </div>
+
+              <div className="shrink-0 space-y-2 border-t border-border px-4 py-2">
+                <div className="flex min-w-0 items-center gap-3">
+                  <h1
+                    className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold leading-snug lg:text-base"
+                    title={video.title}
+                  >
+                    {video.title}
+                  </h1>
+                  <VideoActionBar video={video} className="shrink-0 grow-0" />
                 </div>
-              )}
-
-              <div className="space-y-4 p-6">
-                <h1 className="text-xl font-semibold leading-snug">
-                  {video.title}
-                </h1>
-
                 {video.pages.length > 1 && (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex gap-2 overflow-x-auto pb-0.5">
                     {video.pages.map((part) => (
                       <Button
                         key={part.cid}
@@ -368,6 +374,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                         variant={
                           selectedCid === part.cid ? "default" : "outline"
                         }
+                        className="shrink-0"
                         onClick={() => {
                           setSelectedCid(part.cid);
                         }}
@@ -378,57 +385,55 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     ))}
                   </div>
                 )}
-
-                <UpOwnerCard
-                  mid={video.owner.mid}
-                  name={video.owner.name}
-                  face={video.owner.face}
-                  trailing={
-                    <WatchLaterButton
-                      aid={video.aid}
-                      bvid={video.bvid}
-                      video={video}
-                      variant="inline"
-                    />
-                  }
-                />
-
-                <VideoActionBar video={video} />
-
-                <p className="text-xs text-muted-foreground">
-                  {formatCount(video.stat.view)} 播放 ·{" "}
-                  {formatCount(video.stat.danmaku)} 弹幕
-                  {video.pubdate > 0
-                    ? ` · ${formatPubdate(video.pubdate)}`
-                    : ""}
-                  {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
-                </p>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {video.desc || "暂无简介"}
-                </p>
-                {playError && playInfo && (
-                  <div className="space-y-1 text-sm text-red-400">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span>{playError}</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7"
-                        onClick={handleRefresh}
-                      >
-                        刷新播放器
-                      </Button>
-                    </div>
-                    {playErrorDetail && (
-                      <p className="break-all font-mono text-xs text-muted-foreground">
-                        {playErrorDetail}
-                      </p>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
+          </div>
+
+          <div className="bili-watch-column mx-auto w-full space-y-6 px-4 py-4 lg:px-6">
+            <UpOwnerCard
+              mid={video.owner.mid}
+              name={video.owner.name}
+              face={video.owner.face}
+              trailing={
+                <WatchLaterButton
+                  aid={video.aid}
+                  bvid={video.bvid}
+                  video={video}
+                  variant="inline"
+                />
+              }
+            />
+
+            <p className="text-xs text-muted-foreground">
+              {formatCount(video.stat.view)} 播放 ·{" "}
+              {formatCount(video.stat.danmaku)} 弹幕
+              {video.pubdate > 0 ? ` · ${formatPubdate(video.pubdate)}` : ""}
+              {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {video.desc || "暂无简介"}
+            </p>
+            {playError && playInfo && (
+              <div className="space-y-1 text-sm text-red-400">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>{playError}</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={handleRefresh}
+                  >
+                    刷新播放器
+                  </Button>
+                </div>
+                {playErrorDetail && (
+                  <p className="break-all font-mono text-xs text-muted-foreground">
+                    {playErrorDetail}
+                  </p>
+                )}
+              </div>
+            )}
 
             <VideoCommentSection
               aid={video.aid}

@@ -242,8 +242,8 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
   const remainingCoins = Math.max(0, 2 - (relation?.coin ?? 0));
 
   return (
-    <div className={cn("space-y-2", className)}>
-      <div className="flex flex-wrap items-center gap-1 sm:gap-3">
+    <div className={cn("shrink-0 space-y-2", className)}>
+      <div className="flex flex-nowrap items-center gap-1 sm:gap-3">
         <button
           type="button"
           disabled={busy === "like"}
