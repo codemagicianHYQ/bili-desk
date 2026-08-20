@@ -2412,6 +2412,36 @@ class BiliApiService {
     return this.normalizeCommentPage(res.data?.data, page, pageSize);
   }
 
+  /** 拉少量热评原文，给收藏整理/推荐夹用 */
+  async getHotCommentTexts(aid: number, limit = 8): Promise<string[]> {
+    if (!Number.isFinite(aid) || aid <= 0) return [];
+    await this.ensureBuvid3();
+    const take = Math.min(20, Math.max(limit, 6));
+
+    const res = await this.client.get("/x/v2/reply", {
+      params: {
+        type: 1,
+        oid: aid,
+        pn: 1,
+        ps: take,
+        sort: 2,
+      },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) return [];
+
+    const page = this.normalizeCommentPage(res.data?.data, 1, take);
+    return page.comments
+      .slice(0, limit)
+      .map((item) => item.content)
+      .filter(Boolean);
+  }
+
   async getCommentReplies(
     aid: number,
     root: number,
@@ -3435,7 +3465,9 @@ class BiliApiService {
   }
 
   /** 一键清除收藏夹里已失效/下架的稿件，对应官网 /x/v3/fav/resource/clean */
-  async cleanFavResources(mediaId: number): Promise<{ cleaned: number | null }> {
+  async cleanFavResources(
+    mediaId: number,
+  ): Promise<{ cleaned: number | null }> {
     const csrf = getCsrf();
     if (!csrf) throw new Error("请先登录后再清除失效内容");
     if (!Number.isFinite(mediaId) || mediaId <= 0) {

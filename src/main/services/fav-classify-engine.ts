@@ -6,6 +6,7 @@ import {
   classifyFavoriteItemsAsync,
   isDumpFolderTitle,
   listDuplicateGeneratedFolderTitles,
+  pickClassifyCommentSnippets,
   resolveBiliOrganizeFolderTitle,
 } from "./fav-classifier";
 import { classifyUpText } from "./up-classifier";
@@ -33,6 +34,7 @@ const DELAY_AFTER_MOVE_MS = 1800;
 const DELAY_AFTER_CREATE_MS = 1400;
 const DELAY_BETWEEN_SOURCE_FOLDERS_MS = 900;
 const DELAY_BETWEEN_LIST_PAGES_MS = 800;
+const DELAY_BETWEEN_COMMENTS_MS = 520;
 const DELAY_PER_ITEM_FALLBACK_MS = 900;
 /** 412 后逐步拉长等待，而不是几秒内连打 */
 const RISK_BACKOFF_MS = [12_000, 30_000, 60_000, 90_000];
@@ -432,7 +434,7 @@ export class FavClassifyEngine {
 
       report({
         progress: 20,
-        message: `本批扫描 ${movable.length} 条，正在按标题、简介和 UP 归类...`,
+        message: `本批扫描 ${movable.length} 条，正在按标题、简介、UP 和热评归类...`,
       });
 
       const folderByTitle = new Map(
@@ -496,9 +498,39 @@ export class FavClassifyEngine {
         else groups.set(targetTitle, [item]);
       };
 
-      for (const item of movable) {
+      let commentsBlocked = false;
+      const loadCommentSnippets = async (aid: number): Promise<string> => {
+        if (commentsBlocked || aid <= 0) return "";
+        try {
+          const texts = await biliApi.getHotCommentTexts(aid, 8);
+          return pickClassifyCommentSnippets(texts);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "";
+          if (message.includes("412") || message.includes("安全策略")) {
+            commentsBlocked = true;
+          }
+          return "";
+        }
+      };
+
+      for (const [index, item] of movable.entries()) {
+        report({
+          progress: Math.min(
+            42,
+            Math.round(20 + ((index + 1) / Math.max(movable.length, 1)) * 22),
+          ),
+          message: commentsBlocked
+            ? `评论接口被风控，改用标题归类（${index + 1}/${movable.length}）...`
+            : `正在读热评并归类（${index + 1}/${movable.length}）...`,
+        });
+
+        const comments = await loadCommentSnippets(item.id);
+        if (!commentsBlocked && item.id > 0 && index < movable.length - 1) {
+          await sleepJitter(DELAY_BETWEEN_COMMENTS_MS);
+        }
+
         const targetTitle = resolveBiliOrganizeFolderTitle(
-          buildFavClassifyText(item),
+          buildFavClassifyText({ ...item, comments }),
           userFolderTitles,
         );
         if (!targetTitle || isDumpFolderTitle(targetTitle)) {
@@ -506,6 +538,7 @@ export class FavClassifyEngine {
           continue;
         }
         assignItem(item, targetTitle);
+        await yieldToEventLoop();
       }
 
       for (const item of unmatched) {

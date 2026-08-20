@@ -225,8 +225,16 @@ export interface EditFavFolderPayload {
   privacy?: 0 | 1;
 }
 
-export interface CleanFavResourcesResult {
-  cleaned: number | null;
+export interface SuggestFavFolderPayload {
+  aid?: number;
+  title: string;
+  intro?: string;
+  ownerName?: string;
+  folderTitles: string[];
+}
+
+export interface SuggestFavFolderResult {
+  title: string;
 }
 
 export interface VideoFavFolder extends FavFolder {
@@ -959,6 +967,9 @@ export interface BiliDeskApi {
     editFavFolder: (payload: EditFavFolderPayload) => Promise<FavFolder>;
     sortFavFolders: (mediaIds: number[]) => Promise<void>;
     getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
+    suggestFavFolder: (
+      payload: SuggestFavFolderPayload,
+    ) => Promise<SuggestFavFolderResult | null>;
     setVideoFavFolders: (
       aid: number,
       addMediaIds: number[],

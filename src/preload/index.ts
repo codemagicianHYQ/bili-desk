@@ -141,6 +141,13 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_SORT, mediaIds),
     getVideoFavFolders: (aid: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_FOLDERS, aid),
+    suggestFavFolder: (payload: {
+      aid?: number;
+      title: string;
+      intro?: string;
+      ownerName?: string;
+      folderTitles: string[];
+    }) => ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_SUGGEST, payload),
     setVideoFavFolders: (
       aid: number,
       addMediaIds: number[],

@@ -37,6 +37,7 @@ export const IPC = {
   BILI_FAV_FOLDER_EDIT: "bili:fav-folder-edit",
   BILI_FAV_FOLDER_SORT: "bili:fav-folder-sort",
   BILI_VIDEO_FAV_FOLDERS: "bili:video-fav-folders",
+  BILI_FAV_FOLDER_SUGGEST: "bili:fav-folder-suggest",
   BILI_VIDEO_FAV_SET: "bili:video-fav-set",
   BILI_FAV_RESOURCES: "bili:fav-resources",
   BILI_FAV_RESOURCES_REMOVE: "bili:fav-resources-remove",

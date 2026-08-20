@@ -1,6 +1,13 @@
 import type { FavFolder } from "../types";
 
 const KNOWN_L1 = new Set(["计算机", "学习", "娱乐", "生活", "AI", "其他"]);
+const L1_DISPLAY_ORDER = ["计算机", "学习", "AI", "生活", "娱乐", "其他"];
+
+/** 侧栏未识别夹的分组名；不是官方收藏夹 */
+export const UNGROUPED_L1 = "未分组";
+/** 用户把夹拖出一级目录后，不再按名字自动归组 */
+export const FLAT_GROUP_OVERRIDE = "__flat__";
+export type FavFolderGroupOverrides = Record<string, string>;
 
 const DEFAULT_TITLES = new Set(["默认收藏夹", "default"]);
 
@@ -187,8 +194,47 @@ function inferAiLeaf(title: string): string {
   return "综合";
 }
 
-/** 短中文词不要误伤「逆向思维」这类生活用语 */
-const SHORT_ZH_FALSE_FRIENDS = /思维|操作|淘汰|选择|宽松/;
+/** 短中文词不要误伤「逆向思维」「正能量」这类生活用语 */
+const SHORT_ZH_FALSE_FRIENDS = /思维|操作|淘汰|选择|宽松|正能量/;
+
+/** 整词匹配的编程语言，避免 go/c 这种短词乱撞 */
+const CS_LANG_WORDS = [
+  "rust",
+  "kotlin",
+  "swift",
+  "scala",
+  "haskell",
+  "ruby",
+  "php",
+  "dart",
+  "julia",
+  "matlab",
+  "lua",
+  "perl",
+  "erlang",
+  "elixir",
+  "zig",
+  "nim",
+  "ocaml",
+  "fortran",
+  "solidity",
+  "groovy",
+  "clojure",
+  "csharp",
+  "cpp",
+  "golang",
+  "nodejs",
+  "wasm",
+  "webassembly",
+];
+
+const CS_LANG_EXACT = new Set(["go", "rust", "c++", "c#", "r", "qt"]);
+
+const COURSE_RE =
+  /opencourse|open\s*course|\bmooc\b|\blecture\b|\bcourses?\b|coursera|\bedx\b|udemy|stanford|harvard|berkeley|cambridge|oxford|\bmit\b|公开课|网课|慕课|讲座|名校/;
+
+const SCIENCE_RE =
+  /脑科学|神经科学|认知科学|心理学|物理学|化学|生物学|天文学|地理学|医学|材料学|量子|核能|新能源|能源|脑机/;
 
 /**
  * 夹名里常见但没写成「计算机-xxx」的技术词。
@@ -248,10 +294,74 @@ const FLEX_TOPIC_BAGS: Array<{ l1: string; keys: string[] }> = [
     ],
   },
   {
+    l1: "学习",
+    keys: [
+      "脑科学",
+      "神经科学",
+      "认知科学",
+      "心理学",
+      "物理学",
+      "化学",
+      "生物学",
+      "天文学",
+      "能源",
+      "能量",
+      "量子",
+      "stanford",
+      "opencourse",
+      "mooc",
+      "公开课",
+    ],
+  },
+  {
+    l1: "生活",
+    keys: [
+      "house",
+      "dreamhouse",
+      "interior",
+      "furniture",
+      "别墅",
+      "室内",
+      "房子",
+      "家居",
+      "装修",
+      "户型",
+      "宠物",
+      "汽车",
+      "摄影",
+      "穿搭",
+      "护肤",
+      "美妆",
+      "母婴",
+      "育儿",
+      "瑜伽",
+      "yoga",
+    ],
+  },
+  {
     l1: "娱乐",
-    keys: ["超自然", "灵异", "未解之谜", "ufo", "鬼故事", "玄学", "奇闻"],
+    keys: [
+      "超自然",
+      "灵异",
+      "未解之谜",
+      "ufo",
+      "鬼故事",
+      "玄学",
+      "奇闻",
+      "综艺",
+      "舞蹈",
+      "番剧",
+      "漫画",
+      "鬼畜",
+    ],
   },
 ];
+
+const HOME_RE =
+  /dreamhouse|dream\s*house|interior|furniture|villa|家居|装修|户型|别墅|室内设计|房子/;
+const LIFE_RE =
+  /宠物|汽车|车评|摄影|穿搭|护肤|美妆|母婴|育儿|瑜伽|\byoga\b|\bfitness\b|减肥/;
+const ENTERTAIN_RE = /综艺|舞蹈|番剧|漫画|鬼畜|沙雕|整活/;
 
 function nameHits(norm: string, compact: string, key: string): boolean {
   const needle = key.toLowerCase();
@@ -293,12 +403,54 @@ function flexTopicHit(compact: string, key: string): boolean {
   return needle.length >= 3 && compact.includes(needle);
 }
 
+function hasLangToken(norm: string, compact: string, lang: string): boolean {
+  if (compact === lang || compact === `${lang}lang`) return true;
+  const escaped = lang.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`);
+  return pattern.test(norm) || pattern.test(compact);
+}
+
+function inferByBroadPattern(
+  title: string,
+  norm: string,
+  compact: string,
+  leaf: string,
+): { l1: string; l2: string } | null {
+  if (CS_LANG_EXACT.has(compact)) {
+    return { l1: "计算机", l2: leaf };
+  }
+  if (CS_LANG_WORDS.some((lang) => hasLangToken(norm, compact, lang))) {
+    return { l1: "计算机", l2: leaf };
+  }
+  if (COURSE_RE.test(norm) || COURSE_RE.test(compact)) {
+    return { l1: "学习", l2: leaf };
+  }
+  if (SCIENCE_RE.test(compact) || compact === "能量") {
+    return { l1: "学习", l2: leaf };
+  }
+  if (HOME_RE.test(norm) || HOME_RE.test(compact)) {
+    return { l1: "生活", l2: leaf };
+  }
+  if (LIFE_RE.test(norm) || LIFE_RE.test(compact)) {
+    return { l1: "生活", l2: leaf };
+  }
+  if (ENTERTAIN_RE.test(compact)) {
+    return { l1: "娱乐", l2: leaf };
+  }
+  return null;
+}
+
 function inferFlexFolderGroup(
   title: string,
 ): { l1: string; l2: string } | null {
   const compact = compactFolderName(title);
+  const norm = normalizeFolderName(title);
   const parts = parseFavFolderPath(title).parts;
   const leaf = parts[parts.length - 1] || title.trim();
+
+  const patterned = inferByBroadPattern(title, norm, compact, leaf);
+  if (patterned) return patterned;
+
   for (const bag of FLEX_TOPIC_BAGS) {
     if (bag.keys.some((key) => flexTopicHit(compact, key))) {
       return { l1: bag.l1, l2: leaf };
@@ -375,7 +527,28 @@ type DescribedFolder = {
   label: string;
 };
 
-function describeFolder(folder: FavFolder): DescribedFolder {
+function describeFolder(
+  folder: FavFolder,
+  overrides: FavFolderGroupOverrides = {},
+): DescribedFolder {
+  const override = overrides[String(folder.id)];
+  if (override === FLAT_GROUP_OVERRIDE) {
+    return {
+      folder,
+      l1: null,
+      l2: folder.title,
+      label: folder.title,
+    };
+  }
+  if (override && override !== UNGROUPED_L1) {
+    return {
+      folder,
+      l1: override,
+      l2: folder.title,
+      label: folder.title,
+    };
+  }
+
   const inferred = inferFavFolderGroup(folder.title);
   if (!inferred) {
     return {
@@ -392,6 +565,11 @@ function describeFolder(folder: FavFolder): DescribedFolder {
     l3: inferred.l3,
     label: inferred.l3 ?? inferred.l2,
   };
+}
+
+function l1DisplayRank(name: string): number {
+  const index = L1_DISPLAY_ORDER.indexOf(name);
+  return index >= 0 ? index : L1_DISPLAY_ORDER.length + 1;
 }
 
 function uniqueLabels(members: DescribedFolder[]): DescribedFolder[] {
@@ -436,7 +614,16 @@ export type FolderNavFlat = {
   label: string;
 };
 
-export type FolderNavBlock = FolderNavL1 | FolderNavOverflow | FolderNavFlat;
+export type FolderNavUngrouped = {
+  kind: "ungrouped";
+  folders: FolderNavItem[];
+};
+
+export type FolderNavBlock =
+  | FolderNavL1
+  | FolderNavOverflow
+  | FolderNavFlat
+  | FolderNavUngrouped;
 
 function isL2Item(item: FolderNavItem | FolderNavL2): item is FolderNavL2 {
   return "kind" in item && item.kind === "l2";
@@ -488,7 +675,7 @@ function buildL1Block(name: string, members: DescribedFolder[]): FolderNavL1 {
 
 export function flattenFolderNavBlock(block: FolderNavBlock): FavFolder[] {
   if (block.kind === "flat") return [block.folder];
-  if (block.kind === "overflow") {
+  if (block.kind === "overflow" || block.kind === "ungrouped") {
     return block.folders.map((item) => item.folder);
   }
   const folders: FavFolder[] = [];
@@ -502,7 +689,10 @@ export function flattenFolderNavBlock(block: FolderNavBlock): FavFolder[] {
   return folders;
 }
 
-export function groupFavFolders(folders: FavFolder[]): {
+export function groupFavFolders(
+  folders: FavFolder[],
+  overrides: FavFolderGroupOverrides = {},
+): {
   pinned: FavFolder[];
   blocks: FolderNavBlock[];
 } {
@@ -512,57 +702,100 @@ export function groupFavFolders(folders: FavFolder[]): {
   const rest = folders.filter(
     (folder) => !folder.isDefault && !isDefaultFolderTitle(folder.title),
   );
-  const described = rest.map(describeFolder);
-  const visited = new Set<number>();
-  const blocks: FolderNavBlock[] = [];
+  const described = rest.map((folder) => describeFolder(folder, overrides));
+  const byL1 = new Map<string, DescribedFolder[]>();
+  const flats: DescribedFolder[] = [];
 
   for (const item of described) {
-    if (visited.has(item.folder.id)) continue;
-
-    if (!item.l1) {
-      visited.add(item.folder.id);
-      blocks.push({
-        kind: "flat",
-        folder: item.folder,
-        label: item.label,
-      });
+    if (!item.l1 || item.l1 === UNGROUPED_L1) {
+      flats.push(item);
       continue;
     }
+    const list = byL1.get(item.l1) ?? [];
+    list.push(item);
+    byL1.set(item.l1, list);
+  }
 
-    const members = described.filter((entry) => entry.l1 === item.l1);
-    for (const entry of members) visited.add(entry.folder.id);
-    blocks.push(buildL1Block(item.l1, members));
+  const l1Names = [...byL1.keys()].sort(
+    (a, b) => l1DisplayRank(a) - l1DisplayRank(b) || a.localeCompare(b, "zh"),
+  );
+  const blocks: FolderNavBlock[] = l1Names.map((name) =>
+    buildL1Block(name, byL1.get(name) ?? []),
+  );
+
+  if (flats.length > 0) {
+    blocks.push({
+      kind: "ungrouped",
+      folders: flats.map((item) => ({
+        folder: item.folder,
+        label: item.label,
+      })),
+    });
   }
 
   return { pinned, blocks };
 }
 
+function blockGroupName(block: FolderNavBlock): string | null {
+  if (block.kind === "l1") return block.name;
+  if (block.kind === "ungrouped") return UNGROUPED_L1;
+  if (block.kind === "overflow") return "其他";
+  return null;
+}
+
+function overrideForGroup(groupName: string | null): string {
+  if (!groupName || groupName === UNGROUPED_L1) return FLAT_GROUP_OVERRIDE;
+  return groupName;
+}
+
 function replaceBlockMembers(
   block: FolderNavBlock,
   members: FavFolder[],
+  overrides: FavFolderGroupOverrides = {},
 ): FolderNavBlock {
+  const described = members.map((folder) => describeFolder(folder, overrides));
   if (block.kind === "flat") {
     const folder = members[0] ?? block.folder;
-    const described = describeFolder(folder);
+    const item = described[0] ?? describeFolder(folder, overrides);
     return {
       kind: "flat",
       folder,
-      label: described.label,
+      label: item.label,
+    };
+  }
+  if (block.kind === "ungrouped") {
+    return {
+      kind: "ungrouped",
+      folders: described.map((item) => ({
+        folder: item.folder,
+        label: item.label,
+      })),
     };
   }
   if (block.kind === "l1") {
-    return buildL1Block(block.name, members.map(describeFolder));
+    return buildL1Block(block.name, described);
   }
-  return buildL1Block("其他", members.map(describeFolder));
+  return buildL1Block("其他", described);
+}
+
+function flattenAllBlocks(
+  pinned: FavFolder[],
+  blocks: FolderNavBlock[],
+): FavFolder[] {
+  return [
+    ...pinned,
+    ...blocks.flatMap((block) => flattenFolderNavBlock(block)),
+  ];
 }
 
 export function reorderGroupedFavFolders(
   folders: FavFolder[],
   fromId: number,
   toId: number,
-): FavFolder[] | null {
+  overrides: FavFolderGroupOverrides = {},
+): { folders: FavFolder[]; overrides: FavFolderGroupOverrides } | null {
   if (fromId === toId) return null;
-  const { pinned, blocks } = groupFavFolders(folders);
+  const { pinned, blocks } = groupFavFolders(folders, overrides);
   const fromBlockIndex = blocks.findIndex((block) =>
     flattenFolderNavBlock(block).some((folder) => folder.id === fromId),
   );
@@ -571,7 +804,9 @@ export function reorderGroupedFavFolders(
   );
   if (fromBlockIndex < 0 || toBlockIndex < 0) return null;
 
+  const nextOverrides = { ...overrides };
   const nextBlocks = [...blocks];
+
   if (fromBlockIndex === toBlockIndex) {
     const members = flattenFolderNavBlock(nextBlocks[fromBlockIndex]);
     const from = members.findIndex((folder) => folder.id === fromId);
@@ -583,16 +818,111 @@ export function reorderGroupedFavFolders(
     nextBlocks[fromBlockIndex] = replaceBlockMembers(
       nextBlocks[fromBlockIndex],
       reordered,
+      nextOverrides,
     );
   } else {
-    const [movedBlock] = nextBlocks.splice(fromBlockIndex, 1);
-    const insertAt =
-      fromBlockIndex < toBlockIndex ? toBlockIndex - 1 : toBlockIndex;
-    nextBlocks.splice(insertAt, 0, movedBlock);
+    const fromMembers = flattenFolderNavBlock(nextBlocks[fromBlockIndex]);
+    const toMembers = flattenFolderNavBlock(nextBlocks[toBlockIndex]);
+    const moved = fromMembers.find((folder) => folder.id === fromId);
+    if (!moved) return null;
+    const nextFrom = fromMembers.filter((folder) => folder.id !== fromId);
+    const insertAt = toMembers.findIndex((folder) => folder.id === toId);
+    const nextTo = [...toMembers];
+    nextTo.splice(insertAt < 0 ? nextTo.length : insertAt, 0, moved);
+
+    nextOverrides[String(fromId)] = overrideForGroup(
+      blockGroupName(nextBlocks[toBlockIndex]),
+    );
+
+    if (nextFrom.length === 0) {
+      nextBlocks.splice(fromBlockIndex, 1);
+      const adjustedTo =
+        fromBlockIndex < toBlockIndex ? toBlockIndex - 1 : toBlockIndex;
+      nextBlocks[adjustedTo] = replaceBlockMembers(
+        nextBlocks[adjustedTo],
+        nextTo,
+        nextOverrides,
+      );
+    } else {
+      nextBlocks[fromBlockIndex] = replaceBlockMembers(
+        nextBlocks[fromBlockIndex],
+        nextFrom,
+        nextOverrides,
+      );
+      nextBlocks[toBlockIndex] = replaceBlockMembers(
+        nextBlocks[toBlockIndex],
+        nextTo,
+        nextOverrides,
+      );
+    }
   }
 
-  return [
-    ...pinned,
-    ...nextBlocks.flatMap((block) => flattenFolderNavBlock(block)),
-  ];
+  return {
+    folders: flattenAllBlocks(pinned, nextBlocks),
+    overrides: nextOverrides,
+  };
+}
+
+export function moveFavFolderIntoGroup(
+  folders: FavFolder[],
+  fromId: number,
+  groupName: string,
+  overrides: FavFolderGroupOverrides = {},
+): { folders: FavFolder[]; overrides: FavFolderGroupOverrides } | null {
+  const { pinned, blocks } = groupFavFolders(folders, overrides);
+  const fromBlockIndex = blocks.findIndex((block) =>
+    flattenFolderNavBlock(block).some((folder) => folder.id === fromId),
+  );
+  if (fromBlockIndex < 0) return null;
+
+  const fromMembers = flattenFolderNavBlock(blocks[fromBlockIndex]);
+  const moved = fromMembers.find((folder) => folder.id === fromId);
+  if (!moved) return null;
+  if (blockGroupName(blocks[fromBlockIndex]) === groupName) return null;
+
+  const nextOverrides = {
+    ...overrides,
+    [String(fromId)]: overrideForGroup(groupName),
+  };
+  const nextFrom = fromMembers.filter((folder) => folder.id !== fromId);
+  const nextBlocks = [...blocks];
+
+  if (nextFrom.length === 0) {
+    nextBlocks.splice(fromBlockIndex, 1);
+  } else {
+    nextBlocks[fromBlockIndex] = replaceBlockMembers(
+      nextBlocks[fromBlockIndex],
+      nextFrom,
+      nextOverrides,
+    );
+  }
+
+  const targetIndex = nextBlocks.findIndex(
+    (block) => blockGroupName(block) === groupName,
+  );
+  if (targetIndex >= 0) {
+    const targetMembers = [
+      ...flattenFolderNavBlock(nextBlocks[targetIndex]),
+      moved,
+    ];
+    nextBlocks[targetIndex] = replaceBlockMembers(
+      nextBlocks[targetIndex],
+      targetMembers,
+      nextOverrides,
+    );
+  } else if (groupName === UNGROUPED_L1) {
+    nextBlocks.push({
+      kind: "ungrouped",
+      folders: [{ folder: moved, label: moved.title }],
+    });
+  } else {
+    nextBlocks.push(
+      buildL1Block(groupName, [describeFolder(moved, nextOverrides)]),
+    );
+  }
+
+  return {
+    folders: flattenAllBlocks(pinned, nextBlocks),
+    overrides: nextOverrides,
+  };
 }

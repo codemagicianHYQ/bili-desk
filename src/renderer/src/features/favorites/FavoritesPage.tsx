@@ -31,7 +31,15 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Link } from "react-router-dom";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn, formatDuration } from "@/lib/utils";
-import { reorderGroupedFavFolders } from "@shared/utils/fav-folder-groups";
+import {
+  moveFavFolderIntoGroup,
+  reorderGroupedFavFolders,
+  type FavFolderGroupOverrides,
+} from "@shared/utils/fav-folder-groups";
+import {
+  loadFavFolderGroupOverrides,
+  saveFavFolderGroupOverrides,
+} from "@/lib/fav-folder-group-overrides";
 import {
   Check,
   Eraser,
@@ -226,6 +234,10 @@ export function FavoritesPage() {
   const [organizeConfirmOpen, setOrganizeConfirmOpen] = useState(false);
   const [draggingFolderId, setDraggingFolderId] = useState<number | null>(null);
   const [dropFolderId, setDropFolderId] = useState<number | null>(null);
+  const [dropGroupName, setDropGroupName] = useState<string | null>(null);
+  const [groupOverrides, setGroupOverrides] = useState<FavFolderGroupOverrides>(
+    () => loadFavFolderGroupOverrides(),
+  );
   const [sortError, setSortError] = useState("");
   const dragFolderIdRef = useRef<number | null>(null);
   const folderDraggedRef = useRef(false);
@@ -703,6 +715,11 @@ export function FavoritesPage() {
     setDraggingFolderId(folderId);
   };
 
+  const persistGroupOverrides = (next: FavFolderGroupOverrides) => {
+    setGroupOverrides(next);
+    saveFavFolderGroupOverrides(next);
+  };
+
   const handleFolderDragOver = (
     event: DragEvent<HTMLDivElement>,
     folderId: number,
@@ -715,7 +732,19 @@ export function FavoritesPage() {
       return;
     }
     folderDraggedRef.current = true;
+    setDropGroupName(null);
     setDropFolderId(folderId);
+  };
+
+  const handleGroupDragOver = (
+    event: DragEvent<HTMLElement>,
+    groupName: string,
+  ) => {
+    event.preventDefault();
+    if (dragFolderIdRef.current == null) return;
+    folderDraggedRef.current = true;
+    setDropFolderId(null);
+    setDropGroupName(groupName);
   };
 
   const handleFolderDrop = (folderId: number) => {
@@ -723,18 +752,46 @@ export function FavoritesPage() {
     dragFolderIdRef.current = null;
     setDraggingFolderId(null);
     setDropFolderId(null);
+    setDropGroupName(null);
     unlockFolderClicksSoon();
     if (fromId == null || fromId === folderId) return;
 
-    const next = reorderGroupedFavFolders(folders, fromId, folderId);
+    const next = reorderGroupedFavFolders(
+      folders,
+      fromId,
+      folderId,
+      groupOverrides,
+    );
     if (!next) return;
-    void persistFolderOrder(next);
+    persistGroupOverrides(next.overrides);
+    void persistFolderOrder(next.folders);
+  };
+
+  const handleGroupDrop = (groupName: string) => {
+    const fromId = dragFolderIdRef.current;
+    dragFolderIdRef.current = null;
+    setDraggingFolderId(null);
+    setDropFolderId(null);
+    setDropGroupName(null);
+    unlockFolderClicksSoon();
+    if (fromId == null) return;
+
+    const next = moveFavFolderIntoGroup(
+      folders,
+      fromId,
+      groupName,
+      groupOverrides,
+    );
+    if (!next) return;
+    persistGroupOverrides(next.overrides);
+    void persistFolderOrder(next.folders);
   };
 
   const handleFolderDragEnd = () => {
     dragFolderIdRef.current = null;
     setDraggingFolderId(null);
     setDropFolderId(null);
+    setDropGroupName(null);
     unlockFolderClicksSoon();
   };
 
@@ -829,7 +886,7 @@ export function FavoritesPage() {
           <p className="text-xs text-muted-foreground">
             {isLocalMode
               ? "按标题打分归类，计算机会分到前端 / 后端 / AI 等方向；全量分类会重建本地目录"
-              : "侧栏会按夹名灵活归到计算机 / 学习 / AI 等（量化、逆向、爬虫、机器学习也会进去）。官方收藏夹仍是平铺的。夹子右侧可编辑名称、一键清失效。每次约 100 条。"}
+              : "会扫一遍夹名：语言/公开课/学科/家居等自动归到计算机、学习、AI、生活。一级目录在上面，认不出的在底部「未分组」。可把夹拖进某个一级目录。官方仍是平铺。"}
           </p>
           <Button
             type="button"
@@ -875,9 +932,11 @@ export function FavoritesPage() {
               )}
               <FavFolderGroupedNav
                 folders={folders}
+                groupOverrides={groupOverrides}
                 selectedFolder={selectedFolder}
                 draggingFolderId={draggingFolderId}
                 dropFolderId={dropFolderId}
+                dropGroupName={dropGroupName}
                 onSelect={handleSelectFolder}
                 onDragStart={(event, folder) => {
                   event.dataTransfer.effectAllowed = "move";
@@ -890,6 +949,13 @@ export function FavoritesPage() {
                 }}
                 onDrop={(_event, folderId) => {
                   handleFolderDrop(folderId);
+                }}
+                onDragOverGroup={(event, groupName) => {
+                  event.dataTransfer.dropEffect = "move";
+                  handleGroupDragOver(event, groupName);
+                }}
+                onDropOnGroup={(_event, groupName) => {
+                  handleGroupDrop(groupName);
                 }}
                 onDragEnd={handleFolderDragEnd}
                 onEdit={(folder) => {
@@ -1154,7 +1220,7 @@ export function FavoritesPage() {
       <ConfirmDialog
         open={organizeConfirmOpen}
         title="整理一批收藏？"
-        description="每次只扫描大约 120 条、最多搬走 100 条。会优先放进你已经建好的收藏夹，不重复新建「计算机-算法」这种夹。已经误建的同类夹，整理时会往你原来的夹里并。隔几分钟再点一次继续。此操作会同步到官方账号。"
+        description="每次只扫描大约 120 条、最多搬走 100 条。会看标题、简介、UP，再读几条热评辅助分类。优先放进已有收藏夹。隔几分钟再点一次继续。此操作会同步到官方账号。"
         confirmLabel="整理这一批"
         loading={classifying}
         onConfirm={() => void handleOrganizeBiliFolders()}

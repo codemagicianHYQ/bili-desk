@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import type { FavFolder } from "@shared/types";
 import {
   groupFavFolders,
+  UNGROUPED_L1,
+  type FavFolderGroupOverrides,
   type FolderNavBlock,
   type FolderNavItem,
   type FolderNavL2,
@@ -18,13 +20,17 @@ import {
 
 interface FavFolderGroupedNavProps {
   folders: FavFolder[];
+  groupOverrides?: FavFolderGroupOverrides;
   selectedFolder: number | null;
   draggingFolderId: number | null;
   dropFolderId: number | null;
+  dropGroupName: string | null;
   onSelect: (folderId: number) => void;
   onDragStart: (event: DragEvent<HTMLDivElement>, folder: FavFolder) => void;
   onDragOver: (event: DragEvent<HTMLDivElement>, folderId: number) => void;
   onDrop: (event: DragEvent<HTMLDivElement>, folderId: number) => void;
+  onDragOverGroup: (event: DragEvent<HTMLElement>, groupName: string) => void;
+  onDropOnGroup: (event: DragEvent<HTMLElement>, groupName: string) => void;
   onDragEnd: () => void;
   shouldIgnoreClick: () => boolean;
   onEdit: (folder: FavFolder) => void;
@@ -41,20 +47,29 @@ function SectionRule({
   collapsed,
   onToggle,
   nested = false,
+  dropActive = false,
+  onDragOver,
+  onDrop,
 }: {
   title: string;
   count: number;
   collapsed: boolean;
   onToggle: () => void;
   nested?: boolean;
+  dropActive?: boolean;
+  onDragOver?: (event: DragEvent<HTMLButtonElement>) => void;
+  onDrop?: (event: DragEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <button
       type="button"
       onClick={onToggle}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       className={cn(
-        "flex w-full items-center gap-2 py-1.5 text-left",
+        "flex w-full items-center gap-2 rounded-md py-1.5 text-left",
         nested ? "pl-3 pr-1" : "px-1",
+        dropActive && "bg-primary/10 ring-1 ring-primary/70",
       )}
     >
       <ChevronDown
@@ -81,19 +96,23 @@ function SectionRule({
 
 export function FavFolderGroupedNav({
   folders,
+  groupOverrides = {},
   selectedFolder,
   draggingFolderId,
   dropFolderId,
+  dropGroupName,
   onSelect,
   onDragStart,
   onDragOver,
   onDrop,
+  onDragOverGroup,
+  onDropOnGroup,
   onDragEnd,
   shouldIgnoreClick,
   onEdit,
   onCleanInvalid,
 }: FavFolderGroupedNavProps) {
-  const { pinned, blocks } = groupFavFolders(folders);
+  const { pinned, blocks } = groupFavFolders(folders, groupOverrides);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [menuFolderId, setMenuFolderId] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -263,6 +282,43 @@ export function FavFolderGroupedNav({
       );
     }
 
+    if (block.kind === "ungrouped") {
+      const count = block.folders.reduce(
+        (sum, item) => sum + item.folder.mediaCount,
+        0,
+      );
+      const l1Collapsed = collapsed.has(`l1:${UNGROUPED_L1}`);
+      return (
+        <div key="ungrouped" className="pt-1">
+          <SectionRule
+            title={UNGROUPED_L1}
+            count={count}
+            collapsed={l1Collapsed}
+            onToggle={() => {
+              if (shouldIgnoreClick()) return;
+              toggle(`l1:${UNGROUPED_L1}`);
+            }}
+            dropActive={dropGroupName === UNGROUPED_L1}
+            onDragOver={(event) => {
+              event.preventDefault();
+              onDragOverGroup(event, UNGROUPED_L1);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              onDropOnGroup(event, UNGROUPED_L1);
+            }}
+          />
+          {!l1Collapsed && (
+            <div className="space-y-0.5">
+              {block.folders.map((item) =>
+                renderFolderRow(item, { canDrag: true, nested: true }),
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     const l1Key = `l1:${block.name}`;
     const l1Collapsed = collapsed.has(l1Key);
     return (
@@ -272,6 +328,15 @@ export function FavFolderGroupedNav({
           count={block.totalCount}
           collapsed={l1Collapsed}
           onToggle={() => toggle(l1Key)}
+          dropActive={dropGroupName === block.name}
+          onDragOver={(event) => {
+            event.preventDefault();
+            onDragOverGroup(event, block.name);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            onDropOnGroup(event, block.name);
+          }}
         />
         {!l1Collapsed && (
           <div className="space-y-0.5">

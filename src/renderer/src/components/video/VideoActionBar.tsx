@@ -513,6 +513,9 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
 
         <VideoFavButton
           aid={video.aid}
+          title={video.title}
+          intro={video.desc}
+          ownerName={video.owner.name}
           count={favoriteCount}
           appearance="toolbar"
           collected={relation?.favorited}

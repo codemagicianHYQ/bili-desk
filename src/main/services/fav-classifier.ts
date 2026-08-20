@@ -639,6 +639,9 @@ const FOLDER_TOPIC_ALIASES: string[][] = [
   ["量化", "量化交易", "quant", "量化投资"],
   ["逆向", "逆向工程", "反编译", "二进制"],
   ["爬虫", "scrapy", "selenium", "crawler"],
+  ["rust", "rustlang", "rust语言"],
+  ["脑科学", "神经科学", "认知科学"],
+  ["公开课", "opencourse", "mooc", "stanford"],
   ["数据库", "mysql", "redis", "sql"],
   ["操作系统", "os", "linux内核"],
   ["计算机网络", "网络", "tcp"],
@@ -827,10 +830,7 @@ function existingFolderHintScore(
   ) {
     score += 22;
   }
-  if (
-    /量化/.test(folder) &&
-    /量化|quant|回测|因子|cta/.test(video)
-  ) {
+  if (/量化/.test(folder) && /量化|quant|回测|因子|cta/.test(video)) {
     score += 22;
   }
   if (
@@ -840,10 +840,7 @@ function existingFolderHintScore(
   ) {
     score += 22;
   }
-  if (
-    /爬虫/.test(folder) &&
-    /爬虫|scrapy|selenium|crawler/.test(video)
-  ) {
+  if (/爬虫/.test(folder) && /爬虫|scrapy|selenium|crawler/.test(video)) {
     score += 22;
   }
 
@@ -894,11 +891,40 @@ export function buildFavClassifyText(item: {
   title: string;
   intro?: string;
   upper?: { name?: string };
+  comments?: string;
 }): string {
-  return [item.title, item.intro ?? "", item.upper?.name ?? ""]
+  return [
+    item.title,
+    item.intro ?? "",
+    item.upper?.name ?? "",
+    item.comments ?? "",
+  ]
     .map((part) => part.trim())
     .filter(Boolean)
     .join("\n");
+}
+
+const COMMENT_JUNK_RE =
+  /^(前排|打卡|来了|哈哈+|好+|第一|沙发|镇楼|awsl|kksk|牛+|6+|神+|坐等)+[!！.~。…]*$/i;
+const COMMENT_AD_RE = /加群|私聊|优惠券|免费领|求关注|互粉|v信|微信|淘宝/;
+
+/** 热评里去掉水评/广告，只留对分类有用的几句 */
+export function pickClassifyCommentSnippets(messages: string[]): string {
+  const picked: string[] = [];
+  let total = 0;
+  for (const raw of messages) {
+    const text = raw
+      .replace(/\[[^\]]{1,24}\]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text.length < 4 || text.length > 80) continue;
+    if (COMMENT_JUNK_RE.test(text) || COMMENT_AD_RE.test(text)) continue;
+    if (/^[\p{P}\p{S}\s0-9]+$/u.test(text)) continue;
+    picked.push(text);
+    total += text.length;
+    if (picked.length >= 8 || total >= 360) break;
+  }
+  return picked.join("\n");
 }
 
 export function preferredBiliOrganizeTitle(title: string): string | null {
@@ -949,17 +975,47 @@ export function resolveBiliOrganizeFolderTitle(
   const extraAliases =
     matched.l2 === "社会人文" ? ["历史人文", "社会人文", "人文"] : [];
   const aliases = [preferred, matched.l2, matched.l3, ...extraAliases].filter(
-    (name): name is string =>
-      Boolean(name) &&
-      name.length <= BILI_FOLDER_TITLE_MAX &&
-      !BILI_DEFAULT_FOLDER_TITLES.has(name.toLowerCase()) &&
-      !isDumpFolderTitle(name),
+    (name): name is string => {
+      if (!name) return false;
+      return (
+        name.length <= BILI_FOLDER_TITLE_MAX &&
+        !BILI_DEFAULT_FOLDER_TITLES.has(name.toLowerCase()) &&
+        !isDumpFolderTitle(name)
+      );
+    },
   );
 
   for (const name of aliases) {
     if (existing.includes(name)) return name;
   }
   return preferred;
+}
+
+/** 只推荐用户已经有的夹，不建议新建「计算机-人工智能」这种名字 */
+export function suggestExistingFavFolderTitle(
+  title: string,
+  existingTitles: Iterable<string>,
+): string | null {
+  const existing = [
+    ...new Set(
+      [...existingTitles]
+        .map((name) => name.trim())
+        .filter(
+          (name) =>
+            name.length > 0 &&
+            !BILI_DEFAULT_FOLDER_TITLES.has(name.toLowerCase()) &&
+            !isDumpFolderTitle(name),
+        ),
+    ),
+  ];
+  const resolved = resolveBiliOrganizeFolderTitle(title, existing);
+  if (!resolved) return null;
+  return (
+    existing.find(
+      (name) =>
+        name === resolved || name.toLowerCase() === resolved.toLowerCase(),
+    ) ?? null
+  );
 }
 
 function buildAssignment(item: FavResource, match: CategoryMatch) {

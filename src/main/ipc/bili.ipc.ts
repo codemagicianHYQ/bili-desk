@@ -5,10 +5,16 @@ import type {
   SearchOrder,
   SearchUserOrder,
   SearchUserTypeFilter,
+  SuggestFavFolderPayload,
   UpVideosOrder,
   UserRelationListType,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
+import {
+  buildFavClassifyText,
+  pickClassifyCommentSnippets,
+  suggestExistingFavFolderTitle,
+} from "../services/fav-classifier";
 import { fetchMediaRange } from "../services/media-proxy";
 import { handleIpc } from "./safe-handler";
 
@@ -127,6 +133,32 @@ export function registerBiliIpc(): void {
   );
   ipcMain.handle(IPC.BILI_VIDEO_FAV_FOLDERS, (_e, aid: number) =>
     biliApi.getVideoFavFolders(aid),
+  );
+  ipcMain.handle(
+    IPC.BILI_FAV_FOLDER_SUGGEST,
+    async (_e, payload: SuggestFavFolderPayload) => {
+      let comments = "";
+      const aid = Number(payload?.aid);
+      if (Number.isFinite(aid) && aid > 0) {
+        try {
+          const texts = await biliApi.getHotCommentTexts(aid, 8);
+          comments = pickClassifyCommentSnippets(texts);
+        } catch {
+          comments = "";
+        }
+      }
+      const text = buildFavClassifyText({
+        title: payload?.title ?? "",
+        intro: payload?.intro,
+        upper: { name: payload?.ownerName },
+        comments,
+      });
+      const title = suggestExistingFavFolderTitle(
+        text,
+        payload?.folderTitles ?? [],
+      );
+      return title ? { title } : null;
+    },
   );
   ipcMain.handle(
     IPC.BILI_VIDEO_FAV_SET,
