@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import type { FavResource, LocalCategorySelection } from "@shared/types";
 import { useFavoritesStore } from "@/stores/favorites-store";
 import {
@@ -19,6 +26,7 @@ import {
   Check,
   Folder,
   FolderInput,
+  GripVertical,
   Loader2,
   Sparkles,
   Trash2,
@@ -31,7 +39,7 @@ type SidebarMode = "bilibili" | "local";
 function formatFolderError(err: unknown): string {
   const message = extractIpcErrorMessage(err) || "加载失败";
   if (message.includes("412") || message.includes("安全策略")) {
-    return "请求被 B 站安全策略拦截，请稍后重试";
+    return "请求太密，被 B 站风控拦了。请等 1～2 分钟再打开这个收藏夹";
   }
   return message;
 }
@@ -169,10 +177,16 @@ export function FavoritesPage() {
   const invalidateTaxonomy = useFavoritesStore(
     (state) => state.invalidateTaxonomy,
   );
+  const invalidateFolders = useFavoritesStore(
+    (state) => state.invalidateFolders,
+  );
+  const setFolders = useFavoritesStore((state) => state.setFolders);
   const patchFolderCounts = useFavoritesStore(
     (state) => state.patchFolderCounts,
   );
   const refreshVersion = useFavoritesStore((state) => state.refreshVersion);
+  const foldersRef = useRef(folders);
+  foldersRef.current = folders;
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("bilibili");
   const [resources, setResources] = useState<FavResource[]>([]);
@@ -198,6 +212,12 @@ export function FavoritesPage() {
   const [batchRemoving, setBatchRemoving] = useState(false);
   const [batchMoving, setBatchMoving] = useState(false);
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [organizeConfirmOpen, setOrganizeConfirmOpen] = useState(false);
+  const [draggingFolderId, setDraggingFolderId] = useState<number | null>(null);
+  const [dropFolderId, setDropFolderId] = useState<number | null>(null);
+  const [sortError, setSortError] = useState("");
+  const dragFolderIdRef = useRef<number | null>(null);
+  const folderDraggedRef = useRef(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [actionError, setActionError] = useState("");
   const [moveError, setMoveError] = useState("");
@@ -234,6 +254,7 @@ export function FavoritesPage() {
         setFolderLoadingMore(true);
       } else {
         setFolderLoading(true);
+        setListReady(false);
         setFolderError("");
         setResources([]);
         setFolderPage(1);
@@ -241,11 +262,28 @@ export function FavoritesPage() {
       }
 
       try {
-        const result = await window.biliDesk.bili.getFavResources(
+        let result = await window.biliDesk.bili.getFavResources(
           mediaId,
           page,
         );
         if (seq !== folderLoadSeqRef.current) return;
+
+        const expected =
+          foldersRef.current.find((folder) => folder.id === mediaId)
+            ?.mediaCount ?? 0;
+        if (!append && result.resources.length === 0 && expected > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          if (seq !== folderLoadSeqRef.current) return;
+          result = await window.biliDesk.bili.getFavResources(mediaId, page);
+          if (seq !== folderLoadSeqRef.current) return;
+          if (result.resources.length === 0) {
+            setResources([]);
+            setFolderPage(1);
+            setFolderHasMore(false);
+            setFolderError("收藏夹有视频但未能加载，请点击重试");
+            return;
+          }
+        }
 
         setResources((prev) =>
           append ? [...prev, ...result.resources] : result.resources,
@@ -492,17 +530,11 @@ export function FavoritesPage() {
 
   const clearSelection = () => setSelectedIds(new Set());
 
-  const handleClassifyAll = async () => {
-    setClassifying(true);
-    setClassifyMessage("正在启动分类任务...");
-    setClassifyProgress(0);
-
-    try {
-      const { taskId } = await window.biliDesk.taxonomy.classifyAllFavorites();
-
-      await new Promise<void>((resolve, reject) => {
-        if (classifyPollRef.current) clearInterval(classifyPollRef.current);
-        const poll = setInterval(async () => {
+  const waitForFavTask = (taskId: number) =>
+    new Promise<void>((resolve, reject) => {
+      if (classifyPollRef.current) clearInterval(classifyPollRef.current);
+      const poll = setInterval(() => {
+        void (async () => {
           try {
             const task =
               await window.biliDesk.taxonomy.getFavTaskStatus(taskId);
@@ -516,9 +548,6 @@ export function FavoritesPage() {
               if (classifyPollRef.current === poll) {
                 classifyPollRef.current = null;
               }
-              invalidateTaxonomy();
-              await reloadTaxonomy();
-              void enrichCoversOnce();
               if (task.status === "failed") {
                 reject(new Error(task.message));
               } else {
@@ -532,9 +561,22 @@ export function FavoritesPage() {
             }
             reject(err);
           }
-        }, 500);
-        classifyPollRef.current = poll;
-      });
+        })();
+      }, 500);
+      classifyPollRef.current = poll;
+    });
+
+  const handleClassifyAll = async () => {
+    setClassifying(true);
+    setClassifyMessage("正在启动分类任务...");
+    setClassifyProgress(0);
+
+    try {
+      const { taskId } = await window.biliDesk.taxonomy.classifyAllFavorites();
+      await waitForFavTask(taskId);
+      invalidateTaxonomy();
+      await reloadTaxonomy();
+      void enrichCoversOnce();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "分类失败，请确认已登录";
@@ -546,6 +588,93 @@ export function FavoritesPage() {
     } finally {
       setClassifying(false);
     }
+  };
+
+  const handleOrganizeBiliFolders = async () => {
+    setOrganizeConfirmOpen(false);
+    setClassifying(true);
+    setClassifyMessage("正在启动整理任务...");
+    setClassifyProgress(0);
+
+    try {
+      const { taskId } = await window.biliDesk.taxonomy.organizeBiliFavorites();
+      await waitForFavTask(taskId);
+      invalidateFolders();
+      await ensureFolders({ force: true });
+      if (selectedFolder != null) {
+        await loadFolderPage(selectedFolder, 1, false);
+      }
+    } catch (err) {
+      setClassifyMessage(
+        err instanceof Error ? err.message : "整理失败，请确认已登录",
+      );
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  const persistFolderOrder = async (ordered: typeof folders) => {
+    setFolders(ordered);
+    setSortError("");
+    try {
+      await window.biliDesk.bili.sortFavFolders(
+        ordered.map((folder) => folder.id),
+      );
+    } catch (err) {
+      await ensureFolders({ force: true });
+      const message = extractIpcErrorMessage(err) || "排序失败";
+      setSortError(
+        message.includes("412") || message.includes("安全策略")
+          ? "请求太密，请稍后再拖动排序"
+          : message,
+      );
+    }
+  };
+
+  const handleFolderDragStart = (folderId: number) => {
+    dragFolderIdRef.current = folderId;
+    folderDraggedRef.current = false;
+    setDraggingFolderId(folderId);
+  };
+
+  const handleFolderDragOver = (
+    event: DragEvent<HTMLDivElement>,
+    folderId: number,
+  ) => {
+    event.preventDefault();
+    if (
+      dragFolderIdRef.current == null ||
+      dragFolderIdRef.current === folderId
+    ) {
+      return;
+    }
+    folderDraggedRef.current = true;
+    setDropFolderId(folderId);
+  };
+
+  const handleFolderDrop = (folderId: number) => {
+    const fromId = dragFolderIdRef.current;
+    dragFolderIdRef.current = null;
+    setDraggingFolderId(null);
+    setDropFolderId(null);
+    if (fromId == null || fromId === folderId) return;
+
+    const pinned = folders.filter((folder) => folder.isDefault);
+    const rest = folders.filter((folder) => !folder.isDefault);
+    const from = rest.findIndex((folder) => folder.id === fromId);
+    const to = rest.findIndex((folder) => folder.id === folderId);
+    if (from < 0 || to < 0) return;
+
+    const next = [...rest];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    void persistFolderOrder([...pinned, ...next]);
+  };
+
+  const handleFolderDragEnd = () => {
+    dragFolderIdRef.current = null;
+    setDraggingFolderId(null);
+    setDropFolderId(null);
   };
 
   const handleRename = async (
@@ -560,6 +689,7 @@ export function FavoritesPage() {
   };
 
   const selectedFolderInfo = folders.find((f) => f.id === selectedFolder);
+  const folderMediaCount = selectedFolderInfo?.mediaCount ?? 0;
 
   const showListLoading = isLocalMode
     ? !taxonomyReady
@@ -608,64 +738,132 @@ export function FavoritesPage() {
           </div>
         </div>
 
-        {isLocalMode && (
-          <div className="space-y-2 border-b border-border p-3">
-            <p className="text-xs text-muted-foreground">
-              按标题智能归类，全量分类会重建本地目录
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="w-full gap-1.5"
-              disabled={classifying}
-              onClick={() => void handleClassifyAll()}
-            >
-              {classifying ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              智能分类全部收藏
-            </Button>
-            {classifyMessage && (
-              <p className="text-xs text-muted-foreground">{classifyMessage}</p>
+        <div className="space-y-2 border-b border-border p-3">
+          <p className="text-xs text-muted-foreground">
+            {isLocalMode
+              ? "按标题打分归类，计算机会分到前端 / 后端 / AI 等方向；全量分类会重建本地目录"
+              : "每次约 100 条。会优先放进你已经建好的夹（例如「算法与数据结构」），不再重复新建「计算机-算法」。被风控就隔几分钟再点"}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="w-full gap-1.5"
+            disabled={classifying}
+            onClick={() => {
+              if (isLocalMode) {
+                void handleClassifyAll();
+                return;
+              }
+              setOrganizeConfirmOpen(true);
+            }}
+          >
+            {classifying ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
             )}
-            {classifying && classifyProgress > 0 && (
-              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-300"
-                  style={{ width: `${classifyProgress}%` }}
-                />
-              </div>
-            )}
-          </div>
-        )}
+            {isLocalMode ? "智能分类全部收藏" : "智能整理一批（约 100 条）"}
+          </Button>
+          {classifyMessage && (
+            <p className="text-xs text-muted-foreground">{classifyMessage}</p>
+          )}
+          {classifying && classifyProgress > 0 && (
+            <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${classifyProgress}%` }}
+              />
+            </div>
+          )}
+        </div>
 
         <div className="scrollbar-none flex-1 overflow-y-auto p-2">
           {sidebarMode === "bilibili" ? (
             <div className="space-y-0.5">
-              {folders.map((folder) => (
-                <button
-                  key={folder.id}
-                  type="button"
-                  onClick={() => handleSelectFolder(folder.id)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                    selectedFolder === folder.id
-                      ? "bg-primary/10 text-primary"
-                      : "text-foreground hover:bg-secondary",
-                  )}
-                >
-                  <Folder className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">
-                    {folder.title}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {folder.mediaCount}
-                  </span>
-                </button>
-              ))}
+              {sortError && (
+                <p className="px-1 pb-1 text-[11px] text-red-400">
+                  {sortError}
+                </p>
+              )}
+              {folders.map((folder) => {
+                const canDrag = !folder.isDefault;
+                const dragging = draggingFolderId === folder.id;
+                const dropTarget =
+                  dropFolderId === folder.id &&
+                  draggingFolderId != null &&
+                  draggingFolderId !== folder.id;
+                return (
+                  <div
+                    key={folder.id}
+                    draggable={canDrag}
+                    onDragStart={(event) => {
+                      if (!canDrag) {
+                        event.preventDefault();
+                        return;
+                      }
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData(
+                        "text/plain",
+                        String(folder.id),
+                      );
+                      handleFolderDragStart(folder.id);
+                    }}
+                    onDragOver={(event) => {
+                      if (!canDrag) return;
+                      event.dataTransfer.dropEffect = "move";
+                      handleFolderDragOver(event, folder.id);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (!canDrag) return;
+                      handleFolderDrop(folder.id);
+                    }}
+                    onDragEnd={handleFolderDragEnd}
+                    className={cn(
+                      "flex items-center gap-0.5 rounded-lg",
+                      dragging && "bg-primary/20 text-primary opacity-90",
+                      dropTarget && "ring-1 ring-primary/70 bg-primary/10",
+                      !dragging &&
+                        !dropTarget &&
+                        selectedFolder === folder.id &&
+                        "bg-primary/10 text-primary",
+                      !dragging &&
+                        !dropTarget &&
+                        selectedFolder !== folder.id &&
+                        "text-foreground hover:bg-secondary",
+                    )}
+                  >
+                    {canDrag ? (
+                      <span
+                        className="flex h-8 w-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                        title="拖动排序"
+                        aria-hidden
+                      >
+                        <GripVertical className="h-3.5 w-3.5" />
+                      </span>
+                    ) : (
+                      <span className="w-5 shrink-0" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (folderDraggedRef.current) return;
+                        handleSelectFolder(folder.id);
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-2 text-left text-sm"
+                    >
+                      <Folder className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {folder.title}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {folder.mediaCount}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
               {folders.length === 0 && (
                 <p className="px-2 py-4 text-center text-xs text-muted-foreground">
                   登录后可同步 B 站收藏夹
@@ -814,13 +1012,34 @@ export function FavoritesPage() {
               ))}
 
               {displayItems.length === 0 && (
-                <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
-                  {isLocalMode
-                    ? assignments.length === 0
+                isLocalMode ? (
+                  <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                    {assignments.length === 0
                       ? "暂无本地分类数据，请先点击「智能分类全部收藏」"
-                      : "该分类下暂无视频"
-                    : folderError || "该收藏夹暂无视频"}
-                </p>
+                      : "该分类下暂无视频"}
+                  </p>
+                ) : folderError || folderMediaCount > 0 ? (
+                  <div className="col-span-full flex flex-col items-center gap-3 py-8 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      {folderError || "收藏夹有视频但未能加载"}
+                    </p>
+                    {selectedFolder != null && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          void loadFolderPage(selectedFolder, 1, false);
+                        }}
+                      >
+                        重新加载
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                    该收藏夹暂无视频
+                  </p>
+                )
               )}
             </div>
           )}
@@ -853,6 +1072,18 @@ export function FavoritesPage() {
         onConfirm={() => void handleBatchRemove()}
         onCancel={() => {
           if (!batchRemoving) setBatchConfirmOpen(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={organizeConfirmOpen}
+        title="整理一批收藏？"
+        description="每次只扫描大约 120 条、最多搬走 100 条。会优先放进你已经建好的收藏夹，不重复新建「计算机-算法」这种夹。已经误建的同类夹，整理时会往你原来的夹里并。隔几分钟再点一次继续。此操作会同步到官方账号。"
+        confirmLabel="整理这一批"
+        loading={classifying}
+        onConfirm={() => void handleOrganizeBiliFolders()}
+        onCancel={() => {
+          if (!classifying) setOrganizeConfirmOpen(false);
         }}
       />
 

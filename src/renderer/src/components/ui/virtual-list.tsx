@@ -111,7 +111,11 @@ export function VirtualList<T>({
   const visible = useMemo(() => items.slice(start, end), [items, start, end]);
 
   return (
-    <div ref={anchorRef} className={className}>
+    <div
+      ref={anchorRef}
+      className={className}
+      style={{ overflowAnchor: "none" }}
+    >
       <div style={{ height: topSpacer }} aria-hidden />
       {visible.map((item, offset) => {
         const index = start + offset;

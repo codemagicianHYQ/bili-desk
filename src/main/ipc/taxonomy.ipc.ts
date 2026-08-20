@@ -29,6 +29,10 @@ export function registerTaxonomyIpc(): void {
     const taskId = favClassifyEngine.startClassifyFolder(mediaId)
     return { taskId }
   })
+  ipcMain.handle(IPC.TAXONOMY_FAV_ORGANIZE_BILI, () => {
+    const taskId = favClassifyEngine.startOrganizeBiliFolders()
+    return { taskId }
+  })
   ipcMain.handle(IPC.TAXONOMY_FAV_TASK_STATUS, (_e, taskId: number) => taxonomyRepo.getTask(taskId))
   ipcMain.handle(IPC.TAXONOMY_FAV_ENRICH_COVERS, async () => {
     const bvids = taxonomyRepo.getMissingCoverBvids(80)

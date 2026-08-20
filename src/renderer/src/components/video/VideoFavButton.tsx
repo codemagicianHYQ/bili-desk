@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { VideoFavFolder } from "@shared/types";
 import { CreateFavFolderControl } from "@/components/favorites/CreateFavFolderControl";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn, formatCount } from "@/lib/utils";
 import { Bookmark, Folder, Loader2, X } from "lucide-react";
 import { useFavoritesStore } from "@/stores/favorites-store";
+import { ChargeRing } from "@/components/video/ChargeRing";
 
 interface VideoFavButtonProps {
   aid: number;
@@ -14,6 +15,13 @@ interface VideoFavButtonProps {
   className?: string;
   /** toolbar：视频页互动栏样式 */
   appearance?: "default" | "toolbar";
+  /** 0 隐藏；三连长按充电进度 */
+  chargeProgress?: number;
+  pop?: boolean;
+  /** 三连等外部操作后的收藏态，优先于本地列表 */
+  collected?: boolean;
+  /** 变化时重新拉取收藏夹（三连成功后同步） */
+  reloadToken?: number;
   onCollectedChange?: (collected: boolean) => void;
 }
 
@@ -30,6 +38,10 @@ export function VideoFavButton({
   count,
   className,
   appearance = "default",
+  chargeProgress = 0,
+  pop = false,
+  collected,
+  reloadToken = 0,
   onCollectedChange,
 }: VideoFavButtonProps) {
   const invalidateFolders = useFavoritesStore(
@@ -46,10 +58,8 @@ export function VideoFavButton({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const isCollected = useMemo(
-    () => folders.some((folder) => folder.collected),
-    [folders],
-  );
+  const isCollected =
+    collected === true || folders.some((folder) => folder.collected);
 
   const loadFolders = useCallback(async () => {
     setLoading(true);
@@ -74,7 +84,20 @@ export function VideoFavButton({
 
   useEffect(() => {
     void loadFolders();
-  }, [loadFolders]);
+  }, [loadFolders, reloadToken]);
+
+  useEffect(() => {
+    if (collected !== true) return;
+    setFolders((prev) => {
+      if (prev.some((folder) => folder.collected)) return prev;
+      const defaultId =
+        prev.find((folder) => folder.isDefault)?.id ?? prev[0]?.id;
+      if (defaultId == null) return prev;
+      return prev.map((folder) =>
+        folder.id === defaultId ? { ...folder, collected: true } : folder,
+      );
+    });
+  }, [collected]);
 
   useEffect(() => {
     if (!open) return;
@@ -274,17 +297,21 @@ export function VideoFavButton({
           className={cn(
             "bili-toolbar-action",
             isCollected && "is-fav-active",
+            pop && "is-pop",
             className,
           )}
           onClick={handleOpen}
           title={isCollected ? "已收藏" : "收藏"}
         >
-          <Bookmark
-            className={cn(
-              "bili-toolbar-icon h-6 w-6",
-              isCollected && "fill-current",
-            )}
-          />
+          <span className="relative inline-flex h-6 w-6 items-center justify-center">
+            <ChargeRing progress={chargeProgress} />
+            <Bookmark
+              className={cn(
+                "bili-toolbar-icon h-6 w-6",
+                isCollected && "fill-current",
+              )}
+            />
+          </span>
           <span className="bili-toolbar-count">
             {count != null
               ? formatCount(count)

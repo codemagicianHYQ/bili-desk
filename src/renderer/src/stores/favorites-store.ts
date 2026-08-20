@@ -21,6 +21,7 @@ interface FavoritesState {
   invalidateTaxonomy: () => void;
   invalidateFolders: () => void;
   addFolder: (folder: FavFolder) => void;
+  setFolders: (folders: FavFolder[]) => void;
   /** 乐观更新收藏夹数量，key 为 folder.id，value 为增量 */
   patchFolderCounts: (deltas: Record<number, number>) => void;
 }
@@ -112,6 +113,10 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
       if (state.folders.some((item) => item.id === folder.id)) return state;
       return { folders: [...state.folders, folder] };
     });
+  },
+
+  setFolders: (folders) => {
+    set({ folders, foldersReady: true });
   },
 
   patchFolderCounts: (deltas) => {

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 
-export type CelebrateKind = "like" | "coin";
+export type CelebrateKind = "like" | "coin" | "triple";
 
 interface ActionCelebrateProps {
   kind: CelebrateKind;
@@ -42,6 +42,19 @@ export function ActionCelebrate({ kind, open, onDone }: ActionCelebrateProps) {
         <span className="absolute right-6 top-5 animate-[bili-star-twinkle_1.2s_ease-in-out_0.45s_infinite] text-xs text-yellow-200">
           ★
         </span>
+        {kind === "triple" && (
+          <>
+            <span className="absolute -left-1 top-6 animate-[bili-star-twinkle_0.8s_ease-in-out_0.1s_infinite] text-sm text-pink-300">
+              ♥
+            </span>
+            <span className="absolute -right-2 top-8 animate-[bili-star-twinkle_0.85s_ease-in-out_0.25s_infinite] text-xs text-sky-300">
+              ★
+            </span>
+            <span className="absolute left-10 -top-1 text-[10px] font-black tracking-widest text-white drop-shadow animate-[bili-celebrate-pop_1.35s_cubic-bezier(0.22,1.2,0.36,1)_both]">
+              三连!
+            </span>
+          </>
+        )}
 
         <TvMascot kind={kind} />
       </div>
@@ -137,7 +150,7 @@ function TvMascot({ kind }: { kind: CelebrateKind }) {
             fill="hsl(var(--primary))"
           />
         </g>
-      ) : (
+      ) : kind === "coin" ? (
         <g transform="translate(78,58)">
           <circle cx="14" cy="14" r="16" fill="#FFE8A3" />
           <circle
@@ -158,6 +171,30 @@ function TvMascot({ kind }: { kind: CelebrateKind }) {
           >
             币
           </text>
+        </g>
+      ) : (
+        <g>
+          <g transform="translate(4,72)">
+            <circle cx="12" cy="12" r="13" fill="#fff" />
+            <path
+              d="M8 13 v-4 a2 2 0 0 1 4 0 V13 M12 13 v-3 a1.7 1.7 0 0 1 3.4 0 V13 M15.4 13 v-2 a1.5 1.5 0 0 1 3 0 V15 c0 2.6-1.8 4.5-4.4 4.5 h-3.4 c-2 0-3.3-1.1-3.8-2.8 L6.2 14 a1.3 1.3 0 0 1 2.4-1z"
+              fill="hsl(var(--primary))"
+            />
+          </g>
+          <g transform="translate(46,70)">
+            <circle cx="12" cy="12" r="13" fill="#FFE8A3" />
+            <circle cx="12" cy="12" r="9" fill="#FFC94A" stroke="#E8A317" strokeWidth="1.6" />
+            <text x="12" y="16" textAnchor="middle" fontSize="9" fontWeight="700" fill="#8A5A00">
+              币
+            </text>
+          </g>
+          <g transform="translate(88,72)">
+            <circle cx="12" cy="12" r="13" fill="#fff" />
+            <path
+              d="M12 6.2 L14.2 10.6 L19.2 11.2 L15.6 14.6 L16.6 19.5 L12 17.2 L7.4 19.5 L8.4 14.6 L4.8 11.2 L9.8 10.6 Z"
+              fill="#F0B429"
+            />
+          </g>
         </g>
       )}
 

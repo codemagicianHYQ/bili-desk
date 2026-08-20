@@ -107,6 +107,9 @@ export function registerBiliIpc(): void {
     (_e, payload: { title: string; intro?: string; privacy?: 0 | 1 }) =>
       biliApi.createFavFolder(payload),
   );
+  ipcMain.handle(IPC.BILI_FAV_FOLDER_SORT, (_e, mediaIds: number[]) =>
+    biliApi.sortFavFolders(mediaIds),
+  );
   ipcMain.handle(IPC.BILI_VIDEO_FAV_FOLDERS, (_e, aid: number) =>
     biliApi.getVideoFavFolders(aid),
   );

@@ -166,6 +166,14 @@
     @apply border-border;
   }
 
+  /* 只让页面内部容器滚动，避免 html/body 再出一条窗口滚动条叠在右边 */
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family:
@@ -173,38 +181,29 @@
       system-ui,
       -apple-system,
       sans-serif;
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
-  }
-
-  body::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  body::-webkit-scrollbar-track {
-    margin: 4px 0;
-    background: transparent;
-  }
-
-  body::-webkit-scrollbar-thumb {
-    border-radius: 9999px;
-    background-color: hsl(var(--muted-foreground) / 0.35);
-    border: 2px solid transparent;
-    background-clip: padding-box;
-  }
-
-  body::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(var(--muted-foreground) / 0.55);
   }
 }
 
 @layer utilities {
+  /*
+   * Windows 11 Chromium 会同时画「系统 overlay 条」和「::-webkit-scrollbar」两条。
+   * Chromium 只用 webkit 自定义条；scrollbar-width 留给不支持 webkit 的引擎。
+   * scrollbar-gutter: stable 预留宽度，避免滚动条忽隐忽现把内容挤来挤去。
+   */
   .overflow-y-auto,
   .overflow-auto,
   .scrollbar-overlay {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    .overflow-y-auto,
+    .overflow-auto,
+    .scrollbar-overlay {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+    }
   }
 
   .overflow-y-auto::-webkit-scrollbar,
@@ -282,6 +281,15 @@
 
   .bili-toolbar-action:hover .bili-toolbar-icon {
     transform: translateY(-1px) scale(1.06);
+  }
+
+  .bili-toolbar-action.is-charging {
+    transform: scale(1.05);
+    background: hsl(var(--primary) / 0.12);
+  }
+
+  .bili-toolbar-action.is-charging .bili-toolbar-icon {
+    transform: scale(1.08);
   }
 
   .bili-toolbar-action.is-pop .bili-toolbar-icon {
@@ -611,7 +619,7 @@
 .art-video-player .art-controls-center {
   min-width: 0;
   flex: 1 1 0%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .art-video-player .artplayer-plugin-danmuku {
@@ -620,12 +628,18 @@
   min-width: 0 !important;
   flex: 1 1 0% !important;
   flex-shrink: 1 !important;
+  overflow: visible;
+}
+
+.art-video-player .artplayer-plugin-danmuku .apd-config,
+.art-video-player .artplayer-plugin-danmuku .apd-style {
+  z-index: 20;
 }
 
 .art-video-player .artplayer-plugin-danmuku .apd-emitter {
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .art-video-player .artplayer-plugin-danmuku .apd-input {

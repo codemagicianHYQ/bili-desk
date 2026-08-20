@@ -9,13 +9,48 @@ export function setOsFullscreenLayout(on: boolean) {
 }
 
 export function bindPlayerResize(art: Artplayer, container: HTMLElement) {
-  const emit = () => art.emit("resize");
-  window.addEventListener("resize", emit);
-  const observer = new ResizeObserver(emit);
+  let lastWidth = 0;
+  let lastHeight = 0;
+  let frame = 0;
+  let disposed = false;
+
+  const emitIfChanged = (width: number, height: number) => {
+    if (disposed) return;
+    if (width < 2 || height < 2) return;
+    if (Math.abs(width - lastWidth) < 1 && Math.abs(height - lastHeight) < 1) {
+      return;
+    }
+    lastWidth = width;
+    lastHeight = height;
+    if (frame) window.cancelAnimationFrame(frame);
+    frame = window.requestAnimationFrame(() => {
+      frame = 0;
+      if (disposed) return;
+      try {
+        art.emit("resize");
+      } catch {
+        // Artplayer 销毁后忽略
+      }
+    });
+  };
+
+  const onWinResize = () => {
+    emitIfChanged(container.clientWidth, container.clientHeight);
+  };
+
+  window.addEventListener("resize", onWinResize);
+  const observer = new ResizeObserver((entries) => {
+    const box = entries[0]?.contentRect;
+    if (!box) return;
+    emitIfChanged(box.width, box.height);
+  });
   observer.observe(container);
+
   return () => {
-    window.removeEventListener("resize", emit);
+    disposed = true;
+    window.removeEventListener("resize", onWinResize);
     observer.disconnect();
+    if (frame) window.cancelAnimationFrame(frame);
   };
 }
 

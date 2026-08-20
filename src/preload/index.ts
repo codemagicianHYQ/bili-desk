@@ -129,6 +129,8 @@ const api = {
       intro?: string;
       privacy?: 0 | 1;
     }) => ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_CREATE, payload),
+    sortFavFolders: (mediaIds: number[]) =>
+      ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_SORT, mediaIds),
     getVideoFavFolders: (aid: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_FAV_FOLDERS, aid),
     setVideoFavFolders: (
@@ -349,6 +351,8 @@ const api = {
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_ALL),
     classifyFolderFavorites: (mediaId: number) =>
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_FOLDER, mediaId),
+    organizeBiliFavorites: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_ORGANIZE_BILI),
     getFavTaskStatus: (taskId: number) =>
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_TASK_STATUS, taskId),
     enrichFavoriteCovers: () =>

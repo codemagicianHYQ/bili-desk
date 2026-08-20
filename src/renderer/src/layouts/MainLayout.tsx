@@ -117,7 +117,7 @@ export function MainLayout() {
   const showLive = isLive && effectiveLiveRoomId != null;
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-full overflow-hidden">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar title={meta.title} subtitle={meta.subtitle} />

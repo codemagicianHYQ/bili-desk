@@ -62,6 +62,12 @@ export function createMainWindow(): BrowserWindow {
     return { action: "deny" };
   });
 
+  win.webContents.on("render-process-gone", (_event, details) => {
+    console.error("[BiliDesk] render-process-gone", details);
+    if (details.reason === "clean-exit" || win.isDestroyed()) return;
+    win.reload();
+  });
+
   if (process.env.ELECTRON_RENDERER_URL) {
     // localhost 访问 127.0.0.1 会被 Chromium Private Network Access 拦截
     win.loadURL(

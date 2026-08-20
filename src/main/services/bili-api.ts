@@ -132,6 +132,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isFavMediaCountLimitMessage(message: unknown): boolean {
+  const text = String(message ?? "");
+  return text.includes("收藏数量已达上限") || text.includes("内容收藏数量");
+}
+
 function applyRequestHeaders(
   cfg: InternalAxiosRequestConfig,
   extra?: Record<string, string>,
@@ -2952,6 +2957,7 @@ class BiliApiService {
     if (folders.length === 0) return null;
     const preferred = folders.find(
       (folder) =>
+        folder.isDefault ||
         folder.title === "默认收藏夹" ||
         folder.title.toLowerCase() === "default",
     );
@@ -3068,6 +3074,7 @@ class BiliApiService {
         bvid: (media.bvid as string) ?? "",
         title: media.title as string,
         cover: (media.cover as string) ?? "",
+        intro: String(media.intro ?? media.desc ?? ""),
         upper: {
           mid: (media.upper as { mid: number })?.mid ?? 0,
           name: (media.upper as { name: string })?.name ?? "",
@@ -3081,10 +3088,14 @@ class BiliApiService {
     mediaId: number,
     page: number,
     pageSize: number,
+    riskRetry: "short" | "long" = "short",
   ): Promise<{ medias: unknown[]; hasMore: boolean }> {
     await this.ensureBuvid3();
 
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    const waits = riskRetry === "long" ? [8000, 20000, 40000] : [2000];
+    const maxAttempts = waits.length + 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const res = await this.client.get("/x/v3/fav/resource/list", {
         params: {
           media_id: mediaId,
@@ -3099,18 +3110,27 @@ class BiliApiService {
 
       const code = res.data?.code as number | undefined;
       if (res.status === 412 || code === -412) {
-        if (attempt < 4) {
-          await sleep(600 * attempt);
+        if (attempt < maxAttempts) {
+          await sleep(waits[attempt - 1] ?? 2000);
           continue;
         }
-        throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+        throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
       }
 
       if (code !== 0) {
         throw new Error((res.data?.message as string) || "收藏列表获取失败");
       }
 
-      const medias = res.data?.data?.medias ?? [];
+      const medias = res.data?.data?.medias;
+      // 风控软失败时常 code=0 且 medias 为 null，不能当成「空收藏夹」
+      if (medias == null) {
+        if (attempt < maxAttempts) {
+          await sleep(waits[attempt - 1] ?? 2000);
+          continue;
+        }
+        throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+      }
+
       const hasMore = res.data?.data?.has_more ?? medias.length >= pageSize;
       return { medias, hasMore };
     }
@@ -3151,6 +3171,10 @@ class BiliApiService {
         title: f.title as string,
         mediaCount: (f.media_count as number) ?? 0,
         cover: (f.cover as string) ?? "",
+        isDefault:
+          Number(f.attr) === 1 ||
+          (f.title as string) === "默认收藏夹" ||
+          (f.title as string).toLowerCase() === "default",
       }));
     }
 
@@ -3190,8 +3214,9 @@ class BiliApiService {
         title: f.title as string,
         mediaCount: (f.media_count as number) ?? 0,
         cover: (f.cover as string) ?? "",
-        collected: (f.fav_state as number) === 1,
+        collected: Number(f.fav_state) === 1 || f.fav_state === true,
         isDefault:
+          Number(f.attr) === 1 ||
           (f.title as string) === "默认收藏夹" ||
           (f.title as string).toLowerCase() === "default",
       }));
@@ -3277,7 +3302,10 @@ class BiliApiService {
     }
 
     const code = Number(res.data?.code);
-    if (code === 11007 || String(res.data?.message ?? "").includes("上限")) {
+    if (
+      code === 11007 ||
+      String(res.data?.message ?? "").includes("收藏夹数量")
+    ) {
       throw new Error("收藏夹数量已达上限");
     }
     if (code !== 0) {
@@ -3296,7 +3324,39 @@ class BiliApiService {
       title: String(data.title || title),
       mediaCount: Number(data.media_count) || 0,
       cover: String(data.cover ?? ""),
+      isDefault: false,
     };
+  }
+
+  /** 调整收藏夹顺序，对应官网 /x/v3/fav/folder/sort */
+  async sortFavFolders(mediaIds: number[]): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再排序收藏夹");
+    const ids = [...new Set(mediaIds.filter((id) => id > 0))];
+    if (ids.length < 2) return;
+
+    const res = await this.client.post(
+      "/x/v3/fav/folder/sort",
+      new URLSearchParams({
+        sort: ids.join(","),
+        csrf,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/",
+          Origin: "https://www.bilibili.com",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "收藏夹排序失败");
+    }
   }
 
   /** 从指定收藏夹批量移除视频（resources 格式 aid:2） */
@@ -3376,8 +3436,15 @@ class BiliApiService {
       if (res.status === 412 || res.data?.code === -412) {
         throw new Error("请求被 B 站安全策略拦截，请稍后重试");
       }
+      if (isFavMediaCountLimitMessage(res.data?.message)) {
+        throw new Error("FAV_FOLDER_FULL");
+      }
       if (res.data?.code !== 0) {
         throw new Error((res.data?.message as string) || "移动收藏失败");
+      }
+
+      if (i + chunkSize < uniqueAids.length) {
+        await sleep(1000);
       }
     }
   }
@@ -3386,6 +3453,7 @@ class BiliApiService {
     mediaId: number,
     page = 1,
     pageSize = 20,
+    riskRetry: "short" | "long" = "short",
   ): Promise<{
     resources: FavResource[];
     page: number;
@@ -3395,6 +3463,7 @@ class BiliApiService {
       mediaId,
       page,
       pageSize,
+      riskRetry,
     );
     return {
       resources: this.mapFavMedias(medias),
@@ -3416,6 +3485,7 @@ class BiliApiService {
         mediaId,
         page,
         pageSize,
+        "long",
       );
       if (medias.length === 0) break;
 
@@ -3424,7 +3494,7 @@ class BiliApiService {
 
       if (!hasMore) break;
       page++;
-      await sleep(350);
+      await sleep(page < 8 ? 700 : page < 20 ? 1100 : 1600);
     }
 
     return all;

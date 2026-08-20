@@ -204,6 +204,7 @@ export interface FavFolder {
   title: string;
   mediaCount: number;
   cover: string;
+  isDefault?: boolean;
 }
 
 export interface CreateFavFolderPayload {
@@ -223,6 +224,7 @@ export interface FavResource {
   bvid: string;
   title: string;
   cover: string;
+  intro?: string;
   upper: { mid: number; name: string };
   duration: number;
 }
@@ -938,6 +940,7 @@ export interface BiliDeskApi {
     getReplyEmotes: () => Promise<Record<string, string>>;
     getFavFolders: () => Promise<FavFolder[]>;
     createFavFolder: (payload: CreateFavFolderPayload) => Promise<FavFolder>;
+    sortFavFolders: (mediaIds: number[]) => Promise<void>;
     getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
     setVideoFavFolders: (
       aid: number,
@@ -1088,6 +1091,7 @@ export interface BiliDeskApi {
     getFavoriteAssignments: () => Promise<FavoriteItemAssignment[]>;
     classifyAllFavorites: () => Promise<{ taskId: number }>;
     classifyFolderFavorites: (mediaId: number) => Promise<{ taskId: number }>;
+    organizeBiliFavorites: () => Promise<{ taskId: number }>;
     getFavTaskStatus: (taskId: number) => Promise<ClassificationTask | null>;
     enrichFavoriteCovers: () => Promise<{ updated: number; remaining: number }>;
     getUpGroups: () => Promise<UpGroup[]>;
