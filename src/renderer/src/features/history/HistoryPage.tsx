@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router-dom";
 import type {
   HistoryCursor,
@@ -141,6 +148,22 @@ interface PageCacheEntry {
   items: HistoryItem[];
   nextCursor: HistoryCursor;
   hasMore: boolean;
+}
+
+const MAX_HISTORY_PAGE_CACHE = 12;
+
+function trimHistoryPageCache(
+  cache: Map<number, PageCacheEntry>,
+  aroundPage: number,
+) {
+  if (cache.size <= MAX_HISTORY_PAGE_CACHE) return;
+  const keys = [...cache.keys()].sort(
+    (a, b) => Math.abs(a - aroundPage) - Math.abs(b - aroundPage),
+  );
+  const keep = new Set(keys.slice(0, MAX_HISTORY_PAGE_CACHE));
+  for (const key of [...cache.keys()]) {
+    if (!keep.has(key)) cache.delete(key);
+  }
 }
 
 function formatError(err: unknown): string {
@@ -343,7 +366,12 @@ function HistoryCard({
   );
 
   const meta = (
-    <div className={cn("space-y-1.5", layout === "grid" ? "mt-2" : "min-w-0 flex-1 py-0.5")}>
+    <div
+      className={cn(
+        "space-y-1.5",
+        layout === "grid" ? "mt-2" : "min-w-0 flex-1 py-0.5",
+      )}
+    >
       <div className="flex items-start gap-1">
         <p className="line-clamp-2 min-w-0 flex-1 text-sm font-medium leading-snug group-hover:text-primary">
           {item.title}
@@ -403,7 +431,9 @@ function HistoryCard({
       className={cn(
         "group",
         layout === "list" && "flex gap-3 rounded-xl p-2 hover:bg-secondary/60",
-        editing && selected && "rounded-xl ring-2 ring-primary ring-offset-2 ring-offset-background",
+        editing &&
+          selected &&
+          "rounded-xl ring-2 ring-primary ring-offset-2 ring-offset-background",
       )}
     >
       {media}
@@ -413,7 +443,11 @@ function HistoryCard({
 
   if (editing) {
     return (
-      <button type="button" className="block w-full text-left" onClick={onToggleSelect}>
+      <button
+        type="button"
+        className="block w-full text-left"
+        onClick={onToggleSelect}
+      >
         {body}
       </button>
     );
@@ -564,6 +598,7 @@ export function HistoryPage() {
             nextCursor: result.cursor,
             hasMore: result.hasMore,
           });
+          trimHistoryPageCache(pageCacheRef.current, targetPage);
 
           if (!result.hasMore) break;
         }
@@ -603,7 +638,10 @@ export function HistoryPage() {
 
   useEffect(() => {
     if (!user?.isLogin) return;
-    void window.biliDesk.bili.getHistoryShadow().then(setRecording).catch(() => {});
+    void window.biliDesk.bili
+      .getHistoryShadow()
+      .then(setRecording)
+      .catch(() => {});
   }, [user?.isLogin]);
 
   useEffect(() => {
@@ -966,7 +1004,9 @@ export function HistoryPage() {
             </div>
           ) : items.length === 0 ? (
             <p className="py-16 text-center text-sm text-muted-foreground">
-              {keyword || hasExtraFilters ? "没有符合筛选条件的历史记录" : "暂无历史记录"}
+              {keyword || hasExtraFilters
+                ? "没有符合筛选条件的历史记录"
+                : "暂无历史记录"}
             </p>
           ) : (
             <div className={cn("space-y-8", loading && "opacity-60")}>

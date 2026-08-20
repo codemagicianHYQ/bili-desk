@@ -13,9 +13,9 @@ import {
   Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resetSessionCachesOnLogout } from "@/lib/session-cache-lifecycle";
 import { useAppStore } from "@/stores/app-store";
 import { useNavigationStore } from "@/stores/navigation-store";
-import { useWatchLaterStore } from "@/stores/watch-later-store";
 import { BiliImage } from "@/components/ui/bili-image";
 
 const navItems = [
@@ -99,7 +99,7 @@ export function Sidebar() {
   const handleLogout = async () => {
     await window.biliDesk.auth.logout();
     setUser({ mid: 0, name: "未登录", face: "", isLogin: false, isVip: false });
-    useWatchLaterStore.getState().reset();
+    resetSessionCachesOnLogout();
     navigate("/login");
   };
 

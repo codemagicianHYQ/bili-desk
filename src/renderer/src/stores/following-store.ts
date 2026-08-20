@@ -6,6 +6,9 @@ import {
   type UpGroupSelection,
   type UpGroupTreeNode,
 } from "@shared/types";
+import { tagListCache, type TagListCache } from "@/lib/session-data-cache";
+
+export type { TagListCache };
 
 const FOLLOWINGS_TTL_MS = 10 * 60 * 1000;
 
@@ -34,6 +37,11 @@ interface FollowingState {
   patchSpecialFollowCount: (delta: number) => void;
   refreshFollowTags: () => Promise<void>;
   addFollowTag: (tag: FollowTag) => void;
+  getTagList: (tagId: number) => TagListCache | undefined;
+  putTagList: (tagId: number, list: TagListCache) => void;
+  removeMidFromTagLists: (mid: number) => void;
+  clearTagList: (tagId: number) => void;
+  clearTagLists: () => void;
 }
 
 async function fetchAllFollowingsFromApi(): Promise<FollowingUp[]> {
@@ -160,6 +168,7 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
   },
 
   invalidateFollowings: () => {
+    tagListCache.clear();
     set({ allFollowings: null, followingsLoadedAt: null });
   },
 
@@ -220,5 +229,28 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
     const system = tags.filter((item) => item.tagId <= 0);
     const custom = tags.filter((item) => item.tagId > 0);
     set({ followTags: [...system, ...custom, tag] });
+  },
+
+  putTagList: (tagId, list) => {
+    tagListCache.set(String(tagId), list);
+  },
+
+  getTagList: (tagId) => tagListCache.get(String(tagId)),
+
+  removeMidFromTagLists: (mid) => {
+    tagListCache.forEach((list, key) => {
+      tagListCache.set(key, {
+        ...list,
+        followings: list.followings.filter((up) => up.mid !== mid),
+      });
+    });
+  },
+
+  clearTagList: (tagId) => {
+    tagListCache.delete(String(tagId));
+  },
+
+  clearTagLists: () => {
+    tagListCache.clear();
   },
 }));

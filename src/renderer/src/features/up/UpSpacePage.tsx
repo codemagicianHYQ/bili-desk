@@ -17,6 +17,12 @@ import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { UpRelationListPanel } from "@/features/up/UpRelationListPanel";
 import { cn, formatCount } from "@/lib/utils";
 import { formatUserSpaceError } from "@/lib/ipc-error";
+import {
+  upProfileCache,
+  upRelationCache,
+  upSpaceCache,
+  upVideosCacheKey,
+} from "@/lib/session-data-cache";
 import { useAppStore } from "@/stores/app-store";
 
 const GRID_COLS_CLASS = {
@@ -81,6 +87,21 @@ export function UpSpacePage() {
 
   const loadVideos = useCallback(
     async (targetMid: number, nextPage: number, nextOrder: UpVideosOrder) => {
+      const cachedSpace = upSpaceCache.get(String(targetMid));
+      const cachedPage =
+        cachedSpace?.videos[upVideosCacheKey(nextOrder, nextPage)];
+      if (cachedPage) {
+        loadSeqRef.current += 1;
+        setVideos(cachedPage.videos);
+        setPage(cachedPage.page);
+        setTotal(cachedPage.total);
+        setHasMore(cachedPage.hasMore);
+        setVideosError("");
+        setVideosLoading(false);
+        scrollRef.current?.scrollTo({ top: 0 });
+        return;
+      }
+
       const seq = ++loadSeqRef.current;
       setVideosLoading(true);
       setVideosError("");
@@ -95,15 +116,32 @@ export function UpSpacePage() {
 
         const list = result.videos ?? [];
         if (list.length > 0) {
+          const nextTotal = Math.max(result.total ?? 0, cachedSpace?.profile.videos ?? 0);
+          const nextHasMore = Boolean(result.hasMore);
           setVideos(list);
           setPage(result.page ?? nextPage);
           setTotal((prev) => Math.max(result.total ?? 0, prev));
-          setHasMore(Boolean(result.hasMore));
+          setHasMore(nextHasMore);
           setVideosError("");
           scrollRef.current?.scrollTo({ top: 0 });
+          const current = upSpaceCache.get(String(targetMid));
+          if (current) {
+            upSpaceCache.set(String(targetMid), {
+              ...current,
+              videos: {
+                ...current.videos,
+                [upVideosCacheKey(nextOrder, nextPage)]: {
+                  videos: list,
+                  page: result.page ?? nextPage,
+                  total: nextTotal,
+                  hasMore: nextHasMore,
+                },
+              },
+            });
+          }
         } else {
           // 空成功不覆盖当前页，避免「有时有、有时暂无」
-          setVideosError("本页投稿暂时无法获取，请稍后重试");
+          setVideosError("本页投稿暂时无法获取，请点击重新加载");
         }
       } catch (e) {
         if (seq !== loadSeqRef.current) return;
@@ -123,34 +161,68 @@ export function UpSpacePage() {
     loadSeqRef.current += 1;
     setProfileError("");
     setVideosError("");
-    setVideosLoading(true);
-    setProfile(null);
-    setRelation(null);
-    setVideos([]);
-    setPage(1);
-    setTotal(0);
-    setHasMore(false);
-    setOrder("pubdate");
     setRelationPanel(null);
+    setOrder("pubdate");
+
+    const cached = upSpaceCache.get(String(mid));
+    const firstPage = cached?.videos[upVideosCacheKey("pubdate", 1)];
+    if (cached && firstPage) {
+      setProfile(cached.profile);
+      setRelation(cached.relation);
+      setVideos(firstPage.videos);
+      setPage(firstPage.page);
+      setTotal(firstPage.total);
+      setHasMore(firstPage.hasMore);
+      setVideosLoading(false);
+      setVideosError(
+        firstPage.videos.length === 0 && (cached.profile.videos || 0) > 0
+          ? "投稿列表暂时无法获取，请点击重新加载"
+          : "",
+      );
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setVideosLoading(true);
+    if (!cached) {
+      setProfile(null);
+      setRelation(null);
+      setVideos([]);
+      setPage(1);
+      setTotal(0);
+      setHasMore(false);
+    } else {
+      setProfile(cached.profile);
+      setRelation(cached.relation);
+    }
 
     void (async () => {
       try {
-        const profilePromise = window.biliDesk.bili.getUpProfile(mid);
+        const profilePromise = cached
+          ? Promise.resolve(cached.profile)
+          : window.biliDesk.bili.getUpProfile(mid);
         const videosPromise = window.biliDesk.bili.getUpVideos(
           mid,
           1,
           "pubdate",
         );
-        const relationPromise = window.biliDesk.bili
-          .getUpRelation(mid)
-          .catch(() => ({ isFollowing: false, attribute: 0 }) as UpRelation);
+        const relationPromise = cached?.relation
+          ? Promise.resolve(cached.relation)
+          : window.biliDesk.bili
+              .getUpRelation(mid)
+              .catch(() => ({ isFollowing: false, attribute: 0 }) as UpRelation);
 
         const upProfile = await profilePromise;
         if (cancelled) return;
         setProfile(upProfile);
+        upProfileCache.set(String(mid), upProfile);
 
         void relationPromise.then((upRelation) => {
-          if (!cancelled) setRelation(upRelation);
+          if (!cancelled) {
+            setRelation(upRelation);
+            upRelationCache.set(String(mid), upRelation);
+          }
         });
 
         try {
@@ -159,10 +231,14 @@ export function UpSpacePage() {
           const list = result.videos ?? [];
           setVideos(list);
           setPage(result.page ?? 1);
+          let nextTotal = 0;
+          let nextHasMore = false;
           // 列表为空时不要用资料页投稿数撑分页，否则会出现「暂无投稿 + 共 N 页」
           if (list.length > 0) {
-            setTotal(Math.max(result.total ?? 0, upProfile.videos || 0));
-            setHasMore(Boolean(result.hasMore));
+            nextTotal = Math.max(result.total ?? 0, upProfile.videos || 0);
+            nextHasMore = Boolean(result.hasMore);
+            setTotal(nextTotal);
+            setHasMore(nextHasMore);
             setVideosError("");
           } else if ((upProfile.videos || 0) > 0) {
             setTotal(0);
@@ -173,6 +249,22 @@ export function UpSpacePage() {
             setHasMore(false);
             setVideosError("");
           }
+
+          const relation =
+            (await relationPromise.catch(() => cached?.relation ?? null)) ??
+            null;
+          upSpaceCache.set(String(mid), {
+            profile: upProfile,
+            relation,
+            videos: {
+              [upVideosCacheKey("pubdate", 1)]: {
+                videos: list,
+                page: result.page ?? 1,
+                total: nextTotal,
+                hasMore: nextHasMore,
+              },
+            },
+          });
         } catch (videoErr) {
           if (cancelled) return;
           setVideos([]);
@@ -311,11 +403,20 @@ export function UpSpacePage() {
                     size="default"
                     className="self-start"
                     onFollowingChange={(following) => {
-                      setRelation((prev) =>
-                        prev
+                      setRelation((prev) => {
+                        const next = prev
                           ? { ...prev, isFollowing: following }
-                          : { isFollowing: following, attribute: 0 },
-                      );
+                          : { isFollowing: following, attribute: 0 };
+                        upRelationCache.set(String(mid), next);
+                        const space = upSpaceCache.get(String(mid));
+                        if (space) {
+                          upSpaceCache.set(String(mid), {
+                            ...space,
+                            relation: next,
+                          });
+                        }
+                        return next;
+                      });
                     }}
                     onError={showToast}
                   />

@@ -10,6 +10,7 @@ import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { videoDetailCache } from "@/lib/session-data-cache";
 import {
   readQualityPref,
   writeQualityPref,
@@ -152,9 +153,22 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     streamModeRef.current = readQualityPref() >= 80 ? "dash" : "mp4";
     loweredQnRef.current = false;
 
+    const cached = videoDetailCache.get(bvid);
+    if (cached) {
+      setVideo(cached);
+      setError("");
+      const preferredCid =
+        resumeCid && cached.pages.some((part) => part.cid === resumeCid)
+          ? resumeCid
+          : (cached.pages[0]?.cid ?? null);
+      setSelectedCid(preferredCid);
+      return;
+    }
+
     window.biliDesk.bili
       .getVideo(bvid)
       .then((detail) => {
+        videoDetailCache.set(bvid, detail);
         setVideo(detail);
         const preferredCid =
           resumeCid && detail.pages.some((part) => part.cid === resumeCid)

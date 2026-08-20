@@ -5,7 +5,7 @@ import {
   type UpGroupSelection,
   type UpGroupTreeNode,
 } from "@shared/types";
-import { useFollowingStore } from "@/stores/following-store";
+import { useFollowingStore, type TagListCache } from "@/stores/following-store";
 import { UpGroupTree } from "@/components/taxonomy/UpGroupTree";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -113,6 +113,17 @@ export function FollowingPage() {
     [upGroupTree, localSelection],
   );
 
+  const applyTagListCache = (list: TagListCache) => {
+    loadSeqRef.current += 1;
+    setFollowings(list.followings);
+    setPage(list.page);
+    setHasMore(list.hasMore);
+    setError("");
+    setLoading(false);
+    setLoadingMore(false);
+    setListReady(true);
+  };
+
   const loadBilibiliPage = useCallback(
     async (tagId: number, nextPage: number, append: boolean) => {
       const seq = ++loadSeqRef.current;
@@ -125,6 +136,7 @@ export function FollowingPage() {
         setFollowings([]);
         setPage(1);
         setHasMore(false);
+        setListReady(false);
       }
 
       try {
@@ -134,9 +146,17 @@ export function FollowingPage() {
         );
         if (seq !== loadSeqRef.current) return;
 
-        setFollowings((prev) =>
-          append ? [...prev, ...result.followings] : result.followings,
-        );
+        setFollowings((prev) => {
+          const next = append
+            ? [...prev, ...result.followings]
+            : result.followings;
+          useFollowingStore.getState().putTagList(tagId, {
+            followings: next,
+            page: result.page,
+            hasMore: result.hasMore,
+          });
+          return next;
+        });
         setPage(result.page);
         setHasMore(result.hasMore);
       } catch (err) {
@@ -188,8 +208,8 @@ export function FollowingPage() {
   );
 
   useEffect(() => {
-    setListReady(false);
-  }, [sidebarMode, selectedTagId, localSelection]);
+    if (isLocalMode) setListReady(false);
+  }, [sidebarMode, selectedTagId, localSelection, isLocalMode]);
 
   useEffect(() => {
     return () => {
@@ -215,6 +235,11 @@ export function FollowingPage() {
 
   useEffect(() => {
     if (sidebarMode !== "bilibili" || selectedTagId == null) return;
+    const cached = useFollowingStore.getState().getTagList(selectedTagId);
+    if (cached) {
+      applyTagListCache(cached);
+      return;
+    }
     void loadBilibiliPage(selectedTagId, 1, false);
   }, [sidebarMode, selectedTagId, loadBilibiliPage]);
 
@@ -236,12 +261,18 @@ export function FollowingPage() {
 
   const handleSelectTag = (tagId: number) => {
     setError("");
-    setListReady(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     if (tagId === selectedTagId) {
-      setLoading(true);
+      useFollowingStore.getState().clearTagList(tagId);
       void loadBilibiliPage(tagId, 1, false);
       return;
+    }
+
+    const cached = useFollowingStore.getState().getTagList(tagId);
+    if (cached) {
+      applyTagListCache(cached);
+    } else {
+      setListReady(false);
     }
     setSelectedTagId(tagId);
   };
@@ -343,6 +374,7 @@ export function FollowingPage() {
       await window.biliDesk.bili.modifyFollow(up.mid, false);
       setFollowings((prev) => prev.filter((item) => item.mid !== up.mid));
       patchFollowing(up.mid, null);
+      useFollowingStore.getState().removeMidFromTagLists(up.mid);
       invalidateSidebar();
       await refreshSidebar({ force: true });
       setActionMessage(`已取消关注「${up.uname}」`);
@@ -363,7 +395,19 @@ export function FollowingPage() {
       await window.biliDesk.bili.modifySpecialFollow(up.mid, special);
 
       if (!special && inSpecialGroup) {
-        setFollowings((prev) => prev.filter((item) => item.mid !== up.mid));
+        setFollowings((prev) => {
+          const next = prev.filter((item) => item.mid !== up.mid);
+          if (selectedTagId != null) {
+            const cached = useFollowingStore.getState().getTagList(selectedTagId);
+            if (cached) {
+              useFollowingStore.getState().putTagList(selectedTagId, {
+                ...cached,
+                followings: next,
+              });
+            }
+          }
+          return next;
+        });
       } else {
         setFollowings((prev) =>
           prev.map((item) =>
@@ -394,10 +438,16 @@ export function FollowingPage() {
     const next = new Set(change.nextTagIds.filter((id) => id !== 0));
 
     for (const tagId of next) {
-      if (!prev.has(tagId)) patchFollowTagCount(tagId, 1);
+      if (!prev.has(tagId)) {
+        patchFollowTagCount(tagId, 1);
+        useFollowingStore.getState().clearTagList(tagId);
+      }
     }
     for (const tagId of prev) {
-      if (!next.has(tagId)) patchFollowTagCount(tagId, -1);
+      if (!next.has(tagId)) {
+        patchFollowTagCount(tagId, -1);
+        useFollowingStore.getState().clearTagList(tagId);
+      }
     }
 
     if (

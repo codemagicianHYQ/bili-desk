@@ -119,6 +119,7 @@ export function WatchLaterPage() {
   const ready = useWatchLaterStore((state) => state.ready);
   const error = useWatchLaterStore((state) => state.error);
   const fetch = useWatchLaterStore((state) => state.fetch);
+  const ensureLoaded = useWatchLaterStore((state) => state.ensureLoaded);
   const remove = useWatchLaterStore((state) => state.remove);
   const removeMany = useWatchLaterStore((state) => state.removeMany);
 
@@ -134,8 +135,8 @@ export function WatchLaterPage() {
   }, [videos, page]);
 
   useEffect(() => {
-    if (user?.isLogin) void fetch();
-  }, [user?.isLogin, fetch]);
+    if (user?.isLogin) void ensureLoaded();
+  }, [user?.isLogin, ensureLoaded]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);

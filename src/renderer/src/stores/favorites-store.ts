@@ -4,6 +4,12 @@ import type {
   FavoriteItemAssignment,
   FavFolder,
 } from "@shared/types";
+import {
+  folderListCache,
+  type FolderListCache,
+} from "@/lib/session-data-cache";
+
+export type { FolderListCache };
 
 interface FavoritesState {
   tree: CategoryTreeNode[];
@@ -21,9 +27,15 @@ interface FavoritesState {
   invalidateTaxonomy: () => void;
   invalidateFolders: () => void;
   addFolder: (folder: FavFolder) => void;
+  patchFolder: (id: number, patch: Partial<FavFolder>) => void;
   setFolders: (folders: FavFolder[]) => void;
   /** 乐观更新收藏夹数量，key 为 folder.id，value 为增量 */
   patchFolderCounts: (deltas: Record<number, number>) => void;
+  getFolderList: (mediaId: number) => FolderListCache | undefined;
+  putFolderList: (mediaId: number, list: FolderListCache) => void;
+  removeItemsFromFolderList: (mediaId: number, aids: number[]) => void;
+  clearFolderList: (mediaId: number) => void;
+  clearFolderLists: () => void;
 }
 
 export const useFavoritesStore = create<FavoritesState>((set, get) => ({
@@ -87,7 +99,12 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
   refresh: async () => {
     if (get().refreshing) return;
 
-    set({ refreshing: true, foldersReady: false, taxonomyReady: false });
+    set({
+      refreshing: true,
+      foldersReady: false,
+      taxonomyReady: false,
+    });
+    folderListCache.clear();
     try {
       await Promise.all([
         get().ensureTaxonomy({ force: true }),
@@ -104,6 +121,7 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
   },
 
   invalidateFolders: () => {
+    folderListCache.clear();
     set({ foldersReady: false });
   },
 
@@ -113,6 +131,14 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
       if (state.folders.some((item) => item.id === folder.id)) return state;
       return { folders: [...state.folders, folder] };
     });
+  },
+
+  patchFolder: (id, patch) => {
+    set((state) => ({
+      folders: state.folders.map((folder) =>
+        folder.id === id ? { ...folder, ...patch } : folder,
+      ),
+    }));
   },
 
   setFolders: (folders) => {
@@ -130,5 +156,29 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
         };
       }),
     }));
+  },
+
+  getFolderList: (mediaId) => folderListCache.get(String(mediaId)),
+
+  putFolderList: (mediaId, list) => {
+    folderListCache.set(String(mediaId), list);
+  },
+
+  removeItemsFromFolderList: (mediaId, aids) => {
+    const current = folderListCache.get(String(mediaId));
+    if (!current) return;
+    const removed = new Set(aids);
+    folderListCache.set(String(mediaId), {
+      ...current,
+      resources: current.resources.filter((item) => !removed.has(item.id)),
+    });
+  },
+
+  clearFolderList: (mediaId) => {
+    folderListCache.delete(String(mediaId));
+  },
+
+  clearFolderLists: () => {
+    folderListCache.clear();
   },
 }));

@@ -10,6 +10,11 @@ import { FollowingLiveList } from "@/components/live/FollowingLiveList";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+import {
+  dynamicsLiveCache,
+  dynamicsTabCache,
+  type DynamicsTabCache,
+} from "@/lib/session-data-cache";
 import { Loader2 } from "lucide-react";
 
 type UiTab = "all" | "video" | "live" | "text";
@@ -81,6 +86,10 @@ export function DynamicsPage() {
       const result = await window.biliDesk.bili.getFollowingLives();
       setLiveRooms(result.rooms);
       setLiveCount(result.count);
+      dynamicsLiveCache.set("following", {
+        rooms: result.rooms,
+        count: result.count,
+      });
     } catch (err) {
       setLiveError(formatError(err));
       setLiveRooms([]);
@@ -128,18 +137,26 @@ export function DynamicsPage() {
         }
 
         let nextLen = 0;
+        let cachedItems: SpaceDynamicItem[] = [];
         setItems((prev) => {
           const next = append ? [...prev, ...filtered] : filtered;
           const capped = next.slice(0, MAX_DYNAMIC_ITEMS);
           nextLen = capped.length;
+          cachedItems = capped;
           return capped;
         });
 
-        setHasMore(
+        const nextHasMore =
           result.hasMore &&
-            nextLen < MAX_DYNAMIC_ITEMS &&
-            emptyFilterPagesRef.current < MAX_EMPTY_FILTER_PAGES,
-        );
+          nextLen < MAX_DYNAMIC_ITEMS &&
+          emptyFilterPagesRef.current < MAX_EMPTY_FILTER_PAGES;
+        setHasMore(nextHasMore);
+        dynamicsTabCache.set(nextTab, {
+          items: cachedItems,
+          offset: result.offset,
+          hasMore: nextHasMore,
+          emptyFilterPages: emptyFilterPagesRef.current,
+        } satisfies DynamicsTabCache);
       } catch (err) {
         setError(formatError(err));
         if (!append) setItems([]);
@@ -154,7 +171,26 @@ export function DynamicsPage() {
 
   useEffect(() => {
     if (tab === "live") {
+      const cached = dynamicsLiveCache.get("following");
+      if (cached) {
+        setLiveRooms(cached.rooms);
+        setLiveCount(cached.count);
+        setLiveLoading(false);
+        setLiveError("");
+        return;
+      }
       void loadLives();
+      return;
+    }
+    const cached = dynamicsTabCache.get(tab);
+    if (cached) {
+      offsetRef.current = cached.offset;
+      emptyFilterPagesRef.current = cached.emptyFilterPages;
+      setItems(cached.items);
+      setHasMore(cached.hasMore);
+      setLoading(false);
+      setLoadingMore(false);
+      setError("");
       return;
     }
     offsetRef.current = "";
@@ -166,10 +202,13 @@ export function DynamicsPage() {
     const onRefresh = () => {
       scrollRef.current?.scrollTo({ top: 0 });
       if (tab === "live") {
+        dynamicsLiveCache.delete("following");
         void loadLives();
         return;
       }
+      dynamicsTabCache.delete(tab);
       offsetRef.current = "";
+      emptyFilterPagesRef.current = 0;
       void load(tab, false);
     };
     window.addEventListener("bilidesk:refresh-dynamics", onRefresh);

@@ -6,6 +6,7 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { formatCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+import { upProfileCache, upRelationCache } from "@/lib/session-data-cache";
 
 interface UpOwnerCardProps {
   mid: number;
@@ -22,13 +23,25 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
 
   useEffect(() => {
     setError("");
+    const cachedProfile = upProfileCache.get(String(mid));
+    const cachedRelation = upRelationCache.get(String(mid));
+    if (cachedProfile) setProfile(cachedProfile);
+    if (cachedRelation) setRelation(cachedRelation);
+    if (cachedProfile && cachedRelation) return;
+
     Promise.all([
-      window.biliDesk.bili.getUpProfile(mid),
-      window.biliDesk.bili.getUpRelation(mid),
+      cachedProfile
+        ? Promise.resolve(cachedProfile)
+        : window.biliDesk.bili.getUpProfile(mid),
+      cachedRelation
+        ? Promise.resolve(cachedRelation)
+        : window.biliDesk.bili.getUpRelation(mid),
     ])
       .then(([upProfile, upRelation]) => {
         setProfile(upProfile);
         setRelation(upRelation);
+        upProfileCache.set(String(mid), upProfile);
+        upRelationCache.set(String(mid), upRelation);
       })
       .catch((e: Error) => setError(e.message));
   }, [mid]);

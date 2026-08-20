@@ -246,6 +246,18 @@ export function HomePage() {
         }
 
         searchPageCacheRef.current.set(page, result.videos);
+        if (searchPageCacheRef.current.size > 10) {
+          const keys = [...searchPageCacheRef.current.keys()].sort(
+            (a, b) => Math.abs(a - page) - Math.abs(b - page),
+          );
+          const keep = new Set(keys.slice(0, 10));
+          for (const key of [...searchPageCacheRef.current.keys()]) {
+            if (!keep.has(key)) {
+              searchPageCacheRef.current.delete(key);
+              searchNextApiPageRef.current.delete(key);
+            }
+          }
+        }
         if (result.nextApiPage) {
           searchNextApiPageRef.current.set(page, result.nextApiPage);
         }

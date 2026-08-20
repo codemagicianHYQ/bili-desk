@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { VideoCard } from "@/components/video/VideoCard";
 import { cn, formatCount } from "@/lib/utils";
 import { formatUserSpaceError } from "@/lib/ipc-error";
+import { upProfileCache } from "@/lib/session-data-cache";
 import { MyCheesePanel } from "./MyCheesePanel";
 import { MyCollectionsPanel } from "./MyCollectionsPanel";
 import { MyDynamicsPanel } from "./MyDynamicsPanel";
@@ -74,6 +75,9 @@ export function MyPage() {
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const [tab, setTab] = useState<MyTab>("home");
+  const [visitedTabs, setVisitedTabs] = useState<Set<MyTab>>(
+    () => new Set(["home"]),
+  );
   const [profile, setProfile] = useState<UpProfile | null>(null);
   const [profileError, setProfileError] = useState("");
   const [profileLoading, setProfileLoading] = useState(true);
@@ -91,6 +95,14 @@ export function MyPage() {
       return;
     }
 
+    const cached = upProfileCache.get(String(mid));
+    if (cached) {
+      setProfile(cached);
+      setProfileLoading(false);
+      setProfileError("");
+      return;
+    }
+
     let cancelled = false;
     setProfileLoading(true);
     setProfileError("");
@@ -98,7 +110,10 @@ export function MyPage() {
     void window.biliDesk.bili
       .getUpProfile(mid)
       .then((data) => {
-        if (!cancelled) setProfile(data);
+        if (!cancelled) {
+          setProfile(data);
+          upProfileCache.set(String(mid), data);
+        }
       })
       .catch((err) => {
         if (!cancelled) setProfileError(formatUserSpaceError(err));
@@ -151,6 +166,16 @@ export function MyPage() {
     if (tab === "videos" && videos.length > 0) return;
     void loadVideos(1, false);
   }, [mid, tab, loadVideos, videos.length]);
+
+  const openTab = (next: MyTab) => {
+    setTab(next);
+    setVisitedTabs((prev) => {
+      if (prev.has(next)) return prev;
+      const copy = new Set(prev);
+      copy.add(next);
+      return copy;
+    });
+  };
 
   const loadMoreVideos = useCallback(async () => {
     if (!videoHasMore || loadingMore || videosLoading) return;
@@ -281,7 +306,7 @@ export function MyPage() {
               <button
                 type="button"
                 className="transition-colors hover:text-primary"
-                onClick={() => setTab("videos")}
+                onClick={() => openTab("videos")}
               >
                 <span className="font-semibold text-foreground">
                   {formatCount(displayProfile.videos)}
@@ -295,7 +320,7 @@ export function MyPage() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setTab(id)}
+                  onClick={() => openTab(id)}
                   className={cn(
                     "flex shrink-0 items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm transition-colors",
                     tab === id
@@ -370,7 +395,7 @@ export function MyPage() {
                     <button
                       type="button"
                       className="text-sm text-primary hover:underline"
-                      onClick={() => setTab("videos")}
+                      onClick={() => openTab("videos")}
                     >
                       查看全部
                     </button>
@@ -391,15 +416,29 @@ export function MyPage() {
             </>
           )}
 
-          {tab === "dynamics" && (
-            <MyDynamicsPanel mid={mid} profile={displayProfile} />
+          {visitedTabs.has("dynamics") && (
+            <div className={tab === "dynamics" ? undefined : "hidden"}>
+              <MyDynamicsPanel mid={mid} profile={displayProfile} />
+            </div>
           )}
 
-          {tab === "collections" && <MyCollectionsPanel mid={mid} />}
+          {visitedTabs.has("collections") && (
+            <div className={tab === "collections" ? undefined : "hidden"}>
+              <MyCollectionsPanel mid={mid} />
+            </div>
+          )}
 
-          {tab === "follow" && <MyFollowPanel mid={mid} />}
+          {visitedTabs.has("follow") && (
+            <div className={tab === "follow" ? undefined : "hidden"}>
+              <MyFollowPanel mid={mid} />
+            </div>
+          )}
 
-          {tab === "cheese" && <MyCheesePanel mid={mid} />}
+          {visitedTabs.has("cheese") && (
+            <div className={tab === "cheese" ? undefined : "hidden"}>
+              <MyCheesePanel mid={mid} />
+            </div>
+          )}
 
           {tab === "videos" && (
             <section>
@@ -434,7 +473,11 @@ export function MyPage() {
             </section>
           )}
 
-          {tab === "favorites" && <MyFavoritesPanel />}
+          {visitedTabs.has("favorites") && (
+            <div className={tab === "favorites" ? undefined : "hidden"}>
+              <MyFavoritesPanel />
+            </div>
+          )}
         </div>
       </div>
     </div>

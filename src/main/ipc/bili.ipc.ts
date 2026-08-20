@@ -107,6 +107,21 @@ export function registerBiliIpc(): void {
     (_e, payload: { title: string; intro?: string; privacy?: 0 | 1 }) =>
       biliApi.createFavFolder(payload),
   );
+  ipcMain.handle(IPC.BILI_FAV_FOLDER_INFO, (_e, mediaId: number) =>
+    biliApi.getFavFolderInfo(mediaId),
+  );
+  ipcMain.handle(
+    IPC.BILI_FAV_FOLDER_EDIT,
+    (
+      _e,
+      payload: {
+        mediaId: number;
+        title: string;
+        intro?: string;
+        privacy?: 0 | 1;
+      },
+    ) => biliApi.editFavFolder(payload),
+  );
   ipcMain.handle(IPC.BILI_FAV_FOLDER_SORT, (_e, mediaIds: number[]) =>
     biliApi.sortFavFolders(mediaIds),
   );
@@ -130,6 +145,9 @@ export function registerBiliIpc(): void {
     IPC.BILI_FAV_RESOURCES_MOVE,
     (_e, srcMediaId: number, tarMediaId: number, aids: number[]) =>
       biliApi.moveFavResources(srcMediaId, tarMediaId, aids),
+  );
+  ipcMain.handle(IPC.BILI_FAV_RESOURCES_CLEAN, (_e, mediaId: number) =>
+    biliApi.cleanFavResources(mediaId),
   );
   ipcMain.handle(IPC.BILI_FOLLOWINGS, (_e, page?: number) =>
     biliApi.getFollowings(page),

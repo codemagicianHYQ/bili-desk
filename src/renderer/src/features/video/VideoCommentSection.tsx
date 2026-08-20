@@ -15,6 +15,10 @@ import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { VirtualList } from "@/components/ui/virtual-list";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn, formatCount } from "@/lib/utils";
+import {
+  commentsCache,
+  commentsCacheKey,
+} from "@/lib/session-data-cache";
 import { Loader2, MessageCircle, ThumbsUp } from "lucide-react";
 
 interface VideoCommentSectionProps {
@@ -359,8 +363,16 @@ export function VideoCommentSection({
         setPage(result.page);
         // 空页 / 无新增 / 达到软上限 → 停止，避免无限堆内存
         const underCap = merged.length < MAX_COMMENTS;
-        setHasMore(result.hasMore && uniqueAdded > 0 && underCap);
-        setTotal(result.acount || result.count || replyCount);
+        const nextHasMore = result.hasMore && uniqueAdded > 0 && underCap;
+        setHasMore(nextHasMore);
+        const nextTotal = result.acount || result.count || replyCount;
+        setTotal(nextTotal);
+        commentsCache.set(commentsCacheKey(aid, nextSort), {
+          comments: merged,
+          page: result.page,
+          hasMore: nextHasMore,
+          total: nextTotal,
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : "评论加载失败");
         if (!reset) setHasMore(false);
@@ -374,6 +386,18 @@ export function VideoCommentSection({
   );
 
   useEffect(() => {
+    const cached = commentsCache.get(commentsCacheKey(aid, sort));
+    if (cached) {
+      commentsRef.current = cached.comments;
+      setComments(cached.comments);
+      setPage(cached.page);
+      setHasMore(cached.hasMore);
+      setTotal(cached.total);
+      setLoading(false);
+      setLoadingMore(false);
+      setError("");
+      return;
+    }
     void loadComments(1, sort, true);
   }, [aid, sort, loadComments]);
 
@@ -390,6 +414,7 @@ export function VideoCommentSection({
     try {
       await window.biliDesk.bili.addComment(aid, text);
       setDraft("");
+      commentsCache.delete(commentsCacheKey(aid, sort));
       await loadComments(1, sort, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "发表评论失败");

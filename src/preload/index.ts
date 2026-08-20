@@ -129,6 +129,14 @@ const api = {
       intro?: string;
       privacy?: 0 | 1;
     }) => ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_CREATE, payload),
+    getFavFolderInfo: (mediaId: number) =>
+      ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_INFO, mediaId),
+    editFavFolder: (payload: {
+      mediaId: number;
+      title: string;
+      intro?: string;
+      privacy?: 0 | 1;
+    }) => ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_EDIT, payload),
     sortFavFolders: (mediaIds: number[]) =>
       ipcRenderer.invoke(IPC.BILI_FAV_FOLDER_SORT, mediaIds),
     getVideoFavFolders: (aid: number) =>
@@ -156,6 +164,8 @@ const api = {
         tarMediaId,
         aids,
       ),
+    cleanFavResources: (mediaId: number) =>
+      ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES_CLEAN, mediaId),
     getFollowings: (page?: number) =>
       page != null
         ? ipcRenderer.invoke(IPC.BILI_FOLLOWINGS, page)

@@ -6,8 +6,15 @@ import {
   useState,
   type DragEvent,
 } from "react";
-import type { FavResource, LocalCategorySelection } from "@shared/types";
-import { useFavoritesStore } from "@/stores/favorites-store";
+import type {
+  FavFolder,
+  FavResource,
+  LocalCategorySelection,
+} from "@shared/types";
+import {
+  useFavoritesStore,
+  type FolderListCache,
+} from "@/stores/favorites-store";
 import {
   assignmentToFavResource,
   enrichTreeWithCounts,
@@ -15,6 +22,8 @@ import {
 } from "@shared/utils/local-category";
 import { CategoryTree } from "@/components/taxonomy/CategoryTree";
 import { CreateFavFolderControl } from "@/components/favorites/CreateFavFolderControl";
+import { EditFavFolderDialog } from "@/components/favorites/EditFavFolderDialog";
+import { FavFolderGroupedNav } from "@/components/favorites/FavFolderGroupedNav";
 import { FavMoveDialog } from "@/components/favorites/FavMoveDialog";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
@@ -22,12 +31,13 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Link } from "react-router-dom";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn, formatDuration } from "@/lib/utils";
+import { reorderGroupedFavFolders } from "@shared/utils/fav-folder-groups";
 import {
   Check,
-  Folder,
+  Eraser,
   FolderInput,
-  GripVertical,
   Loader2,
+  Pencil,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -184,6 +194,7 @@ export function FavoritesPage() {
   const patchFolderCounts = useFavoritesStore(
     (state) => state.patchFolderCounts,
   );
+  const clearFolderList = useFavoritesStore((state) => state.clearFolderList);
   const refreshVersion = useFavoritesStore((state) => state.refreshVersion);
   const foldersRef = useRef(folders);
   foldersRef.current = folders;
@@ -218,9 +229,14 @@ export function FavoritesPage() {
   const [sortError, setSortError] = useState("");
   const dragFolderIdRef = useRef<number | null>(null);
   const folderDraggedRef = useRef(false);
+  const folderDragClickLockTimerRef = useRef<number | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
   const [actionError, setActionError] = useState("");
   const [moveError, setMoveError] = useState("");
+  const [editFolder, setEditFolder] = useState<FavFolder | null>(null);
+  const [cleanFolder, setCleanFolder] = useState<FavFolder | null>(null);
+  const [cleanLoading, setCleanLoading] = useState(false);
+  const [folderNotice, setFolderNotice] = useState("");
 
   const isLocalMode = sidebarMode === "local";
 
@@ -243,8 +259,23 @@ export function FavoritesPage() {
         clearInterval(classifyPollRef.current);
         classifyPollRef.current = null;
       }
+      if (folderDragClickLockTimerRef.current != null) {
+        window.clearTimeout(folderDragClickLockTimerRef.current);
+        folderDragClickLockTimerRef.current = null;
+      }
     };
   }, []);
+
+  const applyFolderListCache = (list: FolderListCache) => {
+    folderLoadSeqRef.current += 1;
+    setResources(list.resources);
+    setFolderPage(list.page);
+    setFolderHasMore(list.hasMore);
+    setFolderError("");
+    setFolderLoading(false);
+    setFolderLoadingMore(false);
+    setListReady(true);
+  };
 
   const loadFolderPage = useCallback(
     async (mediaId: number, page: number, append: boolean) => {
@@ -262,10 +293,7 @@ export function FavoritesPage() {
       }
 
       try {
-        let result = await window.biliDesk.bili.getFavResources(
-          mediaId,
-          page,
-        );
+        let result = await window.biliDesk.bili.getFavResources(mediaId, page);
         if (seq !== folderLoadSeqRef.current) return;
 
         const expected =
@@ -285,9 +313,17 @@ export function FavoritesPage() {
           }
         }
 
-        setResources((prev) =>
-          append ? [...prev, ...result.resources] : result.resources,
-        );
+        setResources((prev) => {
+          const next = append
+            ? [...prev, ...result.resources]
+            : result.resources;
+          useFavoritesStore.getState().putFolderList(mediaId, {
+            resources: next,
+            page: result.page,
+            hasMore: result.hasMore,
+          });
+          return next;
+        });
         setFolderPage(result.page);
         setFolderHasMore(result.hasMore);
       } catch (err) {
@@ -306,7 +342,6 @@ export function FavoritesPage() {
   );
 
   useEffect(() => {
-    setListReady(false);
     setEditing(false);
     setSelectedIds(new Set());
     setActionError("");
@@ -317,6 +352,11 @@ export function FavoritesPage() {
 
   useEffect(() => {
     if (sidebarMode !== "bilibili" || !selectedFolder) return;
+    const cached = useFavoritesStore.getState().getFolderList(selectedFolder);
+    if (cached) {
+      applyFolderListCache(cached);
+      return;
+    }
     void loadFolderPage(selectedFolder, 1, false);
   }, [selectedFolder, sidebarMode, loadFolderPage]);
 
@@ -342,15 +382,20 @@ export function FavoritesPage() {
 
   const handleSelectFolder = (folderId: number) => {
     setFolderError("");
-    setListReady(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
 
     if (folderId === selectedFolder) {
-      setFolderLoading(true);
+      useFavoritesStore.getState().clearFolderList(folderId);
       void loadFolderPage(folderId, 1, false);
       return;
     }
 
+    const cached = useFavoritesStore.getState().getFolderList(folderId);
+    if (cached) {
+      applyFolderListCache(cached);
+    } else {
+      setListReady(false);
+    }
     setSelectedFolder(folderId);
   };
 
@@ -443,6 +488,9 @@ export function FavoritesPage() {
       await window.biliDesk.bili.removeFavResources(selectedFolder, aids);
       const removed = new Set(aids);
       setResources((prev) => prev.filter((item) => !removed.has(item.id)));
+      useFavoritesStore
+        .getState()
+        .removeItemsFromFolderList(selectedFolder, aids);
       setSelectedIds((prev) => {
         const next = new Set(prev);
         for (const id of aids) next.delete(id);
@@ -498,6 +546,10 @@ export function FavoritesPage() {
         );
         const moved = new Set(aids);
         setResources((prev) => prev.filter((item) => !moved.has(item.id)));
+        useFavoritesStore
+          .getState()
+          .removeItemsFromFolderList(selectedFolder, aids);
+        useFavoritesStore.getState().clearFolderList(targetFolderId);
         setSelectedIds(new Set());
         setMoveOpen(false);
         await refreshFolderMeta({
@@ -631,7 +683,21 @@ export function FavoritesPage() {
     }
   };
 
+  const unlockFolderClicksSoon = () => {
+    if (folderDragClickLockTimerRef.current != null) {
+      window.clearTimeout(folderDragClickLockTimerRef.current);
+    }
+    folderDragClickLockTimerRef.current = window.setTimeout(() => {
+      folderDraggedRef.current = false;
+      folderDragClickLockTimerRef.current = null;
+    }, 80);
+  };
+
   const handleFolderDragStart = (folderId: number) => {
+    if (folderDragClickLockTimerRef.current != null) {
+      window.clearTimeout(folderDragClickLockTimerRef.current);
+      folderDragClickLockTimerRef.current = null;
+    }
     dragFolderIdRef.current = folderId;
     folderDraggedRef.current = false;
     setDraggingFolderId(folderId);
@@ -657,24 +723,45 @@ export function FavoritesPage() {
     dragFolderIdRef.current = null;
     setDraggingFolderId(null);
     setDropFolderId(null);
+    unlockFolderClicksSoon();
     if (fromId == null || fromId === folderId) return;
 
-    const pinned = folders.filter((folder) => folder.isDefault);
-    const rest = folders.filter((folder) => !folder.isDefault);
-    const from = rest.findIndex((folder) => folder.id === fromId);
-    const to = rest.findIndex((folder) => folder.id === folderId);
-    if (from < 0 || to < 0) return;
-
-    const next = [...rest];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    void persistFolderOrder([...pinned, ...next]);
+    const next = reorderGroupedFavFolders(folders, fromId, folderId);
+    if (!next) return;
+    void persistFolderOrder(next);
   };
 
   const handleFolderDragEnd = () => {
     dragFolderIdRef.current = null;
     setDraggingFolderId(null);
     setDropFolderId(null);
+    unlockFolderClicksSoon();
+  };
+
+  const handleCleanInvalid = async () => {
+    if (!cleanFolder) return;
+    setCleanLoading(true);
+    setActionError("");
+    try {
+      const result = await window.biliDesk.bili.cleanFavResources(
+        cleanFolder.id,
+      );
+      clearFolderList(cleanFolder.id);
+      await ensureFolders({ force: true });
+      if (selectedFolder === cleanFolder.id) {
+        void loadFolderPage(cleanFolder.id, 1, false);
+      }
+      setFolderNotice(
+        result.cleaned != null && result.cleaned > 0
+          ? `已清除 ${result.cleaned} 条失效内容`
+          : "已清除失效内容（若没有失效稿件则数量不变）",
+      );
+      setCleanFolder(null);
+    } catch (err) {
+      setActionError(formatFolderError(err));
+    } finally {
+      setCleanLoading(false);
+    }
   };
 
   const handleRename = async (
@@ -742,7 +829,7 @@ export function FavoritesPage() {
           <p className="text-xs text-muted-foreground">
             {isLocalMode
               ? "按标题打分归类，计算机会分到前端 / 后端 / AI 等方向；全量分类会重建本地目录"
-              : "每次约 100 条。会优先放进你已经建好的夹（例如「算法与数据结构」），不再重复新建「计算机-算法」。被风控就隔几分钟再点"}
+              : "侧栏会按夹名灵活归到计算机 / 学习 / AI 等（量化、逆向、爬虫、机器学习也会进去）。官方收藏夹仍是平铺的。夹子右侧可编辑名称、一键清失效。每次约 100 条。"}
           </p>
           <Button
             type="button"
@@ -786,84 +873,41 @@ export function FavoritesPage() {
                   {sortError}
                 </p>
               )}
-              {folders.map((folder) => {
-                const canDrag = !folder.isDefault;
-                const dragging = draggingFolderId === folder.id;
-                const dropTarget =
-                  dropFolderId === folder.id &&
-                  draggingFolderId != null &&
-                  draggingFolderId !== folder.id;
-                return (
-                  <div
-                    key={folder.id}
-                    draggable={canDrag}
-                    onDragStart={(event) => {
-                      if (!canDrag) {
-                        event.preventDefault();
-                        return;
-                      }
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData(
-                        "text/plain",
-                        String(folder.id),
-                      );
-                      handleFolderDragStart(folder.id);
-                    }}
-                    onDragOver={(event) => {
-                      if (!canDrag) return;
-                      event.dataTransfer.dropEffect = "move";
-                      handleFolderDragOver(event, folder.id);
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      if (!canDrag) return;
-                      handleFolderDrop(folder.id);
-                    }}
-                    onDragEnd={handleFolderDragEnd}
-                    className={cn(
-                      "flex items-center gap-0.5 rounded-lg",
-                      dragging && "bg-primary/20 text-primary opacity-90",
-                      dropTarget && "ring-1 ring-primary/70 bg-primary/10",
-                      !dragging &&
-                        !dropTarget &&
-                        selectedFolder === folder.id &&
-                        "bg-primary/10 text-primary",
-                      !dragging &&
-                        !dropTarget &&
-                        selectedFolder !== folder.id &&
-                        "text-foreground hover:bg-secondary",
-                    )}
-                  >
-                    {canDrag ? (
-                      <span
-                        className="flex h-8 w-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
-                        title="拖动排序"
-                        aria-hidden
-                      >
-                        <GripVertical className="h-3.5 w-3.5" />
-                      </span>
-                    ) : (
-                      <span className="w-5 shrink-0" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (folderDraggedRef.current) return;
-                        handleSelectFolder(folder.id);
-                      }}
-                      className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-2 text-left text-sm"
-                    >
-                      <Folder className="h-4 w-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {folder.title}
-                      </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {folder.mediaCount}
-                      </span>
-                    </button>
-                  </div>
-                );
-              })}
+              <FavFolderGroupedNav
+                folders={folders}
+                selectedFolder={selectedFolder}
+                draggingFolderId={draggingFolderId}
+                dropFolderId={dropFolderId}
+                onSelect={handleSelectFolder}
+                onDragStart={(event, folder) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", String(folder.id));
+                  handleFolderDragStart(folder.id);
+                }}
+                onDragOver={(event, folderId) => {
+                  event.dataTransfer.dropEffect = "move";
+                  handleFolderDragOver(event, folderId);
+                }}
+                onDrop={(_event, folderId) => {
+                  handleFolderDrop(folderId);
+                }}
+                onDragEnd={handleFolderDragEnd}
+                onEdit={(folder) => {
+                  setEditFolder(folder);
+                  setFolderNotice("");
+                }}
+                onCleanInvalid={(folder) => {
+                  setCleanFolder(folder);
+                  setFolderNotice("");
+                }}
+                shouldIgnoreClick={() => {
+                  if (folderDraggedRef.current) {
+                    folderDraggedRef.current = false;
+                    return true;
+                  }
+                  return false;
+                }}
+              />
               {folders.length === 0 && (
                 <p className="px-2 py-4 text-center text-xs text-muted-foreground">
                   登录后可同步 B 站收藏夹
@@ -904,86 +948,119 @@ export function FavoritesPage() {
             )}
           </p>
 
-          {!isLocalMode && resources.length > 0 && (
+          {!isLocalMode && selectedFolderInfo && (
             <div className="flex flex-wrap items-center gap-1.5">
-              {editing ? (
-                <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                disabled={batchBusy || cleanLoading || editing}
+                onClick={() => {
+                  setFolderNotice("");
+                  setEditFolder(selectedFolderInfo);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                编辑信息
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                disabled={batchBusy || cleanLoading || editing}
+                onClick={() => {
+                  setFolderNotice("");
+                  setCleanFolder(selectedFolderInfo);
+                }}
+              >
+                <Eraser className="h-3.5 w-3.5" />
+                清除已失效
+              </Button>
+              {resources.length > 0 &&
+                (editing ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={batchBusy}
+                      onClick={selectAllLoaded}
+                    >
+                      全选已加载
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={batchBusy || selectedIds.size === 0}
+                      onClick={clearSelection}
+                    >
+                      取消选择
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1"
+                      disabled={batchBusy || selectedIds.size === 0}
+                      onClick={() => {
+                        setMoveError("");
+                        setMoveOpen(true);
+                      }}
+                    >
+                      {batchMoving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <FolderInput className="h-3.5 w-3.5" />
+                      )}
+                      移动
+                      {selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 border-red-500/30 text-red-400 hover:bg-red-500/15"
+                      disabled={batchBusy || selectedIds.size === 0}
+                      onClick={() => setBatchConfirmOpen(true)}
+                    >
+                      {batchRemoving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      移除
+                      {selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={batchBusy}
+                      onClick={() => {
+                        setEditing(false);
+                        clearSelection();
+                      }}
+                    >
+                      完成
+                    </Button>
+                  </>
+                ) : (
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={batchBusy}
-                    onClick={selectAllLoaded}
-                  >
-                    全选已加载
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={batchBusy || selectedIds.size === 0}
-                    onClick={clearSelection}
-                  >
-                    取消选择
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1"
-                    disabled={batchBusy || selectedIds.size === 0}
                     onClick={() => {
-                      setMoveError("");
-                      setMoveOpen(true);
+                      setEditing(true);
+                      setActionError("");
                     }}
                   >
-                    {batchMoving ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <FolderInput className="h-3.5 w-3.5" />
-                    )}
-                    移动
-                    {selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                    批量管理
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1 border-red-500/30 text-red-400 hover:bg-red-500/15"
-                    disabled={batchBusy || selectedIds.size === 0}
-                    onClick={() => setBatchConfirmOpen(true)}
-                  >
-                    {batchRemoving ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                    移除
-                    {selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={batchBusy}
-                    onClick={() => {
-                      setEditing(false);
-                      clearSelection();
-                    }}
-                  >
-                    完成
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setEditing(true);
-                    setActionError("");
-                  }}
-                >
-                  批量管理
-                </Button>
-              )}
+                ))}
             </div>
           )}
         </div>
+
+        {folderNotice && !actionError && (
+          <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
+            {folderNotice}
+          </p>
+        )}
 
         {actionError && (
           <p className="border-b border-border px-4 py-2 text-xs text-red-400">
@@ -1011,8 +1088,8 @@ export function FavoritesPage() {
                 />
               ))}
 
-              {displayItems.length === 0 && (
-                isLocalMode ? (
+              {displayItems.length === 0 &&
+                (isLocalMode ? (
                   <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
                     {assignments.length === 0
                       ? "暂无本地分类数据，请先点击「智能分类全部收藏」"
@@ -1039,8 +1116,7 @@ export function FavoritesPage() {
                   <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
                     该收藏夹暂无视频
                   </p>
-                )
-              )}
+                ))}
             </div>
           )}
 
@@ -1085,6 +1161,24 @@ export function FavoritesPage() {
         onCancel={() => {
           if (!classifying) setOrganizeConfirmOpen(false);
         }}
+      />
+
+      <ConfirmDialog
+        open={cleanFolder != null}
+        title={`清除「${cleanFolder?.title ?? ""}」里的失效内容？`}
+        description="会把这个收藏夹里已被 UP 删除或下架的稿件清掉，和官网「一键清除已失效」一样，会同步到官方账号。"
+        confirmLabel="清除失效"
+        destructive
+        loading={cleanLoading}
+        onConfirm={() => void handleCleanInvalid()}
+        onCancel={() => {
+          if (!cleanLoading) setCleanFolder(null);
+        }}
+      />
+
+      <EditFavFolderDialog
+        folder={editFolder}
+        onClose={() => setEditFolder(null)}
       />
 
       {selectedFolder != null && (

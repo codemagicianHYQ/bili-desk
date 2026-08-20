@@ -263,6 +263,25 @@ class BiliApiService {
   private memberClient: AxiosInstance;
   private liveClient: AxiosInstance;
   private playQualityCache = new Map<string, PlayQualityOption[]>();
+  private static readonly MAIN_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+  private pruneBoundedMap<T>(
+    map: Map<string, T>,
+    maxSize: number,
+    getAt: (value: T) => number,
+  ) {
+    const now = Date.now();
+    for (const [key, value] of map) {
+      if (now - getAt(value) > BiliApiService.MAIN_CACHE_TTL_MS) {
+        map.delete(key);
+      }
+    }
+    while (map.size > maxSize) {
+      const first = map.keys().next().value;
+      if (first == null) break;
+      map.delete(first);
+    }
+  }
 
   constructor() {
     this.client = axios.create({
@@ -3138,6 +3157,28 @@ class BiliApiService {
     throw new Error("收藏列表获取失败，请稍后重试");
   }
 
+  private mapFavFolder(
+    f: Record<string, unknown>,
+    extras?: Partial<FavFolder>,
+  ): FavFolder {
+    const title = String(f.title ?? extras?.title ?? "");
+    const attr = Number(f.attr) || 0;
+    return {
+      id: Number(f.id) || extras?.id || 0,
+      fid: Number(f.fid) || extras?.fid || 0,
+      title,
+      mediaCount: Number(f.media_count ?? extras?.mediaCount) || 0,
+      cover: String(f.cover ?? extras?.cover ?? ""),
+      intro: String(f.intro ?? extras?.intro ?? ""),
+      privacy: (attr & 2) === 2 ? 1 : extras?.privacy === 1 ? 1 : 0,
+      isDefault:
+        (attr & 1) === 1 ||
+        extras?.isDefault === true ||
+        title === "默认收藏夹" ||
+        title.toLowerCase() === "default",
+    };
+  }
+
   async getFavFolders(): Promise<FavFolder[]> {
     const mid =
       appStore.get("user")?.mid ?? Number(appStore.get("cookies").DedeUserID);
@@ -3165,17 +3206,7 @@ class BiliApiService {
       }
 
       const list = res.data?.data?.list ?? [];
-      return list.map((f: Record<string, unknown>) => ({
-        id: f.id as number,
-        fid: f.fid as number,
-        title: f.title as string,
-        mediaCount: (f.media_count as number) ?? 0,
-        cover: (f.cover as string) ?? "",
-        isDefault:
-          Number(f.attr) === 1 ||
-          (f.title as string) === "默认收藏夹" ||
-          (f.title as string).toLowerCase() === "default",
-      }));
+      return list.map((f: Record<string, unknown>) => this.mapFavFolder(f));
     }
 
     return [];
@@ -3209,16 +3240,8 @@ class BiliApiService {
 
       const list = res.data?.data?.list ?? [];
       return list.map((f: Record<string, unknown>) => ({
-        id: f.id as number,
-        fid: f.fid as number,
-        title: f.title as string,
-        mediaCount: (f.media_count as number) ?? 0,
-        cover: (f.cover as string) ?? "",
+        ...this.mapFavFolder(f),
         collected: Number(f.fav_state) === 1 || f.fav_state === true,
-        isDefault:
-          Number(f.attr) === 1 ||
-          (f.title as string) === "默认收藏夹" ||
-          (f.title as string).toLowerCase() === "default",
       }));
     }
 
@@ -3318,13 +3341,139 @@ class BiliApiService {
       throw new Error("创建收藏夹成功，但未返回收藏夹信息");
     }
 
-    return {
+    return this.mapFavFolder(data, {
       id,
-      fid: Number(data.fid) || 0,
-      title: String(data.title || title),
-      mediaCount: Number(data.media_count) || 0,
-      cover: String(data.cover ?? ""),
+      title,
+      privacy: payload.privacy === 1 ? 1 : 0,
       isDefault: false,
+    });
+  }
+
+  async getFavFolderInfo(mediaId: number): Promise<FavFolder> {
+    if (!mediaId) throw new Error("收藏夹无效");
+    await this.ensureBuvid3();
+
+    const res = await this.client.get("/x/v3/fav/folder/info", {
+      params: { media_id: mediaId },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "收藏夹信息获取失败");
+    }
+
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const folder = this.mapFavFolder(data, { id: mediaId });
+    if (!folder.id) throw new Error("收藏夹信息获取失败");
+    return folder;
+  }
+
+  /** 编辑收藏夹名称 / 简介 / 公开性，对应官网 /x/v3/fav/folder/edit */
+  async editFavFolder(payload: {
+    mediaId: number;
+    title: string;
+    intro?: string;
+    privacy?: 0 | 1;
+  }): Promise<FavFolder> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再编辑收藏夹");
+
+    const mediaId = Number(payload.mediaId);
+    if (!Number.isFinite(mediaId) || mediaId <= 0) {
+      throw new Error("收藏夹无效");
+    }
+
+    const title = payload.title.trim();
+    if (!title) throw new Error("请输入收藏夹名称");
+    if (title.length > 20) throw new Error("收藏夹名称最多 20 个字");
+
+    let intro = payload.intro;
+    let privacy = payload.privacy;
+    if (intro == null || privacy == null) {
+      const current = await this.getFavFolderInfo(mediaId);
+      intro = intro ?? current.intro ?? "";
+      privacy = privacy ?? current.privacy ?? 0;
+    }
+
+    const res = await this.client.post(
+      "/x/v3/fav/folder/edit",
+      new URLSearchParams({
+        media_id: String(mediaId),
+        title,
+        intro: intro.trim(),
+        privacy: String(privacy === 1 ? 1 : 0),
+        csrf,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/",
+          Origin: "https://www.bilibili.com",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "编辑收藏夹失败");
+    }
+
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    return this.mapFavFolder(data, {
+      id: mediaId,
+      title,
+      intro: intro.trim(),
+      privacy: privacy === 1 ? 1 : 0,
+    });
+  }
+
+  /** 一键清除收藏夹里已失效/下架的稿件，对应官网 /x/v3/fav/resource/clean */
+  async cleanFavResources(mediaId: number): Promise<{ cleaned: number | null }> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再清除失效内容");
+    if (!Number.isFinite(mediaId) || mediaId <= 0) {
+      throw new Error("收藏夹无效");
+    }
+
+    const res = await this.client.post(
+      "/x/v3/fav/resource/clean",
+      new URLSearchParams({
+        media_id: String(mediaId),
+        csrf,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/",
+          Origin: "https://www.bilibili.com",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "清除失效内容失败");
+    }
+
+    const raw = res.data?.data;
+    const cleaned =
+      typeof raw === "number"
+        ? raw
+        : typeof raw === "object" && raw && "count" in raw
+          ? Number((raw as { count?: number }).count)
+          : null;
+    return {
+      cleaned: Number.isFinite(cleaned) ? Number(cleaned) : null,
     };
   }
 
@@ -4692,6 +4841,7 @@ class BiliApiService {
       pages: Map<number, VideoItem[]>;
       hasNext: Map<number, boolean>;
       lastAid: Map<number, number>;
+      at: number;
     }
   >();
 
@@ -4703,6 +4853,7 @@ class BiliApiService {
     const pageSize = 30;
     const targetPage = Math.max(1, page);
     const cacheKey = `${mid}:${order}`;
+    this.pruneBoundedMap(this.upVideoCursorCache, 8, (entry) => entry.at);
 
     if (targetPage === 1) {
       this.upVideoCursorCache.delete(cacheKey);
@@ -4715,6 +4866,7 @@ class BiliApiService {
         pages: new Map(),
         hasNext: new Map(),
         lastAid: new Map(),
+        at: Date.now(),
       };
       this.upVideoCursorCache.set(cacheKey, cache);
     }
@@ -5019,6 +5171,7 @@ class BiliApiService {
       searchPage: number;
       searchTotal: number;
       exhausted: boolean;
+      at: number;
     }
   >();
 
@@ -5038,6 +5191,7 @@ class BiliApiService {
     const pageSize = 30;
     const targetPage = Math.max(1, page);
     const cacheKey = `${mid}:${order}:${upName}`;
+    this.pruneBoundedMap(this.upSearchVideoCache, 8, (entry) => entry.at);
 
     if (targetPage === 1) {
       this.upSearchVideoCache.delete(cacheKey);
@@ -5050,6 +5204,7 @@ class BiliApiService {
         searchPage: 1,
         searchTotal: 0,
         exhausted: false,
+        at: Date.now(),
       };
       this.upSearchVideoCache.set(cacheKey, cache);
     }

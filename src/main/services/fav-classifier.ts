@@ -153,6 +153,15 @@ const TITLE_RULES: ScoredRule[] = [
   },
   {
     l1: "计算机",
+    l2: "爬虫",
+    keywords: [
+      k("网络爬虫|爬虫教程|爬虫实战|\\bscrapy\\b|\\bselenium\\b", 38),
+      k("爬虫", 32),
+    ],
+    exclude: /机器学习|深度学习|pytorch|tensorflow|神经网络|大模型|llm/i,
+  },
+  {
+    l1: "计算机",
     l2: "后端",
     l3: "C/C++",
     keywords: [
@@ -258,6 +267,7 @@ const TITLE_RULES: ScoredRule[] = [
         36,
       ),
       k("prompt工程|提示词|\\brag\\b|微调|\\bfinetune\\b|sft\\b", 34),
+      k("ai学习|ai教程|ai面试|ai\\s*agent|\\bcodex\\b|cursor\\s*ai", 36),
     ],
   },
   {
@@ -269,7 +279,7 @@ const TITLE_RULES: ScoredRule[] = [
       k("计算机视觉|\\bopencv\\b|目标检测|transformer", 34),
       k("自然语言处理|\\bnlp\\b(?!.*(非语言))", 30),
       k("扩散模型|stable diffusion|\\bcomfyui\\b|aigc|midjourney", 28),
-      k("(?<![a-z])ai(?![a-z])", 18),
+      k("(?<![a-z])ai(?![a-z])", 22),
     ],
   },
 
@@ -289,8 +299,18 @@ const TITLE_RULES: ScoredRule[] = [
     keywords: [
       k("网络安全|web安全|信息安全|渗透测试", 42),
       k("漏洞|ctf|owasp|sql注入|xss\\b|csrf", 36),
-      k("逆向工程|二进制安全|密码学应用", 32),
+      k("逆向工程|逆向(?!思维)|反编译|二进制安全|密码学应用", 34),
     ],
+  },
+  {
+    l1: "计算机",
+    l2: "量化",
+    keywords: [
+      k("量化交易|量化投资|量化策略|量化选股", 42),
+      k("\\bquant\\b|cta策略|因子投资", 36),
+      k("量化", 28),
+    ],
+    exclude: /量化宽松|逆向思维/i,
   },
   {
     l1: "计算机",
@@ -616,6 +636,9 @@ const FOLDER_TOPIC_ALIASES: string[][] = [
   ["前端", "vue", "react", "javascript", "css", "html"],
   ["后端", "java", "spring", "golang", "go语言", "node"],
   ["人工智能", "大模型", "机器学习", "深度学习", "llm", "ai"],
+  ["量化", "量化交易", "quant", "量化投资"],
+  ["逆向", "逆向工程", "反编译", "二进制"],
+  ["爬虫", "scrapy", "selenium", "crawler"],
   ["数据库", "mysql", "redis", "sql"],
   ["操作系统", "os", "linux内核"],
   ["计算机网络", "网络", "tcp"],
@@ -793,6 +816,33 @@ function existingFolderHintScore(
   if (
     /算法|数据结构|力扣|leetcode/.test(folder) &&
     /算法|数据结构|leetcode|力扣|动态规划|链表|二叉树/.test(video)
+  ) {
+    score += 22;
+  }
+  if (
+    /机器学习|深度学习|神经网络/.test(folder) &&
+    /机器学习|深度学习|神经网络|(?<![a-z])ai(?![a-z])|人工智能|大模型|\bllm\b/.test(
+      video,
+    )
+  ) {
+    score += 22;
+  }
+  if (
+    /量化/.test(folder) &&
+    /量化|quant|回测|因子|cta/.test(video)
+  ) {
+    score += 22;
+  }
+  if (
+    /逆向/.test(folder) &&
+    !/逆向思维/.test(folder) &&
+    /逆向|反编译|二进制|\bctf\b|\bpwn\b/.test(video)
+  ) {
+    score += 22;
+  }
+  if (
+    /爬虫/.test(folder) &&
+    /爬虫|scrapy|selenium|crawler/.test(video)
   ) {
     score += 22;
   }

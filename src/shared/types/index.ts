@@ -204,6 +204,9 @@ export interface FavFolder {
   title: string;
   mediaCount: number;
   cover: string;
+  intro?: string;
+  /** 0 公开，1 私密 */
+  privacy?: 0 | 1;
   isDefault?: boolean;
 }
 
@@ -212,6 +215,18 @@ export interface CreateFavFolderPayload {
   intro?: string;
   /** 0 公开，1 私密 */
   privacy?: 0 | 1;
+}
+
+export interface EditFavFolderPayload {
+  mediaId: number;
+  title: string;
+  intro?: string;
+  /** 0 公开，1 私密 */
+  privacy?: 0 | 1;
+}
+
+export interface CleanFavResourcesResult {
+  cleaned: number | null;
 }
 
 export interface VideoFavFolder extends FavFolder {
@@ -940,6 +955,8 @@ export interface BiliDeskApi {
     getReplyEmotes: () => Promise<Record<string, string>>;
     getFavFolders: () => Promise<FavFolder[]>;
     createFavFolder: (payload: CreateFavFolderPayload) => Promise<FavFolder>;
+    getFavFolderInfo: (mediaId: number) => Promise<FavFolder>;
+    editFavFolder: (payload: EditFavFolderPayload) => Promise<FavFolder>;
     sortFavFolders: (mediaIds: number[]) => Promise<void>;
     getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
     setVideoFavFolders: (
@@ -957,6 +974,7 @@ export interface BiliDeskApi {
       tarMediaId: number,
       aids: number[],
     ) => Promise<void>;
+    cleanFavResources: (mediaId: number) => Promise<CleanFavResourcesResult>;
     getFollowings: (page?: number) => Promise<FollowingUp[]>;
     getFollowTags: () => Promise<FollowTag[]>;
     createFollowTag: (name: string) => Promise<FollowTag>;
