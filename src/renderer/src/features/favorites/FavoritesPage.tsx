@@ -50,7 +50,18 @@ import {
   Trash2,
 } from "lucide-react";
 
+function pickDefaultFavFolder(list: FavFolder[]): FavFolder | null {
+  return (
+    list.find((folder) => folder.isDefault) ??
+    list.find((folder) => folder.title === "默认收藏夹") ??
+    list.find((folder) => folder.title.toLowerCase() === "default") ??
+    null
+  );
+}
+
 const LOCAL_PAGE_SIZE = 40;
+const DEFAULT_ORGANIZE_THRESHOLD = 100;
+const AUTO_ORGANIZE_CONTINUE_MS = 150_000;
 
 type SidebarMode = "bilibili" | "local";
 
@@ -242,6 +253,9 @@ export function FavoritesPage() {
   const dragFolderIdRef = useRef<number | null>(null);
   const folderDraggedRef = useRef(false);
   const folderDragClickLockTimerRef = useRef<number | null>(null);
+  const autoOrganizeTimerRef = useRef<number | null>(null);
+  const autoOrganizeKickRef = useRef(false);
+  const classifyingRef = useRef(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [actionError, setActionError] = useState("");
   const [moveError, setMoveError] = useState("");
@@ -251,6 +265,7 @@ export function FavoritesPage() {
   const [folderNotice, setFolderNotice] = useState("");
 
   const isLocalMode = sidebarMode === "local";
+  classifyingRef.current = classifying;
 
   const reloadTaxonomy = useCallback(async () => {
     await ensureTaxonomy({ force: true });
@@ -274,6 +289,10 @@ export function FavoritesPage() {
       if (folderDragClickLockTimerRef.current != null) {
         window.clearTimeout(folderDragClickLockTimerRef.current);
         folderDragClickLockTimerRef.current = null;
+      }
+      if (autoOrganizeTimerRef.current != null) {
+        window.clearTimeout(autoOrganizeTimerRef.current);
+        autoOrganizeTimerRef.current = null;
       }
     };
   }, []);
@@ -595,7 +614,7 @@ export function FavoritesPage() {
   const clearSelection = () => setSelectedIds(new Set());
 
   const waitForFavTask = (taskId: number) =>
-    new Promise<void>((resolve, reject) => {
+    new Promise<string>((resolve, reject) => {
       if (classifyPollRef.current) clearInterval(classifyPollRef.current);
       const poll = setInterval(() => {
         void (async () => {
@@ -615,7 +634,7 @@ export function FavoritesPage() {
               if (task.status === "failed") {
                 reject(new Error(task.message));
               } else {
-                resolve();
+                resolve(task.message ?? "");
               }
             }
           } catch (err) {
@@ -654,19 +673,38 @@ export function FavoritesPage() {
     }
   };
 
-  const handleOrganizeBiliFolders = async () => {
+  const handleOrganizeBiliFolders = async (auto = false) => {
+    if (classifyingRef.current && !auto) return;
+    if (classifyingRef.current && auto) return;
     setOrganizeConfirmOpen(false);
     setClassifying(true);
-    setClassifyMessage("正在启动整理任务...");
+    setClassifyMessage(
+      auto ? "default 已满 100 条，正在自动整理..." : "正在启动整理任务...",
+    );
     setClassifyProgress(0);
 
     try {
       const { taskId } = await window.biliDesk.taxonomy.organizeBiliFavorites();
-      await waitForFavTask(taskId);
+      const message = await waitForFavTask(taskId);
       invalidateFolders();
-      await ensureFolders({ force: true });
+      const list = await ensureFolders({ force: true });
       if (selectedFolder != null) {
         await loadFolderPage(selectedFolder, 1, false);
+      }
+
+      const def = pickDefaultFavFolder(list);
+      const defaultLeft = def?.mediaCount ?? 0;
+      const movedNothing = /已整理 0 |没有可整理|暂时没有能搬走/.test(message);
+      if (autoOrganizeTimerRef.current != null) {
+        window.clearTimeout(autoOrganizeTimerRef.current);
+        autoOrganizeTimerRef.current = null;
+      }
+      if (!movedNothing && defaultLeft >= DEFAULT_ORGANIZE_THRESHOLD) {
+        setClassifyMessage(`${message} 约 2 分钟后自动继续整理 default`);
+        autoOrganizeTimerRef.current = window.setTimeout(() => {
+          autoOrganizeTimerRef.current = null;
+          void handleOrganizeBiliFolders(true);
+        }, AUTO_ORGANIZE_CONTINUE_MS);
       }
     } catch (err) {
       setClassifyMessage(
@@ -676,6 +714,18 @@ export function FavoritesPage() {
       setClassifying(false);
     }
   };
+
+  const organizeBiliRef = useRef(handleOrganizeBiliFolders);
+  organizeBiliRef.current = handleOrganizeBiliFolders;
+
+  useEffect(() => {
+    if (isLocalMode || !foldersReady || classifyingRef.current) return;
+    const def = pickDefaultFavFolder(folders);
+    if (!def || def.mediaCount < DEFAULT_ORGANIZE_THRESHOLD) return;
+    if (autoOrganizeKickRef.current) return;
+    autoOrganizeKickRef.current = true;
+    void organizeBiliRef.current(true);
+  }, [folders, foldersReady, isLocalMode]);
 
   const persistFolderOrder = async (ordered: typeof folders) => {
     setFolders(ordered);
@@ -886,7 +936,7 @@ export function FavoritesPage() {
           <p className="text-xs text-muted-foreground">
             {isLocalMode
               ? "按标题打分归类，计算机会分到前端 / 后端 / AI 等方向；全量分类会重建本地目录"
-              : "会扫一遍夹名：语言/公开课/学科/家居等自动归到计算机、学习、AI、生活。一级目录在上面，认不出的在底部「未分组」。可把夹拖进某个一级目录。官方仍是平铺。"}
+              : "先整理 default（满 100 条会自动跑），清空后再整理「其他」，空的「其他」会删掉。夹名会归到计算机、学习、AI、生活；认不出的在底部「未分组」。"}
           </p>
           <Button
             type="button"
@@ -1220,7 +1270,7 @@ export function FavoritesPage() {
       <ConfirmDialog
         open={organizeConfirmOpen}
         title="整理一批收藏？"
-        description="每次只扫描大约 120 条、最多搬走 100 条。会看标题、简介、UP，再读几条热评辅助分类。优先放进已有收藏夹。隔几分钟再点一次继续。此操作会同步到官方账号。"
+        description="先清 default，满 100 条会自动再跑；default 空了才整理「其他」，整理完会删空夹。每次大约搬走 100 条，看标题、简介、UP 和热评，优先放进已有收藏夹。此操作会同步到官方账号。"
         confirmLabel="整理这一批"
         loading={classifying}
         onConfirm={() => void handleOrganizeBiliFolders()}

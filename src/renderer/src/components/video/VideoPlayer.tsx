@@ -473,8 +473,22 @@ export function VideoPlayer({
     );
 
     let seekTimer: number | null = null;
+    let nearEndWaitTimer = 0;
+    let playbackFinished = false;
+    const finishPlayback = () => {
+      if (playbackFinished) return;
+      playbackFinished = true;
+      window.clearTimeout(nearEndWaitTimer);
+      accumulateRealtime();
+      lastTickAt = 0;
+      stopHeartbeat();
+      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
+      reportHeartbeat(0, { finished: true });
+    };
+
     art.on("video:playing", () => {
       window.clearTimeout(stallTimer);
+      window.clearTimeout(nearEndWaitTimer);
       if (seekTimer != null) window.clearTimeout(seekTimer);
       seekTimer = window.setTimeout(() => trySeekToProgress(art), 500);
     });
@@ -508,12 +522,26 @@ export function VideoPlayer({
       reportHeartbeat(2);
     });
 
-    art.on("video:ended", () => {
-      accumulateRealtime();
-      lastTickAt = 0;
-      stopHeartbeat();
-      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
-      reportHeartbeat(0, { finished: true });
+    art.on("video:ended", finishPlayback);
+
+    art.on("video:waiting", () => {
+      window.clearTimeout(nearEndWaitTimer);
+      const media = art.video as HTMLVideoElement | undefined;
+      if (!media || playbackFinished) return;
+      const duration = media.duration || art.duration || 0;
+      const current = media.currentTime || 0;
+      if (!(duration > 5 && current >= duration - 1.5)) return;
+      nearEndWaitTimer = window.setTimeout(() => {
+        if (playbackFinished) return;
+        if ((media.currentTime || 0) < duration - 1.5) return;
+        try {
+          media.pause();
+        } catch {
+          // ignore
+        }
+        finishPlayback();
+        media.dispatchEvent(new Event("ended"));
+      }, 800);
     });
 
     artRef.current = art;
@@ -525,6 +553,7 @@ export function VideoPlayer({
     return () => {
       unbindResize();
       window.clearTimeout(stallTimer);
+      window.clearTimeout(nearEndWaitTimer);
       if (seekTimer != null) window.clearTimeout(seekTimer);
       accumulateRealtime();
       stopHeartbeat();

@@ -11,6 +11,8 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Eraser,
   Folder,
   GripVertical,
@@ -35,6 +37,15 @@ interface FavFolderGroupedNavProps {
   shouldIgnoreClick: () => boolean;
   onEdit: (folder: FavFolder) => void;
   onCleanInvalid: (folder: FavFolder) => void;
+}
+
+function l1CollapseKeys(blocks: FolderNavBlock[]): string[] {
+  const keys: string[] = [];
+  for (const block of blocks) {
+    if (block.kind === "l1") keys.push(`l1:${block.name}`);
+    if (block.kind === "ungrouped") keys.push(`l1:${UNGROUPED_L1}`);
+  }
+  return keys;
 }
 
 function isL2Item(item: FolderNavItem | FolderNavL2): item is FolderNavL2 {
@@ -133,6 +144,21 @@ export function FavFolderGroupedNav({
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
+    });
+  };
+
+  const l1Keys = l1CollapseKeys(blocks);
+  const allL1Collapsed =
+    l1Keys.length > 0 && l1Keys.every((key) => collapsed.has(key));
+
+  const toggleAllL1 = () => {
+    setCollapsed((prev) => {
+      if (allL1Collapsed) {
+        const next = new Set(prev);
+        for (const key of l1Keys) next.delete(key);
+        return next;
+      }
+      return new Set([...prev, ...l1Keys]);
     });
   };
 
@@ -376,6 +402,21 @@ export function FavFolderGroupedNav({
     <div className="space-y-0.5">
       {pinned.map((folder) =>
         renderFolderRow({ folder, label: folder.title }, { canDrag: false }),
+      )}
+      {l1Keys.length > 0 && (
+        <button
+          type="button"
+          onClick={toggleAllL1}
+          className="flex w-full items-center justify-center gap-1 rounded-md px-1 py-1 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground"
+          title={allL1Collapsed ? "展开全部一级分类" : "折叠全部一级分类"}
+        >
+          {allL1Collapsed ? (
+            <ChevronsUpDown className="h-3 w-3" />
+          ) : (
+            <ChevronsDownUp className="h-3 w-3" />
+          )}
+          {allL1Collapsed ? "全部展开" : "全部折叠"}
+        </button>
       )}
       {blocks.map((block) => renderBlock(block))}
     </div>

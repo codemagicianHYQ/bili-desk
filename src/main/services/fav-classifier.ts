@@ -469,10 +469,21 @@ const TITLE_RULES: ScoredRule[] = [
     l1: "生活",
     l2: "数码",
     keywords: [
+      k("mac\\s*mini|macmini|macbook|\\bimac\\b|mac\\s*studio|mac\\s*pro", 44),
+      k("苹果电脑|apple\\s*silicon|m[1-4]\\s*(pro|max|ultra)?\\s*芯片", 36),
       k("数码|开箱|装机|评测", 26),
       k("显卡|耳机|手机(?!.*(开发|android|ios))", 22),
     ],
     exclude: /编程|代码|开发教程|linux内核|驱动程序|编译/i,
+  },
+  {
+    l1: "生活",
+    l2: "自行车",
+    keywords: [
+      k("自行车|公路车|山地车|折叠车|死飞", 40),
+      k("骑行|后拨|变速器|碟刹|轮组|锁鞋|骑行服", 32),
+    ],
+    exclude: /mac\s*mini|macmini|macbook|\bimac\b|电脑|笔记本|数码|开箱评测/i,
   },
   {
     l1: "生活",
@@ -649,7 +660,14 @@ const FOLDER_TOPIC_ALIASES: string[][] = [
   ["安全", "网络安全", "渗透"],
   ["社会人文", "历史人文", "人文", "哲学"],
   ["影视", "电影", "剧"],
+  ["mac", "macmini", "macbook", "imac", "苹果电脑", "mac 相关"],
+  ["自行车", "骑行", "公路车", "山地车"],
 ];
+
+const MAC_VIDEO_RE =
+  /mac\s*mini|macmini|macbook|\bimac\b|mac\s*studio|苹果电脑|apple\s*silicon/i;
+const BIKE_FOLDER_RE = /自行车|骑行|公路车|山地车/;
+const BIKE_VIDEO_RE = /自行车|骑行|公路车|山地车|后拨|变速器|碟刹|轮组/;
 
 export function isDumpFolderTitle(name: string): boolean {
   return /^其他(-\d+)?$/.test(name.trim());
@@ -843,8 +861,35 @@ function existingFolderHintScore(
   if (/爬虫/.test(folder) && /爬虫|scrapy|selenium|crawler/.test(video)) {
     score += 22;
   }
+  if (
+    /mac/.test(folder) &&
+    /mac\s*mini|macmini|macbook|\bimac\b|mac\s*studio|苹果电脑|apple\s*silicon/.test(
+      video,
+    )
+  ) {
+    score += 40;
+  }
+  if (
+    BIKE_FOLDER_RE.test(folder) &&
+    BIKE_VIDEO_RE.test(video) &&
+    !MAC_VIDEO_RE.test(video)
+  ) {
+    score += 28;
+  }
 
   return score;
+}
+
+/** 标题已经很明确时，禁止再用 UP 票把 Mac mini 塞进自行车夹 */
+export function folderConflictsWithVideoTitle(
+  folderTitle: string,
+  videoTitle: string,
+): boolean {
+  const folder = normalizeClassifyText(folderTitle);
+  const video = normalizeClassifyText(videoTitle);
+  if (MAC_VIDEO_RE.test(video) && BIKE_FOLDER_RE.test(folder)) return true;
+  if (BIKE_VIDEO_RE.test(video) && /mac|苹果电脑/.test(folder)) return true;
+  return false;
 }
 
 function scoreExistingFolder(
@@ -853,6 +898,7 @@ function scoreExistingFolder(
   taxonomy: { l1: string; l2?: string; l3?: string } | null,
 ): number {
   if (BILI_DEFAULT_FOLDER_TITLES.has(folderTitle.toLowerCase())) return 0;
+  if (folderConflictsWithVideoTitle(folderTitle, videoTitle)) return 0;
 
   const video = normalizeClassifyText(videoTitle);
   const folder = normalizeClassifyText(folderTitle);
@@ -951,7 +997,9 @@ export function resolveBiliOrganizeFolderTitle(
     ? preferredBiliOrganizeTitleFromMatch(matched)
     : null;
   const canonical = findCanonicalExistingFolder(existing, matched, preferred);
-  if (canonical) return canonical;
+  if (canonical && !folderConflictsWithVideoTitle(canonical, title)) {
+    return canonical;
+  }
 
   let bestName = "";
   let bestScore = 0;

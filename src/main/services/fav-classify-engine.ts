@@ -8,6 +8,7 @@ import {
   listDuplicateGeneratedFolderTitles,
   pickClassifyCommentSnippets,
   resolveBiliOrganizeFolderTitle,
+  folderConflictsWithVideoTitle,
 } from "./fav-classifier";
 import { classifyUpText } from "./up-classifier";
 
@@ -115,6 +116,24 @@ function pickOrganizeSources(
   folders: FavFolder[],
   defaultFolder: FavFolder,
 ): FavFolder[] {
+  const seen = new Set<number>();
+  const take = (list: FavFolder[]) => {
+    const ordered: FavFolder[] = [];
+    for (const folder of list) {
+      if (seen.has(folder.id)) continue;
+      seen.add(folder.id);
+      ordered.push(folder);
+    }
+    return ordered;
+  };
+
+  const defaults = folders.filter(
+    (folder) => folder.id === defaultFolder.id || folder.isDefault,
+  );
+  const defaultHasItems = defaults.some((folder) => folder.mediaCount > 0);
+  // 先清空 default，积压时不要混扫「其他」
+  if (defaultHasItems) return take(defaults);
+
   const dumps = folders
     .filter((folder) => isDumpFolderTitle(folder.title))
     .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
@@ -122,17 +141,7 @@ function pickOrganizeSources(
   const duplicates = folders.filter((folder) =>
     duplicateTitles.has(folder.title),
   );
-  const defaults = folders.filter(
-    (folder) => folder.id === defaultFolder.id || folder.isDefault,
-  );
-  const seen = new Set<number>();
-  const ordered: FavFolder[] = [];
-  for (const folder of [...dumps, ...duplicates, ...defaults]) {
-    if (seen.has(folder.id)) continue;
-    seen.add(folder.id);
-    ordered.push(folder);
-  }
-  return ordered;
+  return take([...dumps, ...duplicates]);
 }
 
 function capGroupedItems<T>(
@@ -172,6 +181,8 @@ function createTaskReporter(taskId: number) {
 }
 
 export class FavClassifyEngine {
+  private organizeTaskId: number | null = null;
+
   startClassifyAll(): number {
     const task = taxonomyRepo.createTask("fav_classification");
     void this.runClassifyAll(task.id);
@@ -185,8 +196,20 @@ export class FavClassifyEngine {
   }
 
   startOrganizeBiliFolders(): number {
+    if (this.organizeTaskId != null) {
+      const current = taxonomyRepo.getTask(this.organizeTaskId);
+      if (
+        current &&
+        (current.status === "pending" || current.status === "running")
+      ) {
+        return this.organizeTaskId;
+      }
+    }
     const task = taxonomyRepo.createTask("fav_organize_bili");
-    void this.runOrganizeBiliFolders(task.id);
+    this.organizeTaskId = task.id;
+    void this.runOrganizeBiliFolders(task.id).finally(() => {
+      if (this.organizeTaskId === task.id) this.organizeTaskId = null;
+    });
     return task.id;
   }
 
@@ -369,7 +392,7 @@ export class FavClassifyEngine {
 
       report({
         progress: 5,
-        message: `每次只整理约 ${ORGANIZE_BATCH_SIZE} 条，先处理「其他」再处理默认夹...`,
+        message: `每次只整理约 ${ORGANIZE_BATCH_SIZE} 条，先清空 default，再整理「其他」...`,
       });
 
       const sourceFolders = pickOrganizeSources(folders, defaultFolder);
@@ -472,7 +495,7 @@ export class FavClassifyEngine {
             bestName = name;
           }
         }
-        if (bestCount >= 1 && bestCount === total) return bestName;
+        if (bestCount >= 2 && bestCount === total) return bestName;
         if (bestCount >= 2 && bestCount * 2 >= total) return bestName;
         return null;
       };
@@ -543,7 +566,11 @@ export class FavClassifyEngine {
 
       for (const item of unmatched) {
         const voted = majorityFolderForMid(item.upper.mid);
-        if (voted && !isDumpFolderTitle(voted)) {
+        if (
+          voted &&
+          !isDumpFolderTitle(voted) &&
+          !folderConflictsWithVideoTitle(voted, item.title)
+        ) {
           assignItem(item, voted);
           continue;
         }
@@ -552,18 +579,27 @@ export class FavClassifyEngine {
           ? classifyUpText(item.upper.name)
           : null;
         if (upMatch) {
-          const fromUp = resolveBiliOrganizeFolderTitle(
-            `${item.title}\n${upMatch.l1} ${upMatch.l2 ?? ""}\n${item.upper.name}`,
-            userFolderTitles,
-          );
-          if (fromUp && !isDumpFolderTitle(fromUp)) {
-            assignItem(item, fromUp);
-            continue;
-          }
           const created = upMatch.l2
             ? `${upMatch.l1}-${upMatch.l2}`
             : upMatch.l1;
-          assignItem(item, created.slice(0, 20));
+          const upFolder = created.slice(0, 20);
+          if (folderConflictsWithVideoTitle(upFolder, item.title)) {
+            skippedUnmatched += 1;
+            continue;
+          }
+          const fromUp = resolveBiliOrganizeFolderTitle(
+            item.title,
+            userFolderTitles,
+          );
+          if (
+            fromUp &&
+            !isDumpFolderTitle(fromUp) &&
+            !folderConflictsWithVideoTitle(fromUp, item.title)
+          ) {
+            assignItem(item, fromUp);
+            continue;
+          }
+          assignItem(item, upFolder);
           continue;
         }
 
@@ -824,14 +860,55 @@ export class FavClassifyEngine {
       const overflowHint =
         overflowCount > 0 ? "，收藏夹数量不够用的先留在原夹" : "";
       const splitText = splitHint ? "，超过 1000 条的分类已拆到带编号的夹" : "";
+
+      let deletedDump = 0;
+      let defaultLeft = defaultFolder.mediaCount;
+      try {
+        const latest = await biliApi.getFavFolders();
+        defaultLeft =
+          latest.find(
+            (folder) =>
+              folder.id === defaultFolder.id ||
+              folder.isDefault ||
+              folder.title.toLowerCase() === "default" ||
+              folder.title === "默认收藏夹",
+          )?.mediaCount ?? Math.max(0, defaultFolder.mediaCount - movedCount);
+        for (const folder of latest) {
+          if (
+            folder.isDefault ||
+            folder.id === defaultFolder.id ||
+            !isDumpFolderTitle(folder.title) ||
+            folder.mediaCount > 0
+          ) {
+            continue;
+          }
+          try {
+            await withFavWriteRetry(
+              () => biliApi.deleteFavFolder(folder.id),
+              onRiskWait,
+            );
+            deletedDump += 1;
+            await sleepJitter(DELAY_AFTER_CREATE_MS);
+          } catch {
+            // 删除失败不影响本批结果
+          }
+        }
+      } catch {
+        defaultLeft = Math.max(0, defaultFolder.mediaCount - movedCount);
+      }
+      const dumpHint =
+        deletedDump > 0 ? `，已删掉 ${deletedDump} 个空的「其他」夹` : "";
+
       const nextHint =
-        remain > 0
-          ? `。源夹大约还剩 ${remain} 个，隔几分钟再点一次继续，每次约 ${ORGANIZE_BATCH_SIZE} 条`
-          : "";
+        defaultLeft >= ORGANIZE_BATCH_SIZE
+          ? `。default 还剩约 ${defaultLeft} 个（≥${ORGANIZE_BATCH_SIZE}），打开收藏页会自动再整理`
+          : remain > 0
+            ? `。源夹大约还剩 ${remain} 个，隔几分钟再点一次继续，每次约 ${ORGANIZE_BATCH_SIZE} 条`
+            : "";
       report({
         status: "done",
         progress: 100,
-        message: `本批已整理 ${movedCount} 个视频，新建 ${createdCount} 个收藏夹${overflowHint}${splitText}${leftoverHint}${nextHint}`,
+        message: `本批已整理 ${movedCount} 个视频，新建 ${createdCount} 个收藏夹${overflowHint}${splitText}${leftoverHint}${dumpHint}${nextHint}`,
       });
     } catch (error) {
       report({

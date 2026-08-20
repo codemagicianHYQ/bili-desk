@@ -211,10 +211,26 @@ function fragIndexAt(frags: MediaFragment[], time: number): number {
   return frags.length - 1;
 }
 
+function lastFragEnd(frags: MediaFragment[]): number {
+  if (frags.length === 0) return 0;
+  const last = frags[frags.length - 1];
+  return last.time + Math.max(last.duration, 0);
+}
+
 function hasTime(video: HTMLVideoElement, time: number): boolean {
   const ranges = video.buffered;
+  const duration = video.duration;
+  const nearEnd =
+    Number.isFinite(duration) && duration > 0 && time >= duration - 0.6;
   for (let i = 0; i < ranges.length; i += 1) {
-    if (ranges.start(i) - 0.25 <= time && time < ranges.end(i) - 0.08) {
+    const start = ranges.start(i);
+    const end = ranges.end(i);
+    // 片尾 80ms 空隙会让 waiting 一直转圈，接近结束时顶到 buffered 末端即可
+    const slack = nearEnd ? 0 : 0.08;
+    if (start - 0.25 <= time && time < end - slack) {
+      return true;
+    }
+    if (nearEnd && start - 0.25 <= time && time <= end + 0.05) {
       return true;
     }
   }
@@ -310,10 +326,20 @@ export function attachBiliDash(
           ];
         }
 
+        const sidxDuration = Math.max(
+          lastFragEnd(videoFrags),
+          lastFragEnd(audioFrags),
+        );
+        if (sidxDuration > 0 && mediaSource.readyState === "open") {
+          // sidx 时间轴才是真实片长；声明时长常被取整，会多出约 1 秒空档
+          mediaSource.duration = sidxDuration;
+        }
+
         const videoDone = new Set<number>();
         const audioDone = new Set<number>();
         let filling = false;
         let seekEpoch = 0;
+        let endedStream = false;
 
         const appendFrag = async (
           sb: SourceBuffer,
@@ -336,6 +362,32 @@ export function attachBiliDash(
           done.add(index);
         };
 
+        const tryEndOfStream = async (forceNearEnd = false) => {
+          if (endedStream || abort.signal.aborted) return;
+          const allDone =
+            videoDone.size >= videoFrags.length &&
+            audioDone.size >= audioFrags.length;
+          const lastDone =
+            (videoFrags.length === 0 || videoDone.has(videoFrags.length - 1)) &&
+            (audioFrags.length === 0 || audioDone.has(audioFrags.length - 1));
+          if (!allDone && !(forceNearEnd && lastDone)) return;
+          try {
+            if (videoSb.updating) await waitUpdate(videoSb, abort.signal);
+            if (audioSb.updating) await waitUpdate(audioSb, abort.signal);
+          } catch {
+            return;
+          }
+          if (endedStream || abort.signal.aborted) return;
+          if (mediaSource.readyState !== "open") return;
+          if (videoSb.updating || audioSb.updating) return;
+          endedStream = true;
+          try {
+            mediaSource.endOfStream();
+          } catch {
+            endedStream = false;
+          }
+        };
+
         const fill = async () => {
           if (filling || abort.signal.aborted || !video.isConnected) return;
           filling = true;
@@ -346,7 +398,16 @@ export function attachBiliDash(
             let aIdx = fragIndexAt(audioFrags, target);
             let added = 0;
             while (added < 8 && epoch === seekEpoch && !abort.signal.aborted) {
-              if (hasTime(video, target) && aheadAt(video, target) >= 12) {
+              const nearTail =
+                Number.isFinite(video.duration) &&
+                video.duration > 0 &&
+                target >= video.duration - 15;
+              // 片尾继续把最后几块补齐，避免差 1 秒时才去拉最后分片
+              if (
+                !nearTail &&
+                hasTime(video, target) &&
+                aheadAt(video, target) >= 12
+              ) {
                 break;
               }
               const needVideo =
@@ -385,9 +446,10 @@ export function attachBiliDash(
               void fill();
               return;
             }
+            void tryEndOfStream();
             const t = Math.max(0, video.currentTime);
             const idx = fragIndexAt(videoFrags, t);
-            if (!hasTime(video, t) && !videoDone.has(idx)) {
+            if (!hasTime(video, t) && !videoDone.has(idx) && !endedStream) {
               void fill();
             }
           }
@@ -403,6 +465,7 @@ export function attachBiliDash(
             appendFrag(audioSb, dash.audio, audioFrags, 1, audioDone),
           ]);
         }
+        void tryEndOfStream();
 
         try {
           if (abort.signal.aborted || !video.isConnected) return;
@@ -414,20 +477,37 @@ export function attachBiliDash(
 
         const onTimeUpdate = () => {
           void fill();
+          const t = Math.max(0, video.currentTime);
+          const dur = video.duration;
+          if (Number.isFinite(dur) && dur > 0 && t >= dur - 1.5) {
+            void tryEndOfStream(true);
+          }
+        };
+        const onWaiting = () => {
+          void fill();
+          // 片尾已无下一块时，浏览器会一直 waiting；通知 MSE 流已结束
+          const t = Math.max(0, video.currentTime);
+          const dur = video.duration;
+          const nearEnd =
+            (Number.isFinite(dur) && dur > 0 && t >= dur - 1.5) ||
+            aheadAt(video, t) <= 0.35;
+          if (nearEnd) {
+            void tryEndOfStream(true);
+          }
         };
         const onSeeking = () => {
           seekEpoch += 1;
           void fill();
         };
         video.addEventListener("timeupdate", onTimeUpdate);
-        video.addEventListener("waiting", onTimeUpdate);
+        video.addEventListener("waiting", onWaiting);
         video.addEventListener("seeking", onSeeking);
         video.addEventListener("seeked", onTimeUpdate);
         abort.signal.addEventListener(
           "abort",
           () => {
             video.removeEventListener("timeupdate", onTimeUpdate);
-            video.removeEventListener("waiting", onTimeUpdate);
+            video.removeEventListener("waiting", onWaiting);
             video.removeEventListener("seeking", onSeeking);
             video.removeEventListener("seeked", onTimeUpdate);
             try {

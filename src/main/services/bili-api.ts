@@ -2888,7 +2888,8 @@ class BiliApiService {
       ? Number(data.timelength) / 1000
       : 0;
     const dashDuration = Number(dash.duration) || 0;
-    const duration = Math.max(1, Math.ceil(dashDuration || timeLengthSec || 1));
+    // 不要 ceil：整数秒会比真实媒体长约 1s，MSE 片尾会一直 waiting
+    const duration = Math.max(1, dashDuration || timeLengthSec || 1);
 
     const dashPayload = {
       duration,
@@ -3455,13 +3456,41 @@ class BiliApiService {
       throw new Error((res.data?.message as string) || "编辑收藏夹失败");
     }
 
-    const data = (res.data?.data ?? {}) as Record<string, unknown>;
-    return this.mapFavFolder(data, {
-      id: mediaId,
-      title,
-      intro: intro.trim(),
-      privacy: privacy === 1 ? 1 : 0,
-    });
+    return this.getFavFolderInfo(mediaId);
+  }
+
+  /** 删除空收藏夹，对应官网 /x/v3/fav/folder/del */
+  async deleteFavFolder(mediaId: number): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再删除收藏夹");
+
+    const id = Number(mediaId);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new Error("收藏夹无效");
+    }
+
+    const res = await this.client.post(
+      "/x/v3/fav/folder/del",
+      new URLSearchParams({
+        media_ids: String(id),
+        csrf,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/",
+          Origin: "https://www.bilibili.com",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "删除收藏夹失败");
+    }
   }
 
   /** 一键清除收藏夹里已失效/下架的稿件，对应官网 /x/v3/fav/resource/clean */
