@@ -340,6 +340,9 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_SPACE_DYNAMICS, (_e, mid: number, offset?: string) =>
     biliApi.getSpaceDynamics(mid, offset),
   );
+  handleIpc(IPC.BILI_SPACE_OPUS, (_e, mid: number, offset?: string) =>
+    biliApi.getSpaceOpus(mid, offset),
+  );
   handleIpc(
     IPC.BILI_FOLLOW_DYNAMICS,
     (_e, offset?: string, type?: "all" | "video" | "article") =>

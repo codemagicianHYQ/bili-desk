@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   Home,
   Bookmark,
@@ -6,14 +6,12 @@ import {
   Clock,
   Settings,
   LogIn,
-  LogOut,
   UserCircle2,
   Radio,
   History,
   Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { resetSessionCachesOnLogout } from "@/lib/session-cache-lifecycle";
 import { useAppStore } from "@/stores/app-store";
 import { useNavigationStore } from "@/stores/navigation-store";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -32,8 +30,7 @@ const navItems = [
 
 export function Sidebar() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const { user, setUser } = useAppStore();
+  const { user } = useAppStore();
   const followingKeepAlive = useNavigationStore(
     (state) => state.followingKeepAlive,
   );
@@ -96,13 +93,6 @@ export function Sidebar() {
       path.startsWith("/live/") ||
       path.startsWith("/up/"));
 
-  const handleLogout = async () => {
-    await window.biliDesk.auth.logout();
-    setUser({ mid: 0, name: "未登录", face: "", isLogin: false, isVip: false });
-    resetSessionCachesOnLogout();
-    navigate("/login");
-  };
-
   return (
     <aside
       data-app-chrome
@@ -147,28 +137,21 @@ export function Sidebar() {
       </nav>
 
       {user?.isLogin ? (
-        <div className="mt-auto space-y-1 border-t border-border pt-3">
-          <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm">
-            {user.face ? (
-              <BiliImage
-                src={user.face}
-                alt=""
-                className="h-6 w-6 rounded-full object-cover"
-              />
-            ) : (
-              <div className="h-6 w-6 rounded-full bg-secondary" />
-            )}
-            <span className="min-w-0 flex-1 truncate">{user.name}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          >
-            <LogOut className="h-4 w-4" />
-            退出登录
-          </button>
-        </div>
+        <Link
+          to="/me"
+          className="mt-auto flex items-center gap-2 rounded-lg border-t border-border px-3 py-3 text-sm transition-colors hover:bg-secondary"
+        >
+          {user.face ? (
+            <BiliImage
+              src={user.face}
+              alt=""
+              className="h-6 w-6 rounded-full object-cover"
+            />
+          ) : (
+            <div className="h-6 w-6 rounded-full bg-secondary" />
+          )}
+          <span className="min-w-0 flex-1 truncate">{user.name}</span>
+        </Link>
       ) : (
         <Link
           to="/login"

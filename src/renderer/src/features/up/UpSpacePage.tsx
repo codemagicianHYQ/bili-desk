@@ -2,21 +2,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import type {
+  OpusFavItem,
   UpProfile,
   UpRelation,
   UpVideosOrder,
+  UserCollectionItem,
   UserRelationListType,
   VideoItem,
 } from "@shared/types";
-import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { VideoCard } from "@/components/video/VideoCard";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { UpRelationListPanel } from "@/features/up/UpRelationListPanel";
-import { cn, formatCount } from "@/lib/utils";
+import { UpSpaceChargePanel } from "@/features/up/UpSpaceChargePanel";
+import { UpSpaceCollectionsPanel } from "@/features/up/UpSpaceCollectionsPanel";
+import { UpSpaceDynamicsPanel } from "@/features/up/UpSpaceDynamicsPanel";
+import { UpSpaceHeader } from "@/features/up/UpSpaceHeader";
+import { UpSpaceHome } from "@/features/up/UpSpaceHome";
+import { UpSpaceOpusPanel } from "@/features/up/UpSpaceOpusPanel";
+import { cn } from "@/lib/utils";
 import { formatUserSpaceError } from "@/lib/ipc-error";
 import {
   upProfileCache,
@@ -39,6 +45,14 @@ const ORDER_OPTIONS: Array<{ value: UpVideosOrder; label: string }> = [
 ];
 
 const PAGE_SIZE = 30;
+
+type SpaceTab =
+  | "home"
+  | "dynamics"
+  | "opus"
+  | "videos"
+  | "collections"
+  | "charge";
 
 function parseMid(value: string | undefined): number {
   if (!value) return 0;
@@ -67,6 +81,15 @@ export function UpSpacePage() {
     useState<UserRelationListType | null>(null);
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tab, setTab] = useState<SpaceTab>("home");
+  const [opusPreview, setOpusPreview] = useState<OpusFavItem[]>([]);
+  const [collectionPreview, setCollectionPreview] = useState<
+    UserCollectionItem[]
+  >([]);
+  const [showDynamics, setShowDynamics] = useState(true);
+  const [showOpus, setShowOpus] = useState(false);
+  const [showCollections, setShowCollections] = useState(false);
+  const [showCharge, setShowCharge] = useState(false);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -167,6 +190,13 @@ export function UpSpacePage() {
     setVideosError("");
     setRelationPanel(null);
     setOrder("pubdate");
+    setTab("home");
+    setOpusPreview([]);
+    setCollectionPreview([]);
+    setShowDynamics(true);
+    setShowOpus(false);
+    setShowCollections(false);
+    setShowCharge(false);
 
     const cached = upSpaceCache.get(String(mid));
     const firstPage = cached?.videos[upVideosCacheKey("pubdate", 1)];
@@ -183,6 +213,18 @@ export function UpSpacePage() {
           ? "投稿列表暂时无法获取，请点击重新加载"
           : "",
       );
+      void window.biliDesk.bili
+        .getUpProfile(mid)
+        .then((upProfile) => {
+          if (cancelled) return;
+          setProfile(upProfile);
+          upProfileCache.set(String(mid), upProfile);
+          const space = upSpaceCache.get(String(mid));
+          if (space) {
+            upSpaceCache.set(String(mid), { ...space, profile: upProfile });
+          }
+        })
+        .catch(() => undefined);
       return () => {
         cancelled = true;
       };
@@ -290,6 +332,67 @@ export function UpSpacePage() {
     };
   }, [mid]);
 
+  useEffect(() => {
+    if (!mid || !profile) return;
+    let cancelled = false;
+
+    setShowOpus(
+      (profile.opusCount ?? 0) > 0 || (profile.articleCount ?? 0) > 0,
+    );
+    setShowCollections((profile.seasonCount ?? 0) > 0);
+    setShowCharge(Boolean(profile.upowerEnabled));
+
+    void (async () => {
+      const [opus, collections, dynamics] = await Promise.allSettled([
+        window.biliDesk.bili.getSpaceOpus(mid),
+        window.biliDesk.bili.getUserCollections(mid, 1),
+        window.biliDesk.bili.getSpaceDynamics(mid),
+      ]);
+      if (cancelled) return;
+
+      if (opus.status === "fulfilled") {
+        setOpusPreview(opus.value.items);
+        if (opus.value.items.length > 0) setShowOpus(true);
+      } else {
+        const message = formatUserSpaceError(opus.reason);
+        if (
+          message.includes("隐私") ||
+          message.includes("无法查看") ||
+          message.includes("不可见")
+        ) {
+          setShowOpus(false);
+        }
+      }
+
+      if (collections.status === "fulfilled") {
+        const list = [
+          ...collections.value.seasons,
+          ...collections.value.series,
+        ];
+        setCollectionPreview(list);
+        if (list.length > 0) setShowCollections(true);
+        if (list.some((item) => /充电|专属|upower/i.test(item.title))) {
+          setShowCharge(true);
+        }
+      }
+
+      if (dynamics.status === "rejected") {
+        const message = formatUserSpaceError(dynamics.reason);
+        if (
+          message.includes("隐私") ||
+          message.includes("无法查看") ||
+          message.includes("不可见")
+        ) {
+          setShowDynamics(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mid, profile?.mid]);
+
   const handleOrderChange = (nextOrder: UpVideosOrder) => {
     if (!mid || nextOrder === order || videosLoading) return;
     setOrder(nextOrder);
@@ -309,6 +412,22 @@ export function UpSpacePage() {
   const closeRelationList = useCallback(() => {
     setRelationPanel(null);
   }, []);
+
+  const spaceTabs = useMemo(() => {
+    const items: Array<{ id: SpaceTab; label: string }> = [
+      { id: "home", label: "主页" },
+    ];
+    if (showDynamics) items.push({ id: "dynamics", label: "动态" });
+    if (showOpus) items.push({ id: "opus", label: "图文" });
+    items.push({ id: "videos", label: "投稿" });
+    if (showCollections) items.push({ id: "collections", label: "合集" });
+    if (showCharge) items.push({ id: "charge", label: "充电" });
+    return items;
+  }, [showCharge, showCollections, showDynamics, showOpus]);
+
+  useEffect(() => {
+    if (!spaceTabs.some((item) => item.id === tab)) setTab("home");
+  }, [spaceTabs, tab]);
 
   if (!mid) {
     return (
@@ -337,253 +456,180 @@ export function UpSpacePage() {
     );
   }
 
+  const videosSection = (
+    <section>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-medium">投稿视频</h2>
+        <div className="flex items-center gap-1.5">
+          {ORDER_OPTIONS.map((option) => (
+            <Button
+              key={option.value}
+              type="button"
+              size="sm"
+              variant={order === option.value ? "default" : "outline"}
+              disabled={videosLoading}
+              onClick={() => handleOrderChange(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {videosLoading && videos.length === 0 ? (
+        <p className="text-sm text-muted-foreground">加载投稿中...</p>
+      ) : videosError && videos.length === 0 ? (
+        <div className="space-y-2">
+          <p className="text-sm text-red-400">{videosError}</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void loadVideos(mid, page, order)}
+          >
+            重新加载
+          </Button>
+        </div>
+      ) : videos.length > 0 ? (
+        <div
+          className={cn(
+            "grid gap-4",
+            GRID_COLS_CLASS[homeGridColumns],
+            videosLoading && "opacity-60",
+          )}
+        >
+          {videos.map((video) => (
+            <VideoCard key={video.bvid} video={video} />
+          ))}
+        </div>
+      ) : (profile.videos ?? 0) > 0 ? (
+        <div className="space-y-2">
+          <p className="text-sm text-red-400">
+            投稿列表暂时无法获取，请点击重新加载
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void loadVideos(mid, 1, order)}
+          >
+            重新加载
+          </Button>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">暂无投稿</p>
+      )}
+
+      {videosError && videos.length > 0 && (
+        <p className="mt-3 text-sm text-red-400">{videosError}</p>
+      )}
+    </section>
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageBackHeader />
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-6 p-6 pt-4">
-          <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl border border-border bg-card">
-            {profile.topPhoto ? (
-              <div className="relative h-36 w-full overflow-hidden sm:h-44">
-                <BiliImage
-                  src={profile.topPhoto}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
-              </div>
-            ) : null}
+        <UpSpaceHeader
+          profile={profile}
+          relation={relation}
+          currentMid={currentMid}
+          onOpenRelation={openRelationList}
+          onRelationChange={(following) => {
+            setRelation((prev) => {
+              const next = prev
+                ? { ...prev, isFollowing: following }
+                : { isFollowing: following, attribute: 0 };
+              upRelationCache.set(String(mid), next);
+              const space = upSpaceCache.get(String(mid));
+              if (space) {
+                upSpaceCache.set(String(mid), {
+                  ...space,
+                  relation: next,
+                });
+              }
+              return next;
+            });
+          }}
+          onError={showToast}
+        />
 
-            <div className="relative space-y-4 p-6 pt-4">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                <BiliImage
-                  src={profile.face}
-                  alt={profile.name}
-                  className={cn(
-                    "h-20 w-20 shrink-0 rounded-full object-cover ring-2 ring-primary/30",
-                    profile.topPhoto && "-mt-12 h-24 w-24 border-4 border-card",
-                  )}
-                />
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-2xl font-semibold">{profile.name}</h1>
-                    {profile.level != null && profile.level > 0 && (
-                      <span
-                        className={cn(
-                          "rounded px-1.5 py-0.5 text-[11px] font-semibold text-white",
-                          profile.level >= 6
-                            ? "bg-red-500"
-                            : profile.level >= 4
-                              ? "bg-orange-500"
-                              : "bg-slate-400",
-                        )}
-                      >
-                        Lv{profile.level}
-                      </span>
-                    )}
-                    {profile.officialDesc && (
-                      <span className="truncate text-sm text-primary">
-                        {profile.officialDesc}
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    UID {profile.mid}
-                  </p>
-
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {profile.sign || "这个人很懒，什么都没有写~"}
-                  </p>
-                </div>
-
-                {currentMid !== profile.mid && (
-                  <FollowActionButton
-                    mid={profile.mid}
-                    uname={profile.name}
-                    face={profile.face}
-                    isFollowing={relation?.isFollowing ?? false}
-                    disabled={!relation}
-                    size="default"
-                    className="self-start"
-                    onFollowingChange={(following) => {
-                      setRelation((prev) => {
-                        const next = prev
-                          ? { ...prev, isFollowing: following }
-                          : { isFollowing: following, attribute: 0 };
-                        upRelationCache.set(String(mid), next);
-                        const space = upSpaceCache.get(String(mid));
-                        if (space) {
-                          upSpaceCache.set(String(mid), {
-                            ...space,
-                            relation: next,
-                          });
-                        }
-                        return next;
-                      });
-                    }}
-                    onError={showToast}
-                  />
+        <div className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
+          <div className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-6">
+            {spaceTabs.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                className={cn(
+                  "shrink-0 border-b-2 px-4 py-2.5 text-sm transition-colors",
+                  tab === item.id
+                    ? "border-primary font-medium text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                {(
-                  [
-                    {
-                      label: "关注",
-                      value: profile.following,
-                      clickable: true as const,
-                      type: "followings" as const,
-                    },
-                    {
-                      label: "粉丝",
-                      value: profile.fans,
-                      clickable: true as const,
-                      type: "followers" as const,
-                    },
-                    { label: "获赞", value: profile.likes ?? 0 },
-                    { label: "播放", value: profile.archiveViews ?? 0 },
-                    { label: "投稿", value: profile.videos },
-                    { label: "收藏", value: profile.favourites ?? 0 },
-                  ] as const
-                ).map((item) => {
-                  const clickable = "clickable" in item && item.clickable;
-                  const content = (
-                    <>
-                      <div
-                        className={cn(
-                          "text-base font-semibold tabular-nums",
-                          clickable && "text-primary",
-                        )}
-                      >
-                        {formatCount(item.value)}
-                      </div>
-                      <div
-                        className={cn(
-                          "mt-0.5 text-xs",
-                          clickable ? "text-primary" : "text-muted-foreground",
-                        )}
-                      >
-                        {item.label}
-                      </div>
-                    </>
-                  );
-
-                  if (clickable) {
-                    return (
-                      <button
-                        key={item.label}
-                        type="button"
-                        onClick={() => openRelationList(item.type)}
-                        className="rounded-xl bg-secondary/40 px-3 py-2.5 text-center transition-colors hover:bg-secondary/70"
-                      >
-                        {content}
-                      </button>
-                    );
-                  }
-
-                  return (
-                    <div
-                      key={item.label}
-                      className="rounded-xl bg-secondary/40 px-3 py-2.5 text-center"
-                    >
-                      {content}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
+        </div>
 
+        <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
           {profileError && (
             <p className="text-sm text-red-400">{profileError}</p>
           )}
 
-          <section>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-medium">投稿视频</h2>
-              <div className="flex items-center gap-1.5">
-                {ORDER_OPTIONS.map((option) => (
-                  <Button
-                    key={option.value}
-                    type="button"
-                    size="sm"
-                    variant={order === option.value ? "default" : "outline"}
-                    disabled={videosLoading}
-                    onClick={() => handleOrderChange(option.value)}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            {videosLoading && videos.length === 0 ? (
-              <p className="text-sm text-muted-foreground">加载投稿中...</p>
-            ) : videosError && videos.length === 0 ? (
-              <div className="space-y-2">
-                <p className="text-sm text-red-400">{videosError}</p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void loadVideos(mid, page, order)}
-                >
-                  重新加载
-                </Button>
-              </div>
-            ) : videos.length > 0 ? (
-              <div
-                className={cn(
-                  "grid gap-4",
-                  GRID_COLS_CLASS[homeGridColumns],
-                  videosLoading && "opacity-60",
-                )}
-              >
-                {videos.map((video) => (
-                  <VideoCard key={video.bvid} video={video} />
-                ))}
-              </div>
-            ) : (profile.videos ?? 0) > 0 ? (
-              <div className="space-y-2">
-                <p className="text-sm text-red-400">
-                  投稿列表暂时无法获取，请点击重新加载
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void loadVideos(mid, 1, order)}
-                >
-                  重新加载
-                </Button>
-              </div>
+          {tab === "home" &&
+            (videosLoading &&
+            videos.length === 0 &&
+            opusPreview.length === 0 &&
+            collectionPreview.length === 0 ? (
+              <p className="text-sm text-muted-foreground">加载主页...</p>
             ) : (
-              <p className="text-sm text-muted-foreground">暂无投稿</p>
-            )}
-
-            {videosError && videos.length > 0 && (
-              <p className="mt-3 text-sm text-red-400">{videosError}</p>
-            )}
-          </section>
+              <UpSpaceHome
+                videos={videos}
+                videoCount={total || profile.videos}
+                opus={opusPreview}
+                opusCount={profile.opusCount ?? opusPreview.length}
+                collections={collectionPreview}
+                collectionCount={
+                  profile.seasonCount ?? collectionPreview.length
+                }
+                gridClass={GRID_COLS_CLASS[homeGridColumns]}
+                onOpenTab={(next) => setTab(next)}
+              />
+            ))}
+          {tab === "dynamics" && (
+            <UpSpaceDynamicsPanel
+              mid={mid}
+              name={profile.name}
+              face={profile.face}
+            />
+          )}
+          {tab === "opus" && <UpSpaceOpusPanel mid={mid} />}
+          {tab === "videos" && videosSection}
+          {tab === "collections" && <UpSpaceCollectionsPanel mid={mid} />}
+          {tab === "charge" && (
+            <UpSpaceChargePanel mid={mid} enabled={profile.upowerEnabled} />
+          )}
         </div>
       </div>
 
-      {videos.length > 0 && (totalPages > 1 || hasMore || page > 1) && (
-        <PaginationBar
-          variant="pages"
-          page={page}
-          totalPages={totalPages}
-          totalCount={total}
-          disabled={videosLoading}
-          disableNext={!hasMore && page >= totalPages}
-          openEnded={total <= 0 && hasMore}
-          onPageChange={goToPage}
-        />
-      )}
+      {tab === "videos" &&
+        videos.length > 0 &&
+        (totalPages > 1 || hasMore || page > 1) && (
+          <PaginationBar
+            variant="pages"
+            page={page}
+            totalPages={totalPages}
+            totalCount={total}
+            disabled={videosLoading}
+            disableNext={!hasMore && page >= totalPages}
+            openEnded={total <= 0 && hasMore}
+            onPageChange={goToPage}
+          />
+        )}
 
       {relationPanel && (
         <UpRelationListPanel

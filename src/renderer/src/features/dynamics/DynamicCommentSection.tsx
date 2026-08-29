@@ -239,7 +239,11 @@ function CommentRow({
           {item.location && <span>{item.location}</span>}
         </div>
         <div className="mt-1 text-sm leading-relaxed">
-          <BiliEmoteText text={item.content} emotes={emotes} />
+          <BiliEmoteText
+            text={item.content}
+            emotes={emotes}
+            mentions={item.mentions}
+          />
         </div>
         <CommentActionBar
           liked={liked}

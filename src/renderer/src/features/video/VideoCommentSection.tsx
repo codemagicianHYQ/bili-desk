@@ -251,7 +251,12 @@ function CommentRow({
         </div>
         {item.content.trim() && (
           <p className="mt-1 text-sm leading-relaxed text-foreground/90">
-            <BiliEmoteText text={item.content} emotes={emotes} size={22} />
+            <BiliEmoteText
+              text={item.content}
+              emotes={emotes}
+              mentions={item.mentions}
+              size={22}
+            />
           </p>
         )}
         {item.pictures && item.pictures.length > 0 && (

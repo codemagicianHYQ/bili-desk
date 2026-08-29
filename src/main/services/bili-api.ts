@@ -62,6 +62,7 @@ import type {
   AddCoinPayload,
   WatchHeartbeatPayload,
   CommentItem,
+  CommentMember,
   CommentPage,
   UpVideosPage,
   UpVideosOrder,
@@ -92,6 +93,7 @@ import type {
   FavMediasPage,
   OpusFavItem,
   OpusFavPage,
+  SpaceOpusPage,
   CheeseCourseItem,
   CheeseCoursePage,
   ChargeUpItem,
@@ -2727,6 +2729,7 @@ class BiliApiService {
       root: Number(item.root) || 0,
       parent: Number(item.parent) || 0,
       content: String(content.message ?? ""),
+      mentions: this.extractCommentMentions(content),
       emotes: this.extractCommentEmotes(content.emote),
       pictures,
       location: location || undefined,
@@ -2791,6 +2794,65 @@ class BiliApiService {
       }
     }
     return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  private extractCommentMentions(
+    content: Record<string, unknown>,
+  ): CommentMember[] | undefined {
+    const mentions: CommentMember[] = [];
+    const seen = new Set<string>();
+
+    const add = (midRaw: unknown, nameRaw: unknown, faceRaw?: unknown) => {
+      const mid = Number(midRaw);
+      const name = String(nameRaw ?? "").trim();
+      if (!Number.isFinite(mid) || mid <= 0 || !name) return;
+      const key = `${mid}\0${name}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      mentions.push({
+        mid,
+        name,
+        face: this.normalizeBfsUrl(String(faceRaw ?? "")),
+      });
+    };
+
+    const members = content.members;
+    if (Array.isArray(members)) {
+      for (const entry of members) {
+        if (!entry || typeof entry !== "object") continue;
+        const member = entry as Record<string, unknown>;
+        add(
+          member.mid,
+          member.uname ?? member.name,
+          member.avatar ?? member.face,
+        );
+      }
+    }
+
+    const atMap = content.at_name_to_mid;
+    if (atMap && typeof atMap === "object") {
+      for (const [name, mid] of Object.entries(
+        atMap as Record<string, unknown>,
+      )) {
+        add(mid, name);
+      }
+    }
+
+    const jumpUrl = content.jump_url;
+    if (jumpUrl && typeof jumpUrl === "object") {
+      for (const [key, value] of Object.entries(
+        jumpUrl as Record<string, unknown>,
+      )) {
+        if (!value || typeof value !== "object") continue;
+        const entry = value as Record<string, unknown>;
+        const url = String(entry.pc_url ?? entry.url ?? key);
+        const match = url.match(/space\.bilibili\.com\/(\d+)/);
+        if (!match) continue;
+        add(match[1], String(entry.title ?? key).replace(/^@/, ""));
+      }
+    }
+
+    return mentions.length > 0 ? mentions : undefined;
   }
 
   async getReplyEmotes(): Promise<Record<string, string>> {
@@ -4179,37 +4241,50 @@ class BiliApiService {
     await this.ensureBuvid3();
 
     const accParams = await signParams({ mid: String(mid) });
-    const [cardRes, statRes, upstatRes, navnumRes, accRes] = await Promise.all([
-      this.client.get("/x/web-interface/card", {
-        params: { mid: String(mid), photo: true },
-        validateStatus: () => true,
-      }),
-      this.client.get("/x/relation/stat", {
-        params: { vmid: String(mid) },
-        validateStatus: () => true,
-      }),
-      this.client
-        .get("/x/space/upstat", {
-          params: { mid: String(mid) },
-          headers: { Referer: `https://space.bilibili.com/${mid}` },
+    const [cardRes, statRes, upstatRes, navnumRes, accRes, settingsRes] =
+      await Promise.all([
+        this.client.get("/x/web-interface/card", {
+          params: { mid: String(mid), photo: true },
           validateStatus: () => true,
-        })
-        .catch(() => null),
-      this.client
-        .get("/x/space/navnum", {
-          params: { mid: String(mid) },
-          headers: { Referer: `https://space.bilibili.com/${mid}` },
+        }),
+        this.client.get("/x/relation/stat", {
+          params: { vmid: String(mid) },
           validateStatus: () => true,
-        })
-        .catch(() => null),
-      this.client
-        .get("/x/space/wbi/acc/info", {
-          params: accParams,
-          headers: { Referer: `https://space.bilibili.com/${mid}` },
-          validateStatus: () => true,
-        })
-        .catch(() => null),
-    ]);
+        }),
+        this.client
+          .get("/x/space/upstat", {
+            params: { mid: String(mid) },
+            headers: { Referer: `https://space.bilibili.com/${mid}` },
+            validateStatus: () => true,
+          })
+          .catch(() => null),
+        this.client
+          .get("/x/space/navnum", {
+            params: { mid: String(mid) },
+            headers: { Referer: `https://space.bilibili.com/${mid}` },
+            validateStatus: () => true,
+          })
+          .catch(() => null),
+        this.client
+          .get("/x/space/wbi/acc/info", {
+            params: accParams,
+            headers: { Referer: `https://space.bilibili.com/${mid}` },
+            validateStatus: () => true,
+          })
+          .catch(() => null),
+        axios
+          .get("https://space.bilibili.com/ajax/settings/getSettings", {
+            params: { mid: String(mid) },
+            headers: {
+              ...defaultHeaders(),
+              Cookie: getCookieString(),
+              Referer: `https://space.bilibili.com/${mid}`,
+            },
+            validateStatus: () => true,
+            timeout: 8000,
+          })
+          .catch(() => null),
+      ]);
 
     if (cardRes.data?.code !== 0) {
       throw new Error(
@@ -4247,6 +4322,18 @@ class BiliApiService {
       accRes && (accRes as AxiosResponse).data?.code === 0
         ? ((accRes as AxiosResponse).data?.data as Record<string, unknown>)
         : undefined;
+    const settingsPayload =
+      settingsRes && (settingsRes as AxiosResponse).data
+        ? ((settingsRes as AxiosResponse).data as Record<string, unknown>)
+        : undefined;
+    const settingsData =
+      settingsPayload &&
+      (settingsPayload.status === true || settingsPayload.code === 0)
+        ? (settingsPayload.data as Record<string, unknown>)
+        : undefined;
+    const toutu = settingsData?.toutu as
+      | { l_img?: string; s_img?: string }
+      | undefined;
 
     const officialDesc =
       (typeof official?.title === "string" && official.title.trim()) ||
@@ -4256,6 +4343,26 @@ class BiliApiService {
       "";
 
     const videos = Number(payload?.archive_count ?? navnum?.video ?? 0) || 0;
+    const articleCount = Number(navnum?.article ?? 0) || 0;
+    const opusCount =
+      Number(navnum?.opus ?? navnum?.album ?? articleCount) || 0;
+    const seasonCount =
+      Number(navnum?.season_num ?? navnum?.season ?? navnum?.channel ?? 0) || 0;
+    const pugvCount = Number(navnum?.pugv ?? 0) || 0;
+    const ipLocation = String(
+      accData?.ip_location ?? accData?.location ?? "",
+    ).trim();
+    const upowerRaw = accData?.is_upower ?? accData?.upower;
+    const upowerObj =
+      typeof upowerRaw === "object" && upowerRaw != null
+        ? (upowerRaw as { state?: number; is_upower?: boolean })
+        : undefined;
+    const upowerEnabled =
+      upowerRaw === true ||
+      upowerRaw === 1 ||
+      Number(accData?.upower_flag) > 0 ||
+      Number(upowerObj?.state) > 0 ||
+      upowerObj?.is_upower === true;
 
     // navnum.favourite 是 { master, guest }，不是数字
     const favRaw = navnum?.favourite as
@@ -4284,13 +4391,48 @@ class BiliApiService {
       likes: Number(payload?.like_num ?? upstat?.likes ?? 0) || 0,
       archiveViews: Number(archiveStat?.view ?? 0) || 0,
       favourites,
-      topPhoto: this.normalizeBfsUrl(
-        (accData?.top_photo as string) ??
-          ((payload?.space as { l_img?: string } | undefined)
-            ?.l_img as string) ??
-          "",
+      topPhoto: this.pickSpaceTopPhoto(
+        accData,
+        (payload?.space as { l_img?: string; s_img?: string } | undefined) ??
+          (card?.space as { l_img?: string; s_img?: string } | undefined),
+        toutu,
       ),
+      ipLocation: ipLocation || undefined,
+      articleCount,
+      opusCount,
+      seasonCount,
+      pugvCount,
+      upowerEnabled,
     };
+  }
+
+  private pickSpaceTopPhoto(
+    accData: Record<string, unknown> | undefined,
+    cardSpace: { l_img?: string; s_img?: string } | undefined,
+    toutu: { l_img?: string; s_img?: string } | undefined,
+  ): string {
+    const v2 = accData?.top_photo_v2 as
+      | { l_img?: string; thumbnail_img?: string; sid?: number }
+      | undefined;
+    const accSpace = accData?.space as
+      | { l_img?: string; s_img?: string }
+      | undefined;
+    const candidates = [
+      accData?.top_photo,
+      v2?.l_img,
+      v2?.thumbnail_img,
+      accSpace?.l_img,
+      cardSpace?.l_img,
+      toutu?.l_img,
+      accSpace?.s_img,
+      cardSpace?.s_img,
+      toutu?.s_img,
+    ];
+    for (const raw of candidates) {
+      const url = this.normalizeBfsUrl(String(raw ?? ""));
+      if (url) return url;
+    }
+    return "";
   }
 
   async getUpRelation(mid: number): Promise<UpRelation> {
@@ -5193,8 +5335,10 @@ class BiliApiService {
 
     const needed = targetPage * pageSize;
     const seen = new Set(cache.videos.map((video) => video.bvid));
-    const maxFetches =
-      Math.max(1, Math.ceil((needed - cache.videos.length) / fetchSize) + 3);
+    const maxFetches = Math.max(
+      1,
+      Math.ceil((needed - cache.videos.length) / fetchSize) + 3,
+    );
     let fetches = 0;
     let lastError: Error | null = null;
 
@@ -5289,7 +5433,10 @@ class BiliApiService {
       }
 
       // 与第 1 页空间列表重叠时本段可能全是重复，用本段末 aid 继续往后走
-      if (added === 0 && (batchAid <= 0 || batch.length === 0 || batchAid === prevAid)) {
+      if (
+        added === 0 &&
+        (batchAid <= 0 || batch.length === 0 || batchAid === prevAid)
+      ) {
         cache.hasNext = false;
       }
     }
@@ -5859,6 +6006,48 @@ class BiliApiService {
       hasMore: Boolean(data?.has_more),
       updateBaseline: (data?.update_baseline as string) ?? "",
       updateNum: Number(data?.update_num) || 0,
+    };
+  }
+
+  async getSpaceOpus(mid: number, offset = ""): Promise<SpaceOpusPage> {
+    await this.ensureBuvid3();
+
+    const params = await signParams({
+      host_mid: mid,
+      timezone_offset: -480,
+      platform: "web",
+      web_location: "333.1387",
+      type: "all",
+      ...(offset ? { offset } : {}),
+    });
+
+    const res = await this.client.get(
+      "/x/polymer/web-dynamic/v1/opus/feed/space",
+      {
+        params,
+        headers: { Referer: `https://space.bilibili.com/${mid}/upload/opus` },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "图文列表获取失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const rawItems =
+      (data?.items as Record<string, unknown>[] | undefined) ?? [];
+    const items = rawItems
+      .map((item) => this.normalizeOpusFavItem(item))
+      .filter((item): item is OpusFavItem => item != null);
+
+    return {
+      items,
+      offset: String(data?.offset ?? ""),
+      hasMore: Boolean(data?.has_more),
     };
   }
 
@@ -7236,13 +7425,25 @@ class BiliApiService {
       String(item.id ?? "");
     if (!opusId) return null;
 
-    const coverObj = item.cover as Record<string, unknown> | undefined;
+    const coverObj =
+      item.cover && typeof item.cover === "object"
+        ? (item.cover as Record<string, unknown>)
+        : undefined;
     const coverPic = item.cover_pic as Record<string, unknown> | undefined;
+    const pics = (item.pics as Record<string, unknown>[] | undefined) ?? [];
+    const modules = item.modules as Record<string, unknown> | undefined;
+    const moduleDynamic = modules?.module_dynamic as
+      | Record<string, unknown>
+      | undefined;
+    const major = moduleDynamic?.major as Record<string, unknown> | undefined;
+    const opus = major?.opus as Record<string, unknown> | undefined;
+    const opusPics =
+      (opus?.pics as Record<string, unknown>[] | undefined) ?? [];
     const textParagraph = item.text_paragraph as
       | Record<string, unknown>
       | undefined;
     const author = item.author as Record<string, unknown> | undefined;
-    const moduleAuthor = item.module_author as
+    const moduleAuthor = (item.module_author ?? modules?.module_author) as
       | Record<string, unknown>
       | undefined;
 
@@ -7255,17 +7456,27 @@ class BiliApiService {
       this.extractRichText(textParagraph) ||
       this.extractRichText(item.summary) ||
       this.extractRichText(item.content) ||
+      this.extractRichText(opus?.summary) ||
+      this.extractRichText(moduleDynamic?.desc) ||
       "";
+
+    const title =
+      String(item.title ?? opus?.title ?? "").trim() ||
+      summary.slice(0, 40) ||
+      "图文动态";
+
+    const coverRaw =
+      (coverObj?.url as string) ||
+      (coverPic?.url as string) ||
+      (typeof item.cover === "string" ? item.cover : "") ||
+      String(pics[0]?.url ?? pics[0]?.src ?? "") ||
+      String(opusPics[0]?.url ?? opusPics[0]?.src ?? "") ||
+      String(opus?.cover ?? "");
 
     return {
       id: opusId,
-      title: (item.title as string) ?? (summary.slice(0, 40) || "图文动态"),
-      cover: this.normalizeBfsUrl(
-        (coverObj?.url as string) ??
-          (coverPic?.url as string) ??
-          (item.cover as string) ??
-          "",
-      ),
+      title,
+      cover: this.normalizeBfsUrl(coverRaw),
       summary,
       url: jumpUrl.startsWith("http")
         ? jumpUrl

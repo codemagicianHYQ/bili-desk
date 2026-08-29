@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useLogout } from "@/lib/use-logout";
 import type { UpProfile, VideoItem } from "@shared/types";
 import { useAppStore } from "@/stores/app-store";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -20,6 +21,7 @@ import {
   Home,
   Layers,
   Loader2,
+  LogOut,
   Radio,
   RefreshCw,
   Settings,
@@ -72,6 +74,7 @@ const TABS: Array<{ id: MyTab; label: string; icon: typeof Home }> = [
 
 export function MyPage() {
   const user = useAppStore((state) => state.user);
+  const logout = useLogout();
   const mid = user?.mid ?? 0;
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -287,6 +290,15 @@ export function MyPage() {
                     设置
                   </Button>
                 </Link>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={() => void logout()}
+                >
+                  <LogOut className="h-4 w-4" />
+                  退出登录
+                </Button>
               </div>
             </div>
 

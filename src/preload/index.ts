@@ -297,6 +297,8 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_TOVIEW_LOCAL_REMOVE, bvids),
     getSpaceDynamics: (mid: number, offset?: string) =>
       ipcRenderer.invoke(IPC.BILI_SPACE_DYNAMICS, mid, offset ?? ""),
+    getSpaceOpus: (mid: number, offset?: string) =>
+      ipcRenderer.invoke(IPC.BILI_SPACE_OPUS, mid, offset ?? ""),
     getFollowDynamics: (offset?: string, type?: DynamicFeedType) =>
       ipcRenderer.invoke(IPC.BILI_FOLLOW_DYNAMICS, offset ?? "", type ?? "all"),
     getDynamicDetail: (id: string) =>

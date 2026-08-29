@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import type { AiConfig } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { THEME_PRESETS, useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
+import { useLogout } from "@/lib/use-logout";
 import {
   Ban,
   ExternalLink,
@@ -10,6 +12,7 @@ import {
   EyeOff,
   Github,
   Info,
+  LogOut,
   Palette,
   Sparkles,
   UserRound,
@@ -29,13 +32,20 @@ const GITHUB_AUTHOR = {
   description: "项目作者 · GitHub",
 };
 
-type SettingsSection = "appearance" | "privacy" | "blacklist" | "ai" | "about";
+type SettingsSection =
+  | "account"
+  | "appearance"
+  | "privacy"
+  | "blacklist"
+  | "ai"
+  | "about";
 
 const NAV_ITEMS: Array<{
   id: SettingsSection;
   label: string;
   icon: typeof Palette;
 }> = [
+  { id: "account", label: "账号", icon: UserRound },
   { id: "appearance", label: "外观", icon: Palette },
   { id: "privacy", label: "观看隐私", icon: EyeOff },
   { id: "blacklist", label: "黑名单", icon: Ban },
@@ -69,6 +79,7 @@ function SettingRow({
 
 export function SettingsPage() {
   const {
+    user,
     theme,
     themePreset,
     setTheme,
@@ -76,7 +87,8 @@ export function SettingsPage() {
     incognitoMode,
     setIncognitoMode,
   } = useAppStore();
-  const [section, setSection] = useState<SettingsSection>("appearance");
+  const logout = useLogout();
+  const [section, setSection] = useState<SettingsSection>("account");
   const [ai, setAi] = useState<AiConfig>({
     baseUrl: "",
     apiKey: "",
@@ -131,6 +143,36 @@ export function SettingsPage() {
           <h2 className="mb-6 text-2xl font-semibold tracking-tight">
             {activeNav?.label}
           </h2>
+
+          {section === "account" && (
+            <section className="rounded-xl border border-border bg-card/60 px-5">
+              {user?.isLogin ? (
+                <SettingRow
+                  title={user.name || "已登录"}
+                  description="退出后需重新扫码登录，本机本地稍后再看和分类数据会保留。"
+                >
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => void logout()}
+                  >
+                    <LogOut className="h-4 w-4" />
+                    退出登录
+                  </Button>
+                </SettingRow>
+              ) : (
+                <SettingRow
+                  title="未登录"
+                  description="登录后可同步收藏、稍后再看和历史记录。"
+                >
+                  <Button size="sm" asChild>
+                    <Link to="/login">去登录</Link>
+                  </Button>
+                </SettingRow>
+              )}
+            </section>
+          )}
 
           {section === "appearance" && (
             <section className="rounded-xl border border-border bg-card/60 px-5">

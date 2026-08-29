@@ -107,6 +107,8 @@ export interface CommentItem {
   root: number;
   parent: number;
   content: string;
+  /** 评论里 @ 到的用户，用来把 `@昵称` 链到空间 */
+  mentions?: CommentMember[];
   /** 评论里出现的表情：`[doge]` → 图片 URL */
   emotes?: Record<string, string>;
   /** 评论附图 */
@@ -334,7 +336,20 @@ export interface UpProfile {
   archiveViews?: number;
   /** 公开收藏夹数量 */
   favourites?: number;
+  /** 空间头图（官网主页背景） */
   topPhoto?: string;
+  /** IP 属地，如「广东」 */
+  ipLocation?: string;
+  /** 专栏数 */
+  articleCount?: number;
+  /** 图文 / opus 数 */
+  opusCount?: number;
+  /** 合集 + 系列数 */
+  seasonCount?: number;
+  /** 课堂 / 充电相关 pugv 数 */
+  pugvCount?: number;
+  /** 该 UP 是否开通充电 */
+  upowerEnabled?: boolean;
 }
 
 export interface UpRelation {
@@ -754,6 +769,12 @@ export interface OpusFavPage {
   hasMore: boolean;
 }
 
+export interface SpaceOpusPage {
+  items: OpusFavItem[];
+  offset: string;
+  hasMore: boolean;
+}
+
 export interface CheeseCourseItem {
   seasonId: number;
   title: string;
@@ -1099,6 +1120,7 @@ export interface BiliDeskApi {
       mid: number,
       offset?: string,
     ) => Promise<SpaceDynamicPage>;
+    getSpaceOpus: (mid: number, offset?: string) => Promise<SpaceOpusPage>;
     getFollowDynamics: (
       offset?: string,
       type?: DynamicFeedType,
