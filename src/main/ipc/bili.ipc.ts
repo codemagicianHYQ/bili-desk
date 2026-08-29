@@ -88,8 +88,8 @@ export function registerBiliIpc(): void {
   );
   ipcMain.handle(
     IPC.BILI_COMMENT_LIST,
-    (_e, aid: number, page?: number, sort?: 0 | 1 | 2) =>
-      biliApi.getComments(aid, page, sort),
+    (_e, aid: number, page?: number, sort?: 0 | 1 | 2, offset?: string) =>
+      biliApi.getComments(aid, page, sort, offset ?? ""),
   );
   ipcMain.handle(
     IPC.BILI_COMMENT_REPLIES,
@@ -105,6 +105,26 @@ export function registerBiliIpc(): void {
     IPC.BILI_COMMENT_LIKE,
     (_e, aid: number, rpid: number, like: boolean) =>
       biliApi.likeComment(aid, rpid, like),
+  );
+  handleIpc(
+    IPC.BILI_COMMENT_HATE,
+    (
+      _e,
+      oid: string,
+      type: number,
+      rpid: number | string,
+      hate: boolean,
+    ) => biliApi.hateComment(oid, type, rpid, hate),
+  );
+  handleIpc(
+    IPC.BILI_COMMENT_DELETE,
+    (_e, oid: string, type: number, rpid: number | string) =>
+      biliApi.deleteReply(oid, type, rpid),
+  );
+  handleIpc(
+    IPC.BILI_COMMENT_REPORT,
+    (_e, oid: string, type: number, rpid: number | string, reason: number) =>
+      biliApi.reportComment(oid, type, rpid, reason),
   );
   ipcMain.handle(IPC.BILI_REPLY_EMOTES, () => biliApi.getReplyEmotes());
   ipcMain.handle(IPC.BILI_FAV_FOLDERS, () => biliApi.getFavFolders());
@@ -291,8 +311,15 @@ export function registerBiliIpc(): void {
   );
   handleIpc(
     IPC.BILI_TARGET_COMMENT_LIST,
-    (_e, oid: string, type: number, page?: number, sort?: 0 | 1 | 2) =>
-      biliApi.getTargetComments(oid, type, page ?? 1, sort ?? 0),
+    (
+      _e,
+      oid: string,
+      type: number,
+      page?: number,
+      sort?: 0 | 1 | 2,
+      offset?: string,
+    ) =>
+      biliApi.getTargetComments(oid, type, page ?? 1, sort ?? 0, offset ?? ""),
   );
   handleIpc(
     IPC.BILI_TARGET_COMMENT_REPLIES,
@@ -368,5 +395,8 @@ export function registerBiliIpc(): void {
   );
   handleIpc(IPC.BILI_CHEESE_FOLLOW, (_e, page?: number, mid?: number) =>
     biliApi.getCheeseFollowList(page, mid),
+  );
+  handleIpc(IPC.BILI_UPOWER_PAID, (_e, page?: number) =>
+    biliApi.getUpowerPaidList(page),
   );
 }

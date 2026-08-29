@@ -2,13 +2,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CheeseCourseItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { cn, formatCount } from "@/lib/utils";
-import { BookOpen, Loader2 } from "lucide-react";
+import { BookOpen, Loader2, Zap } from "lucide-react";
 
 function formatError(err: unknown): string {
   return err instanceof Error ? err.message : "加载失败";
 }
 
+interface MyPugvPanelProps {
+  mid: number;
+  kind: "cheese" | "upower";
+}
+
 export function MyCheesePanel({ mid }: { mid: number }) {
+  return <MyPugvPanel mid={mid} kind="cheese" />;
+}
+
+export function MyUpowerPanel({ mid }: { mid: number }) {
+  return <MyPugvPanel mid={mid} kind="upower" />;
+}
+
+function MyPugvPanel({ mid, kind }: MyPugvPanelProps) {
+  const isUpower = kind === "upower";
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<CheeseCourseItem[]>([]);
@@ -27,10 +41,9 @@ export function MyCheesePanel({ mid }: { mid: number }) {
       }
 
       try {
-        const result = await window.biliDesk.bili.getCheeseFollowList(
-          nextPage,
-          mid,
-        );
+        const result = isUpower
+          ? await window.biliDesk.bili.getUpowerPaidList(nextPage)
+          : await window.biliDesk.bili.getCheeseFollowList(nextPage, mid);
         setItems((prev) => (append ? [...prev, ...result.list] : result.list));
         setPage(result.page);
         setHasMore(result.hasMore);
@@ -41,7 +54,7 @@ export function MyCheesePanel({ mid }: { mid: number }) {
         setLoadingMore(false);
       }
     },
-    [mid],
+    [isUpower, mid],
   );
 
   useEffect(() => {
@@ -63,11 +76,17 @@ export function MyCheesePanel({ mid }: { mid: number }) {
     return () => observer.disconnect();
   }, [hasMore, load, loading, loadingMore, page]);
 
+  const loadingLabel = isUpower ? "加载充电专属..." : "加载课堂...";
+  const emptyLabel = isUpower
+    ? "暂无生效中的充电专属（过期的不会显示）"
+    : "暂无追课或已购课堂";
+  const Icon = isUpower ? Zap : BookOpen;
+
   if (loading && items.length === 0) {
     return (
       <p className="flex items-center text-sm text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        加载课堂...
+        {loadingLabel}
       </p>
     );
   }
@@ -77,7 +96,7 @@ export function MyCheesePanel({ mid }: { mid: number }) {
   }
 
   if (items.length === 0) {
-    return <p className="text-sm text-muted-foreground">暂无追课或已购课堂</p>;
+    return <p className="text-sm text-muted-foreground">{emptyLabel}</p>;
   }
 
   return (
@@ -101,14 +120,17 @@ export function MyCheesePanel({ mid }: { mid: number }) {
             />
           ) : (
             <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded-lg bg-muted">
-              <BookOpen className="h-5 w-5 text-muted-foreground" />
+              <Icon className="h-5 w-5 text-muted-foreground" />
             </div>
           )}
           <div className="min-w-0 flex-1">
             <p className="line-clamp-2 text-sm font-medium">{item.title}</p>
             <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
               {[
-                item.epCount > 0 ? `${item.epCount} 课时` : "",
+                isUpower ? "充电专属" : "",
+                item.epCount > 0
+                  ? `${item.epCount} ${isUpower ? "个视频" : "课时"}`
+                  : "",
                 item.playCount > 0 ? `${formatCount(item.playCount)} 播放` : "",
                 item.status,
               ]

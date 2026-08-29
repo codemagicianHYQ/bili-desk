@@ -5,6 +5,7 @@ import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
+import { LinkifiedText } from "@/components/ui/linkified-text";
 import { cn, formatCount } from "@/lib/utils";
 import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
 
@@ -167,8 +168,8 @@ export function DynamicDetailPage() {
               </div>
 
               {item.text && (
-                <p className="whitespace-pre-wrap text-[15px] leading-relaxed">
-                  {item.text}
+                <p className="text-[15px] leading-relaxed">
+                  <LinkifiedText text={item.text} />
                 </p>
               )}
 
@@ -196,6 +197,7 @@ export function DynamicDetailPage() {
                   oid={commentOid}
                   type={commentType}
                   replyCount={item.stats?.reply ?? 0}
+                  ownerMid={item.authorMid}
                 />
               </div>
             </div>

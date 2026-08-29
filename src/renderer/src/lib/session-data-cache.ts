@@ -35,6 +35,7 @@ export interface CommentsListCache {
   page: number;
   hasMore: boolean;
   total: number;
+  nextOffset?: string;
 }
 
 export interface UpVideosPageCache {
@@ -117,12 +118,9 @@ export const dynamicsLiveCache = createTtlLruCache<{
 });
 
 export function commentsCacheKey(aid: number, sort: number): string {
-  return `${aid}:${sort}`;
+  return `main:${aid}:${sort}`;
 }
 
-export function upVideosCacheKey(
-  order: UpVideosOrder,
-  page: number,
-): string {
+export function upVideosCacheKey(order: UpVideosOrder, page: number): string {
   return `${order}:${page}`;
 }

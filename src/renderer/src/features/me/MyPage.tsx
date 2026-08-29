@@ -8,7 +8,7 @@ import { VideoCard } from "@/components/video/VideoCard";
 import { cn, formatCount } from "@/lib/utils";
 import { formatUserSpaceError } from "@/lib/ipc-error";
 import { upProfileCache } from "@/lib/session-data-cache";
-import { MyCheesePanel } from "./MyCheesePanel";
+import { MyCheesePanel, MyUpowerPanel } from "./MyCheesePanel";
 import { MyCollectionsPanel } from "./MyCollectionsPanel";
 import { MyDynamicsPanel } from "./MyDynamicsPanel";
 import { MyFavoritesPanel } from "./MyFavoritesPanel";
@@ -25,6 +25,7 @@ import {
   Settings,
   Users,
   Video,
+  Zap,
 } from "lucide-react";
 
 type MyTab =
@@ -34,7 +35,8 @@ type MyTab =
   | "collections"
   | "favorites"
   | "follow"
-  | "cheese";
+  | "cheese"
+  | "upower";
 
 function normalizeUpVideosPage(data: unknown): {
   videos: VideoItem[];
@@ -65,6 +67,7 @@ const TABS: Array<{ id: MyTab; label: string; icon: typeof Home }> = [
   { id: "favorites", label: "收藏", icon: Bookmark },
   { id: "follow", label: "追更", icon: RefreshCw },
   { id: "cheese", label: "课堂", icon: GraduationCap },
+  { id: "upower", label: "充电", icon: Zap },
 ];
 
 export function MyPage() {
@@ -437,6 +440,12 @@ export function MyPage() {
           {visitedTabs.has("cheese") && (
             <div className={tab === "cheese" ? undefined : "hidden"}>
               <MyCheesePanel mid={mid} />
+            </div>
+          )}
+
+          {visitedTabs.has("upower") && (
+            <div className={tab === "upower" ? undefined : "hidden"}>
+              <MyUpowerPanel mid={mid} />
             </div>
           )}
 

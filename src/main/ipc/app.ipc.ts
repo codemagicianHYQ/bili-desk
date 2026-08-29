@@ -1,9 +1,12 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, shell } from "electron";
 import { IPC } from "@shared/ipc-channels";
 import { appStore } from "../store/app-store";
 import type { Theme } from "@shared/types";
+import { sanitizeExternalUrl } from "@shared/utils/external-url";
 
-function windowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
+function windowFromEvent(
+  event: Electron.IpcMainInvokeEvent,
+): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender);
 }
 
@@ -23,5 +26,10 @@ export function registerAppIpc(): void {
     const win = windowFromEvent(event);
     if (!win || win.isDestroyed()) return false;
     return win.isFullScreen();
+  });
+  ipcMain.handle(IPC.APP_OPEN_EXTERNAL, async (_event, raw: string) => {
+    const url = sanitizeExternalUrl(raw);
+    if (!url) throw new Error("不支持的链接");
+    await shell.openExternal(url);
   });
 }

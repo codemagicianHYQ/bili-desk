@@ -9,6 +9,7 @@ import { UpOwnerCard } from "@/components/video/UpOwnerCard";
 import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
+import { LinkifiedText } from "@/components/ui/linkified-text";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { videoDetailCache } from "@/lib/session-data-cache";
 import {
@@ -370,14 +371,14 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               </div>
 
               <div className="shrink-0 space-y-2 border-t border-border px-4 py-2">
-                <div className="flex min-w-0 items-center gap-3">
-                  <h1
-                    className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold leading-snug lg:text-base"
-                    title={video.title}
-                  >
+                <div className="flex min-w-0 items-start gap-3">
+                  <h1 className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words line-clamp-2 lg:text-base">
                     {video.title}
                   </h1>
-                  <VideoActionBar video={video} className="shrink-0 grow-0" />
+                  <VideoActionBar
+                    video={video}
+                    className="shrink-0 grow-0 pt-0.5"
+                  />
                 </div>
                 {video.pages.length > 1 && (
                   <div className="flex gap-2 overflow-x-auto pb-0.5">
@@ -425,7 +426,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              {video.desc || "暂无简介"}
+              {video.desc ? <LinkifiedText text={video.desc} /> : "暂无简介"}
             </p>
             {playError && playInfo && (
               <div className="space-y-1 text-sm text-red-400">
@@ -451,6 +452,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
             <VideoCommentSection
               aid={video.aid}
+              bvid={video.bvid || bvid}
+              ownerMid={video.owner.mid}
               replyCount={video.stat.reply}
               scrollRootRef={scrollRef}
             />

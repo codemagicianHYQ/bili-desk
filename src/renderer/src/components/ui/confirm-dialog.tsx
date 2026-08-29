@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { APP_OVERLAY_ZCLASS, OverlayPortal } from '@/components/ui/overlay-portal'
 import { cn } from '@/lib/utils'
 
 interface ConfirmDialogProps {
@@ -42,8 +43,12 @@ export function ConfirmDialog({
   if (!open) return null
 
   return (
+    <OverlayPortal>
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+      className={cn(
+        'fixed inset-0 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center',
+        APP_OVERLAY_ZCLASS,
+      )}
       onClick={() => {
         if (!loading) onCancel()
       }}
@@ -111,5 +116,6 @@ export function ConfirmDialog({
         </div>
       </div>
     </div>
+    </OverlayPortal>
   )
 }

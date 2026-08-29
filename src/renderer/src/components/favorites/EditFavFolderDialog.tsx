@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { FavFolder } from "@shared/types";
 import { Button } from "@/components/ui/button";
+import {
+  APP_OVERLAY_ZCLASS,
+  OverlayPortal,
+} from "@/components/ui/overlay-portal";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { Loader2, X } from "lucide-react";
 import { useFavoritesStore } from "@/stores/favorites-store";
@@ -104,8 +108,9 @@ export function EditFavFolderDialog({
   };
 
   return (
+    <OverlayPortal>
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+      className={`fixed inset-0 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
       onClick={() => {
         if (!saving) onClose();
       }}
@@ -220,5 +225,6 @@ export function EditFavFolderDialog({
         </div>
       </div>
     </div>
+    </OverlayPortal>
   );
 }

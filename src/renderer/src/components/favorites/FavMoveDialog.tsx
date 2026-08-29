@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { FavFolder } from "@shared/types";
 import { Button } from "@/components/ui/button";
+import {
+  APP_OVERLAY_ZCLASS,
+  OverlayPortal,
+} from "@/components/ui/overlay-portal";
 import { cn } from "@/lib/utils";
 import { Folder, Loader2, X } from "lucide-react";
 
@@ -53,8 +57,9 @@ export function FavMoveDialog({
     "当前收藏夹";
 
   return (
+    <OverlayPortal>
     <div
-      className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+      className={`fixed inset-0 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
       onClick={() => {
         if (!loading) onClose();
       }}
@@ -149,5 +154,6 @@ export function FavMoveDialog({
         </div>
       </div>
     </div>
+    </OverlayPortal>
   );
 }

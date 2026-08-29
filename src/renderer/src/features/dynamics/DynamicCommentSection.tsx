@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { CommentItem } from "@shared/types";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
+import { CommentActionBar } from "@/components/comment/CommentActionBar";
+import { commentRpid, stripComment } from "@/components/comment/comment-tree";
 import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
-import { cn, formatCount } from "@/lib/utils";
-import { Loader2, MessageCircle, ThumbsUp } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useAppStore } from "@/stores/app-store";
+import { Loader2 } from "lucide-react";
 
 type CommentSort = 0 | 2;
 
@@ -15,6 +18,7 @@ interface DynamicCommentSectionProps {
   oid: string;
   type: number;
   replyCount?: number;
+  ownerMid?: number;
 }
 
 function formatCommentTime(ctime: number): string {
@@ -38,19 +42,29 @@ function CommentRow({
   item,
   oid,
   type,
+  ownerMid,
+  selfMid,
   depth = 0,
   onChanged,
+  onDeleted,
 }: {
   item: CommentItem;
   oid: string;
   type: number;
+  ownerMid?: number;
+  selfMid?: number;
   depth?: number;
   onChanged: () => void;
+  onDeleted: (rpid: number) => void;
 }) {
   const emotes = useReplyEmotes(item.emotes);
   const [liked, setLiked] = useState(item.action === 1);
+  const [hated, setHated] = useState(item.action === 2);
   const [likeCount, setLikeCount] = useState(item.like);
   const [liking, setLiking] = useState(false);
+  const [hating, setHating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [replying, setReplying] = useState(false);
@@ -61,6 +75,11 @@ function CommentRow({
   const [error, setError] = useState("");
 
   const visibleReplies = depth === 0 ? [...item.replies, ...moreReplies] : [];
+  const commentMid = item.member.mid || item.mid;
+  const isOwn = Boolean(selfMid && commentMid === selfMid);
+  const canDelete =
+    isOwn || Boolean(ownerMid && selfMid && ownerMid === selfMid);
+  const rpid = commentRpid(item);
 
   const handleLike = async () => {
     if (liking) return;
@@ -68,6 +87,10 @@ function CommentRow({
     setLiking(true);
     setError("");
     try {
+      if (next && hated) {
+        await window.biliDesk.bili.hateComment(oid, type, rpid, false);
+        setHated(false);
+      }
       await window.biliDesk.bili.likeTargetComment(oid, type, item.rpid, next);
       setLiked(next);
       setLikeCount((prev) => Math.max(0, prev + (next ? 1 : -1)));
@@ -75,6 +98,56 @@ function CommentRow({
       setError(err instanceof Error ? err.message : "点赞失败");
     } finally {
       setLiking(false);
+    }
+  };
+
+  const handleHate = async () => {
+    if (hating) return;
+    const next = !hated;
+    setHating(true);
+    setError("");
+    try {
+      if (next && liked) {
+        await window.biliDesk.bili.likeTargetComment(
+          oid,
+          type,
+          item.rpid,
+          false,
+        );
+        setLiked(false);
+        setLikeCount((prev) => Math.max(0, prev - 1));
+      }
+      await window.biliDesk.bili.hateComment(oid, type, rpid, next);
+      setHated(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "点踩失败");
+    } finally {
+      setHating(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError("");
+    try {
+      await window.biliDesk.bili.deleteComment(oid, type, rpid);
+      onDeleted(item.rpid);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleReport = async (reason: number) => {
+    setReporting(true);
+    setError("");
+    try {
+      await window.biliDesk.bili.reportComment(oid, type, rpid, reason);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "举报失败");
+    } finally {
+      setReporting(false);
     }
   };
 
@@ -145,55 +218,60 @@ function CommentRow({
         />
       </Link>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <Link
             to={`/up/${item.member.mid || item.mid}`}
             className="font-medium text-foreground hover:text-sky-400"
           >
             {item.member.name}
           </Link>
+          {Boolean(ownerMid && commentMid === ownerMid) && (
+            <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">
+              UP
+            </span>
+          )}
+          {isOwn && (
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px]">
+              自己
+            </span>
+          )}
           <span>{formatCommentTime(item.ctime)}</span>
           {item.location && <span>{item.location}</span>}
         </div>
         <div className="mt-1 text-sm leading-relaxed">
           <BiliEmoteText text={item.content} emotes={emotes} />
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <CommentActionBar
+          liked={liked}
+          hated={hated}
+          likeCount={likeCount}
+          liking={liking}
+          hating={hating}
+          deleting={deleting}
+          reporting={reporting}
+          isOwn={isOwn}
+          canDelete={canDelete}
+          copyText={item.content}
+          onLike={() => void handleLike()}
+          onHate={() => void handleHate()}
+          onReply={() => setShowReply((value) => !value)}
+          onDelete={() => void handleDelete()}
+          onReport={(reason) => void handleReport(reason)}
+        />
+        {depth === 0 && item.rcount > visibleReplies.length && (
           <button
             type="button"
-            onClick={() => void handleLike()}
-            disabled={liking}
-            className={cn(
-              "inline-flex items-center gap-1 transition-colors hover:text-foreground",
-              liked && "text-pink-400",
-            )}
+            disabled={loadingMore}
+            onClick={() => void loadMoreReplies()}
+            className="mt-1 text-xs text-muted-foreground transition-colors hover:text-sky-400"
           >
-            <ThumbsUp className={cn("h-3.5 w-3.5", liked && "fill-current")} />
-            {likeCount > 0 ? formatCount(likeCount) : "点赞"}
+            {loadingMore
+              ? "加载中..."
+              : expanded
+                ? `展开更多回复（共 ${item.rcount}）`
+                : `查看 ${item.rcount} 条回复`}
           </button>
-          <button
-            type="button"
-            onClick={() => setShowReply((value) => !value)}
-            className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-          >
-            <MessageCircle className="h-3.5 w-3.5" />
-            回复
-          </button>
-          {depth === 0 && item.rcount > visibleReplies.length && (
-            <button
-              type="button"
-              disabled={loadingMore}
-              onClick={() => void loadMoreReplies()}
-              className="transition-colors hover:text-sky-400"
-            >
-              {loadingMore
-                ? "加载中..."
-                : expanded
-                  ? `展开更多回复（共 ${item.rcount}）`
-                  : `查看 ${item.rcount} 条回复`}
-            </button>
-          )}
-        </div>
+        )}
 
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 
@@ -243,8 +321,16 @@ function CommentRow({
                 item={reply}
                 oid={oid}
                 type={type}
+                ownerMid={ownerMid}
+                selfMid={selfMid}
                 depth={depth + 1}
                 onChanged={onChanged}
+                onDeleted={(rpid) => {
+                  setMoreReplies((prev) =>
+                    prev.filter((nested) => nested.rpid !== rpid),
+                  );
+                  onDeleted(rpid);
+                }}
               />
             ))}
             {depth === 0 && item.rcount > visibleReplies.length && (
@@ -270,7 +356,9 @@ export function DynamicCommentSection({
   oid,
   type,
   replyCount = 0,
+  ownerMid,
 }: DynamicCommentSectionProps) {
+  const selfMid = useAppStore((state) => state.user?.mid);
   const [sort, setSort] = useState<CommentSort>(0);
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [page, setPage] = useState(1);
@@ -283,20 +371,32 @@ export function DynamicCommentSection({
   const [error, setError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const loadingMoreRef = useRef(false);
+  const commentsRef = useRef<CommentItem[]>([]);
+  const nextOffsetRef = useRef("");
+  const pendingRef = useRef<CommentItem | null>(null);
 
+  commentsRef.current = comments;
   useReplyEmotes();
 
   const loadComments = useCallback(
-    async (nextPage: number, nextSort: CommentSort, reset: boolean) => {
+    async (
+      nextPage: number,
+      nextSort: CommentSort,
+      reset: boolean,
+      keepVisible = false,
+    ) => {
       if (!oid || !type) {
         setLoading(false);
         setComments([]);
         return;
       }
       if (reset) {
-        setLoading(true);
-        setComments([]);
-        setHasMore(false);
+        if (!keepVisible) {
+          setLoading(true);
+          setComments([]);
+          setHasMore(false);
+        }
+        nextOffsetRef.current = "";
       } else {
         if (loadingMoreRef.current) return;
         loadingMoreRef.current = true;
@@ -309,20 +409,39 @@ export function DynamicCommentSection({
           type,
           nextPage,
           nextSort,
+          reset ? "" : nextOffsetRef.current,
         );
+        const pending = pendingRef.current;
+        let mergedLength = 0;
         setComments((prev) => {
-          if (reset) return result.comments;
-          const seen = new Set(prev.map((item) => item.rpid));
-          const merged = [...prev];
-          for (const item of result.comments) {
-            if (seen.has(item.rpid)) continue;
-            merged.push(item);
+          const base = reset ? result.comments : prev;
+          const seen = new Set(base.map((item) => item.rpid));
+          const merged = reset ? [...result.comments] : [...prev];
+          if (!reset) {
+            for (const item of result.comments) {
+              if (seen.has(item.rpid)) continue;
+              seen.add(item.rpid);
+              merged.push(item);
+            }
           }
+          if (pending && !merged.some((item) => item.rpid === pending.rpid)) {
+            merged.unshift(pending);
+          }
+          commentsRef.current = merged;
+          mergedLength = merged.length;
           return merged;
         });
+        nextOffsetRef.current = result.nextOffset ?? "";
         setPage(result.page);
         setHasMore(result.hasMore && result.comments.length > 0);
-        setTotal(result.acount || result.count || replyCount);
+        setTotal(
+          Math.max(
+            result.acount || 0,
+            result.count || 0,
+            mergedLength,
+            replyCount,
+          ),
+        );
       } catch (err) {
         setError(err instanceof Error ? err.message : "评论加载失败");
         if (!reset) setHasMore(false);
@@ -336,8 +455,17 @@ export function DynamicCommentSection({
   );
 
   useEffect(() => {
+    nextOffsetRef.current = "";
     void loadComments(1, sort, true);
   }, [oid, type, sort, reloadToken, loadComments]);
+
+  const handleDeleted = useCallback((rpid: number) => {
+    if (pendingRef.current?.rpid === rpid) pendingRef.current = null;
+    const stripped = stripComment(commentsRef.current, rpid);
+    commentsRef.current = stripped.list;
+    setComments(stripped.list);
+    setTotal((count) => Math.max(0, count - Math.max(stripped.removed, 1)));
+  }, []);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -345,9 +473,24 @@ export function DynamicCommentSection({
     setSending(true);
     setError("");
     try {
-      await window.biliDesk.bili.addTargetComment(oid, type, text);
+      const created = await window.biliDesk.bili.addTargetComment(
+        oid,
+        type,
+        text,
+      );
       setDraft("");
-      setReloadToken((token) => token + 1);
+      if (created) {
+        pendingRef.current = created;
+        setComments((prev) =>
+          prev.some((item) => item.rpid === created.rpid)
+            ? prev
+            : [created, ...prev],
+        );
+        setTotal((count) => count + 1);
+        setLoading(false);
+      }
+      await loadComments(1, sort, true, true);
+      pendingRef.current = null;
     } catch (err) {
       setError(err instanceof Error ? err.message : "发表评论失败");
     } finally {
@@ -430,7 +573,10 @@ export function DynamicCommentSection({
               item={item}
               oid={oid}
               type={type}
+              ownerMid={ownerMid}
+              selfMid={selfMid}
               onChanged={() => setReloadToken((token) => token + 1)}
+              onDeleted={handleDeleted}
             />
           ))}
         </div>

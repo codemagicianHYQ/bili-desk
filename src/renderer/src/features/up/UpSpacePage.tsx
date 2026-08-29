@@ -10,6 +10,7 @@ import type {
 } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
+import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { VideoCard } from "@/components/video/VideoCard";
@@ -116,7 +117,10 @@ export function UpSpacePage() {
 
         const list = result.videos ?? [];
         if (list.length > 0) {
-          const nextTotal = Math.max(result.total ?? 0, cachedSpace?.profile.videos ?? 0);
+          const nextTotal = Math.max(
+            result.total ?? 0,
+            cachedSpace?.profile.videos ?? 0,
+          );
           const nextHasMore = Boolean(result.hasMore);
           setVideos(list);
           setPage(result.page ?? nextPage);
@@ -211,7 +215,9 @@ export function UpSpacePage() {
           ? Promise.resolve(cached.relation)
           : window.biliDesk.bili
               .getUpRelation(mid)
-              .catch(() => ({ isFollowing: false, attribute: 0 }) as UpRelation);
+              .catch(
+                () => ({ isFollowing: false, attribute: 0 }) as UpRelation,
+              );
 
         const upProfile = await profilePromise;
         if (cancelled) return;
@@ -601,7 +607,9 @@ export function UpSpacePage() {
       {toast &&
         typeof document !== "undefined" &&
         createPortal(
-          <div className="pointer-events-none fixed left-1/2 top-1/2 z-[10000] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border/40 bg-black/85 px-5 py-3 text-sm font-semibold text-white shadow-2xl">
+          <div
+            className={`pointer-events-none fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border/40 bg-black/85 px-5 py-3 text-sm font-semibold text-white shadow-2xl ${APP_OVERLAY_ZCLASS}`}
+          >
             {toast}
           </div>,
           document.body,

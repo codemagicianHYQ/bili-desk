@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { LinkifiedText } from "@/components/ui/linkified-text";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 import {
   ExternalLink,
@@ -180,7 +181,9 @@ function LiveDynamicBody({ item }: { item: SpaceDynamicItem }) {
       <div className="space-y-1 p-3">
         <p className="line-clamp-2 text-sm font-medium">{item.title}</p>
         {item.text && (
-          <p className="text-xs text-muted-foreground">{item.text}</p>
+          <p className="text-xs text-muted-foreground">
+            <LinkifiedText text={item.text} />
+          </p>
         )}
       </div>
     </div>
@@ -369,7 +372,9 @@ export function DynamicFeedCard({
         {item.kind === "video" ? (
           <>
             {item.text && (
-              <p className="text-sm text-muted-foreground">{item.text}</p>
+              <p className="text-sm text-muted-foreground">
+                <LinkifiedText text={item.text} />
+              </p>
             )}
             <VideoDynamicBody item={item} />
           </>
@@ -383,8 +388,8 @@ export function DynamicFeedCard({
               </h3>
             )}
             {item.text && (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                {item.text}
+              <p className="text-sm leading-relaxed">
+                <LinkifiedText text={item.text} />
               </p>
             )}
             {(item.kind === "draw" ||

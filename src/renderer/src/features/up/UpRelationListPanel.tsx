@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import type { FollowingUp, UserRelationListType } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
+import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
 import { FollowButton } from "@/components/video/FollowButton";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn } from "@/lib/utils";
@@ -147,7 +148,7 @@ export function UpRelationListPanel({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+      className={`fixed inset-0 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
       onClick={() => onCloseRef.current()}
     >
       <div

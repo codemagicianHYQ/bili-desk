@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
+import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
 import { cn } from "@/lib/utils";
 import { Loader2, Smile, X } from "lucide-react";
 
@@ -68,7 +69,7 @@ export function EmotePickerButton({ onPick, className }: EmotePickerProps) {
   const dialog = open
     ? createPortal(
         <div
-          className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm sm:items-center"
+          className={`fixed inset-0 flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
           onClick={() => setOpen(false)}
         >
           <div

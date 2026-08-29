@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
 import { BiliImage } from "@/components/ui/bili-image";
 import { FollowButton } from "@/components/video/FollowButton";
 import { FollowTagDialog } from "@/features/following/FollowTagDialog";
@@ -157,7 +158,7 @@ export function FollowActionButton({
         createPortal(
           <div
             ref={menuPanelRef}
-            className="fixed z-[10000] min-w-[132px] overflow-hidden rounded-xl bg-zinc-800 py-1 shadow-2xl"
+            className={`fixed min-w-[132px] overflow-hidden rounded-xl bg-zinc-800 py-1 shadow-2xl ${APP_OVERLAY_ZCLASS}`}
             style={{ top: menuPos.top, right: menuPos.right }}
           >
             <button

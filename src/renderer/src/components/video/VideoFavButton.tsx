@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { VideoFavFolder } from "@shared/types";
 import { CreateFavFolderControl } from "@/components/favorites/CreateFavFolderControl";
 import { Button } from "@/components/ui/button";
+import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
 import { cn, formatCount } from "@/lib/utils";
 import { Bookmark, Folder, Loader2, Sparkles, X } from "lucide-react";
 import { useFavoritesStore } from "@/stores/favorites-store";
@@ -378,7 +379,7 @@ export function VideoFavButton({
 
   const dialog = open ? (
     <div
-      className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+      className={`fixed inset-0 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
       onClick={() => {
         if (!saving) setOpen(false);
       }}

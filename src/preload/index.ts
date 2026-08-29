@@ -103,8 +103,19 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_DANMAKU_LIST, cid),
     sendDanmaku: (payload: SendDanmakuPayload) =>
       ipcRenderer.invoke(IPC.BILI_DANMAKU_SEND, payload),
-    getComments: (aid: number, page?: number, sort?: 0 | 1 | 2) =>
-      ipcRenderer.invoke(IPC.BILI_COMMENT_LIST, aid, page ?? 1, sort ?? 0),
+    getComments: (
+      aid: number,
+      page?: number,
+      sort?: 0 | 1 | 2,
+      offset?: string,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_COMMENT_LIST,
+        aid,
+        page ?? 1,
+        sort ?? 0,
+        offset ?? "",
+      ),
     getCommentReplies: (aid: number, root: number, page?: number) =>
       ipcRenderer.invoke(IPC.BILI_COMMENT_REPLIES, aid, root, page ?? 1),
     addComment: (
@@ -122,6 +133,20 @@ const api = {
       ),
     likeComment: (aid: number, rpid: number, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_COMMENT_LIKE, aid, rpid, like),
+    hateComment: (
+      oid: string,
+      type: number,
+      rpid: number | string,
+      hate: boolean,
+    ) => ipcRenderer.invoke(IPC.BILI_COMMENT_HATE, oid, type, rpid, hate),
+    deleteComment: (oid: string, type: number, rpid: number | string) =>
+      ipcRenderer.invoke(IPC.BILI_COMMENT_DELETE, oid, type, rpid),
+    reportComment: (
+      oid: string,
+      type: number,
+      rpid: number | string,
+      reason: number,
+    ) => ipcRenderer.invoke(IPC.BILI_COMMENT_REPORT, oid, type, rpid, reason),
     getReplyEmotes: () => ipcRenderer.invoke(IPC.BILI_REPLY_EMOTES),
     getFavFolders: () => ipcRenderer.invoke(IPC.BILI_FAV_FOLDERS),
     createFavFolder: (payload: {
@@ -273,6 +298,7 @@ const api = {
       type: number,
       page?: number,
       sort?: 0 | 1 | 2,
+      offset?: string,
     ) =>
       ipcRenderer.invoke(
         IPC.BILI_TARGET_COMMENT_LIST,
@@ -280,6 +306,7 @@ const api = {
         type,
         page ?? 1,
         sort ?? 0,
+        offset ?? "",
       ),
     getTargetCommentReplies: (
       oid: string,
@@ -352,6 +379,8 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_OPUS_FAVORITES, page ?? 1),
     getCheeseFollowList: (page?: number, mid?: number) =>
       ipcRenderer.invoke(IPC.BILI_CHEESE_FOLLOW, page ?? 1, mid),
+    getUpowerPaidList: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_UPOWER_PAID, page ?? 1),
   },
   taxonomy: {
     getTree: () => ipcRenderer.invoke(IPC.TAXONOMY_TREE),
@@ -406,6 +435,8 @@ const api = {
     isFullscreen: () => ipcRenderer.invoke(IPC.APP_GET_FULLSCREEN),
     onFullscreenChange: (callback: (on: boolean) => void) =>
       subscribeFullscreenChange(callback),
+    openExternal: (url: string) =>
+      ipcRenderer.invoke(IPC.APP_OPEN_EXTERNAL, url),
   },
 };
 

@@ -100,6 +100,8 @@ export interface CommentPicture {
 
 export interface CommentItem {
   rpid: number;
+  /** 评论 rpid 原始字符串，删除/点踩等接口优先用这个 */
+  rpidStr?: string;
   oid: number;
   mid: number;
   root: number;
@@ -126,6 +128,8 @@ export interface CommentPage {
   count: number;
   acount: number;
   hasMore: boolean;
+  /** wbi/main 翻页游标，下一页要原样回传 */
+  nextOffset?: string;
 }
 
 export interface VideoPagePart {
@@ -752,6 +756,12 @@ export interface CheeseCourseItem {
   playCount: number;
   status: string;
   url: string;
+  /** cheese 课堂；upower 充电专属，不属于课堂 */
+  kind: "cheese" | "upower";
+  /** UP mid，充电专属用来拼空间合集链接、核对是否仍在包月 */
+  mid?: number;
+  /** 已过期（充电未续费）；充电 tab 不会返回这些 */
+  expired?: boolean;
 }
 
 export interface CheeseCoursePage {
@@ -947,6 +957,7 @@ export interface BiliDeskApi {
       aid: number,
       page?: number,
       sort?: 0 | 1 | 2,
+      offset?: string,
     ) => Promise<CommentPage>;
     getCommentReplies: (
       aid: number,
@@ -958,8 +969,25 @@ export interface BiliDeskApi {
       message: string,
       root?: number,
       parent?: number,
-    ) => Promise<void>;
+    ) => Promise<CommentItem | null>;
     likeComment: (aid: number, rpid: number, like: boolean) => Promise<void>;
+    hateComment: (
+      oid: string,
+      type: number,
+      rpid: number | string,
+      hate: boolean,
+    ) => Promise<void>;
+    deleteComment: (
+      oid: string,
+      type: number,
+      rpid: number | string,
+    ) => Promise<void>;
+    reportComment: (
+      oid: string,
+      type: number,
+      rpid: number | string,
+      reason: number,
+    ) => Promise<void>;
     getReplyEmotes: () => Promise<Record<string, string>>;
     getFavFolders: () => Promise<FavFolder[]>;
     createFavFolder: (payload: CreateFavFolderPayload) => Promise<FavFolder>;
@@ -1050,6 +1078,7 @@ export interface BiliDeskApi {
       type: number,
       page?: number,
       sort?: 0 | 1 | 2,
+      offset?: string,
     ) => Promise<CommentPage>;
     getTargetCommentReplies: (
       oid: string,
@@ -1063,7 +1092,7 @@ export interface BiliDeskApi {
       message: string,
       root?: number,
       parent?: number,
-    ) => Promise<void>;
+    ) => Promise<CommentItem | null>;
     likeTargetComment: (
       oid: string,
       type: number,
@@ -1108,6 +1137,7 @@ export interface BiliDeskApi {
       page?: number,
       mid?: number,
     ) => Promise<CheeseCoursePage>;
+    getUpowerPaidList: (page?: number) => Promise<CheeseCoursePage>;
   };
   taxonomy: {
     getTree: () => Promise<CategoryTreeNode[]>;
@@ -1146,6 +1176,7 @@ export interface BiliDeskApi {
     setFullscreen: (on: boolean) => Promise<boolean>;
     isFullscreen: () => Promise<boolean>;
     onFullscreenChange: (callback: (on: boolean) => void) => () => void;
+    openExternal: (url: string) => Promise<void>;
   };
 }
 

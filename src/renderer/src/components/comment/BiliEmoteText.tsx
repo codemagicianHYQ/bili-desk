@@ -1,6 +1,8 @@
 import { Fragment, useMemo } from "react";
 import { BiliImage } from "@/components/ui/bili-image";
+import { ExternalTextLink } from "@/components/ui/linkified-text";
 import { cn } from "@/lib/utils";
+import { splitLinkifiedText } from "@shared/utils/external-url";
 
 /** 评论 / 动态里的 `[doge]` 一类转义符 */
 const EMOTE_TOKEN_RE = /(\[[^[\]]{1,32}\])/g;
@@ -41,7 +43,24 @@ export function BiliEmoteText({
             />
           );
         }
-        return <Fragment key={`t-${index}`}>{part}</Fragment>;
+        return (
+          <Fragment key={`t-${index}`}>
+            {splitLinkifiedText(part).map((piece, pieceIndex) =>
+              piece.kind === "url" ? (
+                <ExternalTextLink
+                  key={`u-${index}-${pieceIndex}`}
+                  href={piece.href}
+                >
+                  {piece.value}
+                </ExternalTextLink>
+              ) : (
+                <Fragment key={`s-${index}-${pieceIndex}`}>
+                  {piece.value}
+                </Fragment>
+              ),
+            )}
+          </Fragment>
+        );
       })}
     </span>
   );

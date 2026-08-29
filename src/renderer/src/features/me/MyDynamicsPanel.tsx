@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { SpaceDynamicItem, UpProfile } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
+import { LinkifiedText } from "@/components/ui/linkified-text";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
 
@@ -122,7 +123,11 @@ function DynamicCard({
       <div className="space-y-3 px-5 py-3">
         {item.kind === "video" ? (
           <>
-            {item.text && <p className="text-sm text-[#9499a0]">{item.text}</p>}
+            {item.text && (
+              <p className="text-sm text-[#9499a0]">
+                <LinkifiedText text={item.text} />
+              </p>
+            )}
             <VideoDynamicBody item={item} />
           </>
         ) : (
@@ -133,8 +138,8 @@ function DynamicCard({
               </h3>
             )}
             {item.text && (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#e3e5e7]">
-                {item.text}
+              <p className="text-sm leading-relaxed text-[#e3e5e7]">
+                <LinkifiedText text={item.text} />
               </p>
             )}
             {item.cover && (

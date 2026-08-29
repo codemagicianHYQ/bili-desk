@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import type {
   DynamicFeedType,
   LiveRoomItem,
@@ -54,16 +54,21 @@ function apiTypeForTab(tab: UiTab): DynamicFeedType {
 
 export function DynamicsPage() {
   const user = useAppStore((state) => state.user);
+  const location = useLocation();
+  const isActive = location.pathname === "/dynamics";
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const offsetRef = useRef("");
   const emptyFilterPagesRef = useRef(0);
+  const tabRef = useRef<UiTab>("all");
+  const wasActiveRef = useRef(isActive);
   const [tab, setTab] = useState<UiTab>("all");
   const [items, setItems] = useState<SpaceDynamicItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  tabRef.current = tab;
 
   // 直播 Tab：与首页一致，展示关注 UP 当前开播状态（非动态流）
   const [liveRooms, setLiveRooms] = useState<LiveRoomItem[]>([]);
@@ -99,6 +104,9 @@ export function DynamicsPage() {
     }
   }, [user?.isLogin]);
 
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
   const load = useCallback(
     async (nextTab: UiTab, append: boolean) => {
       if (nextTab === "live") return;
@@ -111,59 +119,73 @@ export function DynamicsPage() {
         return;
       }
 
-      if (append) setLoadingMore(true);
-      else {
-        setLoading(true);
-        setError("");
-        emptyFilterPagesRef.current = 0;
+      const isCurrent = () => tabRef.current === nextTab;
+      const cached = dynamicsTabCache.get(nextTab);
+      const offset = append ? cached?.offset || offsetRef.current : "";
+
+      if (isCurrent()) {
+        if (append) setLoadingMore(true);
+        else {
+          setLoading(true);
+          setError("");
+          emptyFilterPagesRef.current = 0;
+        }
       }
 
       try {
-        const apiType = apiTypeForTab(nextTab);
         const result = await window.biliDesk.bili.getFollowDynamics(
-          append ? offsetRef.current : "",
-          apiType,
+          offset,
+          apiTypeForTab(nextTab),
         );
-        offsetRef.current = result.offset;
 
         const filtered = result.items.filter((item) =>
           matchesTab(item, nextTab),
         );
-
-        if (filtered.length === 0) {
-          emptyFilterPagesRef.current += 1;
-        } else {
-          emptyFilterPagesRef.current = 0;
-        }
-
-        let nextLen = 0;
-        let cachedItems: SpaceDynamicItem[] = [];
-        setItems((prev) => {
-          const next = append ? [...prev, ...filtered] : filtered;
-          const capped = next.slice(0, MAX_DYNAMIC_ITEMS);
-          nextLen = capped.length;
-          cachedItems = capped;
-          return capped;
-        });
-
+        const prevItems = append
+          ? (cached?.items ?? (isCurrent() ? itemsRef.current : []))
+          : [];
+        const merged = (append ? [...prevItems, ...filtered] : filtered).slice(
+          0,
+          MAX_DYNAMIC_ITEMS,
+        );
+        const emptyPages =
+          filtered.length === 0
+            ? append
+              ? (cached?.emptyFilterPages ?? 0) + 1
+              : 1
+            : 0;
         const nextHasMore =
           result.hasMore &&
-          nextLen < MAX_DYNAMIC_ITEMS &&
-          emptyFilterPagesRef.current < MAX_EMPTY_FILTER_PAGES;
-        setHasMore(nextHasMore);
-        dynamicsTabCache.set(nextTab, {
-          items: cachedItems,
+          merged.length < MAX_DYNAMIC_ITEMS &&
+          emptyPages < MAX_EMPTY_FILTER_PAGES;
+
+        const nextCache: DynamicsTabCache = {
+          items: merged,
           offset: result.offset,
           hasMore: nextHasMore,
-          emptyFilterPages: emptyFilterPagesRef.current,
-        } satisfies DynamicsTabCache);
+          emptyFilterPages: emptyPages,
+        };
+
+        if (merged.length > 0) dynamicsTabCache.set(nextTab, nextCache);
+        else dynamicsTabCache.delete(nextTab);
+
+        if (!isCurrent()) return;
+
+        offsetRef.current = result.offset;
+        emptyFilterPagesRef.current = emptyPages;
+        setItems(merged);
+        setHasMore(nextHasMore);
+        setError("");
       } catch (err) {
+        if (!isCurrent()) return;
         setError(formatError(err));
         if (!append) setItems([]);
         setHasMore(false);
       } finally {
-        setLoading(false);
-        setLoadingMore(false);
+        if (isCurrent()) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
     },
     [user?.isLogin],
@@ -171,10 +193,10 @@ export function DynamicsPage() {
 
   useEffect(() => {
     if (tab === "live") {
-      const cached = dynamicsLiveCache.get("following");
-      if (cached) {
-        setLiveRooms(cached.rooms);
-        setLiveCount(cached.count);
+      const liveCached = dynamicsLiveCache.get("following");
+      if (liveCached) {
+        setLiveRooms(liveCached.rooms);
+        setLiveCount(liveCached.count);
         setLiveLoading(false);
         setLiveError("");
         return;
@@ -183,7 +205,7 @@ export function DynamicsPage() {
       return;
     }
     const cached = dynamicsTabCache.get(tab);
-    if (cached) {
+    if (cached && cached.items.length > 0) {
       offsetRef.current = cached.offset;
       emptyFilterPagesRef.current = cached.emptyFilterPages;
       setItems(cached.items);
@@ -197,6 +219,17 @@ export function DynamicsPage() {
     emptyFilterPagesRef.current = 0;
     void load(tab, false);
   }, [load, loadLives, tab]);
+
+  useEffect(() => {
+    const becameVisible = !wasActiveRef.current && isActive;
+    wasActiveRef.current = isActive;
+    if (!becameVisible || tab === "live" || !user?.isLogin) return;
+    if (itemsRef.current.length > 0) return;
+    dynamicsTabCache.delete(tab);
+    offsetRef.current = "";
+    emptyFilterPagesRef.current = 0;
+    void load(tab, false);
+  }, [isActive, load, tab, user?.isLogin]);
 
   useEffect(() => {
     const onRefresh = () => {

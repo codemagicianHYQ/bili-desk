@@ -15,14 +15,16 @@ import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { VirtualList } from "@/components/ui/virtual-list";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn, formatCount } from "@/lib/utils";
-import {
-  commentsCache,
-  commentsCacheKey,
-} from "@/lib/session-data-cache";
-import { Loader2, MessageCircle, ThumbsUp } from "lucide-react";
+import { commentsCache, commentsCacheKey } from "@/lib/session-data-cache";
+import { CommentActionBar } from "@/components/comment/CommentActionBar";
+import { commentRpid, stripComment } from "@/components/comment/comment-tree";
+import { useAppStore } from "@/stores/app-store";
+import { Loader2 } from "lucide-react";
 
 interface VideoCommentSectionProps {
   aid: number;
+  bvid?: string;
+  ownerMid?: number;
   replyCount?: number;
   scrollRootRef?: RefObject<HTMLElement | null>;
 }
@@ -31,6 +33,17 @@ type CommentSort = 0 | 2;
 
 /** 虚拟列表只减 DOM，不减 JS 堆；热门稿评论加软上限防 OOM */
 const MAX_COMMENTS = 800;
+
+function estimateCommentSize(item: CommentItem): number {
+  const pics = item.pictures?.length ?? 0;
+  let height = 132;
+  height +=
+    Math.min(10, Math.ceil((item.content?.trim().length ?? 0) / 42)) * 22;
+  if (pics === 1) height += 300;
+  else if (pics > 0) height += Math.ceil(pics / 3) * 168 + 12;
+  height += Math.min(item.replies?.length ?? 0, 3) * 84;
+  return height;
+}
 
 function formatCommentTime(ctime: number): string {
   if (!ctime) return "";
@@ -55,18 +68,30 @@ function formatCommentTime(ctime: number): string {
 function CommentRow({
   item,
   aid,
+  bvid,
+  ownerMid,
+  selfMid,
   depth = 0,
   onChanged,
+  onDeleted,
 }: {
   item: CommentItem;
   aid: number;
+  bvid?: string;
+  ownerMid?: number;
+  selfMid?: number;
   depth?: number;
   onChanged: () => void;
+  onDeleted: (rpid: number) => void;
 }) {
   const emotes = useReplyEmotes(item.emotes);
   const [liked, setLiked] = useState(item.action === 1);
+  const [hated, setHated] = useState(item.action === 2);
   const [likeCount, setLikeCount] = useState(item.like);
   const [liking, setLiking] = useState(false);
+  const [hating, setHating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [replying, setReplying] = useState(false);
@@ -79,12 +104,22 @@ function CommentRow({
 
   const visibleReplies = depth === 0 ? [...item.replies, ...moreReplies] : [];
   const pictureSrcs = item.pictures?.map((picture) => picture.src) ?? [];
+  const commentMid = item.member.mid || item.mid;
+  const isOwn = Boolean(selfMid && commentMid === selfMid);
+  const canDelete =
+    isOwn || Boolean(ownerMid && selfMid && ownerMid === selfMid);
+  const oid = String(aid);
+  const rpid = commentRpid(item);
 
   const handleLike = async () => {
     setLiking(true);
     setError("");
     try {
       const next = !liked;
+      if (next && hated) {
+        await window.biliDesk.bili.hateComment(oid, 1, rpid, false);
+        setHated(false);
+      }
       await window.biliDesk.bili.likeComment(aid, item.rpid, next);
       setLiked(next);
       setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
@@ -92,6 +127,50 @@ function CommentRow({
       setError(err instanceof Error ? err.message : "点赞失败");
     } finally {
       setLiking(false);
+    }
+  };
+
+  const handleHate = async () => {
+    setHating(true);
+    setError("");
+    try {
+      const next = !hated;
+      if (next && liked) {
+        await window.biliDesk.bili.likeComment(aid, item.rpid, false);
+        setLiked(false);
+        setLikeCount((count) => Math.max(0, count - 1));
+      }
+      await window.biliDesk.bili.hateComment(oid, 1, rpid, next);
+      setHated(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "点踩失败");
+    } finally {
+      setHating(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError("");
+    try {
+      await window.biliDesk.bili.deleteComment(oid, 1, rpid);
+      onDeleted(item.rpid);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleReport = async (reason: number) => {
+    setReporting(true);
+    setError("");
+    try {
+      await window.biliDesk.bili.reportComment(oid, 1, rpid, reason);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "举报失败");
+    } finally {
+      setReporting(false);
     }
   };
 
@@ -159,6 +238,16 @@ function CommentRow({
           >
             {item.member.name}
           </Link>
+          {Boolean(ownerMid && commentMid === ownerMid) && (
+            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              UP
+            </span>
+          )}
+          {isOwn && (
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              自己
+            </span>
+          )}
         </div>
         {item.content.trim() && (
           <p className="mt-1 text-sm leading-relaxed text-foreground/90">
@@ -181,17 +270,23 @@ function CommentRow({
                 key={picture.src}
                 type="button"
                 onClick={() => setPreviewIndex(index)}
-                className="block overflow-hidden rounded-lg bg-secondary/40 text-left"
+                className={cn(
+                  "block w-full overflow-hidden rounded-lg bg-secondary/40 text-left",
+                  item.pictures!.length > 1 && "aspect-square",
+                  item.pictures!.length === 1 && "max-h-72 aspect-[4/3]",
+                )}
+                style={
+                  item.pictures!.length === 1 &&
+                  picture.width > 0 &&
+                  picture.height > 0
+                    ? { aspectRatio: `${picture.width} / ${picture.height}` }
+                    : undefined
+                }
               >
                 <BiliImage
                   src={picture.src}
                   alt="评论图片"
-                  className={cn(
-                    "w-full object-cover",
-                    item.pictures!.length === 1
-                      ? "max-h-72 object-contain"
-                      : "aspect-square",
-                  )}
+                  className="h-full w-full object-cover"
                 />
               </button>
             ))}
@@ -209,41 +304,38 @@ function CommentRow({
             <span>{formatCommentTime(item.ctime)}</span>
             {item.location && <span>{item.location}</span>}
           </span>
-          <button
-            type="button"
-            disabled={liking}
-            onClick={() => void handleLike()}
-            className={cn(
-              "inline-flex items-center gap-1 transition-colors hover:text-primary",
-              liked && "text-primary",
-            )}
-          >
-            <ThumbsUp className={cn("h-3.5 w-3.5", liked && "fill-current")} />
-            {likeCount > 0 ? formatCount(likeCount) : "点赞"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowReply((value) => !value)}
-            className="inline-flex items-center gap-1 transition-colors hover:text-primary"
-          >
-            <MessageCircle className="h-3.5 w-3.5" />
-            回复
-          </button>
-          {depth === 0 && item.rcount > visibleReplies.length && (
-            <button
-              type="button"
-              disabled={loadingMore}
-              onClick={() => void loadMoreReplies()}
-              className="transition-colors hover:text-primary"
-            >
-              {loadingMore
-                ? "加载中..."
-                : expanded
-                  ? `展开更多回复（共 ${item.rcount}）`
-                  : `查看 ${item.rcount} 条回复`}
-            </button>
-          )}
         </div>
+        <CommentActionBar
+          liked={liked}
+          hated={hated}
+          likeCount={likeCount}
+          liking={liking}
+          hating={hating}
+          deleting={deleting}
+          reporting={reporting}
+          isOwn={isOwn}
+          canDelete={canDelete}
+          copyText={item.content}
+          onLike={() => void handleLike()}
+          onHate={() => void handleHate()}
+          onReply={() => setShowReply((value) => !value)}
+          onDelete={() => void handleDelete()}
+          onReport={(reason) => void handleReport(reason)}
+        />
+        {depth === 0 && item.rcount > visibleReplies.length && (
+          <button
+            type="button"
+            disabled={loadingMore}
+            onClick={() => void loadMoreReplies()}
+            className="mt-1 text-xs text-muted-foreground transition-colors hover:text-primary"
+          >
+            {loadingMore
+              ? "加载中..."
+              : expanded
+                ? `展开更多回复（共 ${item.rcount}）`
+                : `查看 ${item.rcount} 条回复`}
+          </button>
+        )}
 
         {showReply && (
           <div className="mt-3 space-y-2">
@@ -292,8 +384,17 @@ function CommentRow({
                 key={reply.rpid}
                 item={reply}
                 aid={aid}
+                bvid={bvid}
+                ownerMid={ownerMid}
+                selfMid={selfMid}
                 depth={depth + 1}
                 onChanged={onChanged}
+                onDeleted={(rpid) => {
+                  setMoreReplies((prev) =>
+                    prev.filter((nested) => nested.rpid !== rpid),
+                  );
+                  onDeleted(rpid);
+                }}
               />
             ))}
           </div>
@@ -305,11 +406,16 @@ function CommentRow({
 
 export function VideoCommentSection({
   aid,
+  bvid,
+  ownerMid,
   replyCount = 0,
   scrollRootRef,
 }: VideoCommentSectionProps) {
+  const selfMid = useAppStore((state) => state.user?.mid);
   const loadingMoreRef = useRef(false);
   const commentsRef = useRef<CommentItem[]>([]);
+  const nextOffsetRef = useRef("");
+  const pendingRef = useRef<CommentItem | null>(null);
   const [sort, setSort] = useState<CommentSort>(0);
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [page, setPage] = useState(1);
@@ -325,13 +431,21 @@ export function VideoCommentSection({
   // 预热表情面板，供 `[doge]` 等转义渲染
   useReplyEmotes();
   const loadComments = useCallback(
-    async (nextPage: number, nextSort: CommentSort, reset: boolean) => {
+    async (
+      nextPage: number,
+      nextSort: CommentSort,
+      reset: boolean,
+      keepVisible = false,
+    ) => {
       if (reset) {
         loadingMoreRef.current = false;
-        setLoading(true);
-        setComments([]);
-        commentsRef.current = [];
-        setHasMore(false);
+        if (!keepVisible) {
+          setLoading(true);
+          setComments([]);
+          commentsRef.current = [];
+          setHasMore(false);
+        }
+        nextOffsetRef.current = "";
       } else {
         if (loadingMoreRef.current) return;
         loadingMoreRef.current = true;
@@ -344,34 +458,48 @@ export function VideoCommentSection({
           aid,
           nextPage,
           nextSort,
+          reset ? "" : nextOffsetRef.current,
         );
 
         const prev = reset ? [] : commentsRef.current;
         const seen = new Set(prev.map((item) => item.rpid));
         const merged = reset ? [] : [...prev];
         let uniqueAdded = 0;
-        for (const item of result.comments) {
+        const incoming = result.comments;
+        for (const item of incoming) {
           if (merged.length >= MAX_COMMENTS) break;
           if (seen.has(item.rpid)) continue;
           seen.add(item.rpid);
           merged.push(item);
           uniqueAdded += 1;
         }
+        const pending = pendingRef.current;
+        if (pending && !seen.has(pending.rpid)) {
+          merged.unshift(pending);
+          seen.add(pending.rpid);
+        }
 
         commentsRef.current = merged;
+        nextOffsetRef.current = result.nextOffset ?? "";
         setComments(merged);
         setPage(result.page);
-        // 空页 / 无新增 / 达到软上限 → 停止，避免无限堆内存
         const underCap = merged.length < MAX_COMMENTS;
-        const nextHasMore = result.hasMore && uniqueAdded > 0 && underCap;
-        setHasMore(nextHasMore);
-        const nextTotal = result.acount || result.count || replyCount;
+        const hasMoreNext =
+          Boolean(result.hasMore) && underCap && (reset || uniqueAdded > 0);
+        setHasMore(hasMoreNext);
+        const nextTotal = Math.max(
+          result.acount || 0,
+          result.count || 0,
+          merged.length,
+          replyCount,
+        );
         setTotal(nextTotal);
         commentsCache.set(commentsCacheKey(aid, nextSort), {
           comments: merged,
           page: result.page,
-          hasMore: nextHasMore,
+          hasMore: hasMoreNext,
           total: nextTotal,
+          nextOffset: result.nextOffset,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : "评论加载失败");
@@ -389,6 +517,7 @@ export function VideoCommentSection({
     const cached = commentsCache.get(commentsCacheKey(aid, sort));
     if (cached) {
       commentsRef.current = cached.comments;
+      nextOffsetRef.current = cached.nextOffset ?? "";
       setComments(cached.comments);
       setPage(cached.page);
       setHasMore(cached.hasMore);
@@ -396,8 +525,10 @@ export function VideoCommentSection({
       setLoading(false);
       setLoadingMore(false);
       setError("");
+      void loadComments(1, sort, true, true);
       return;
     }
+    nextOffsetRef.current = "";
     void loadComments(1, sort, true);
   }, [aid, sort, loadComments]);
 
@@ -406,16 +537,42 @@ export function VideoCommentSection({
     void loadComments(page + 1, sort, false);
   }, [loading, hasMore, page, sort, loadComments]);
 
+  const handleDeleted = useCallback(
+    (rpid: number) => {
+      if (pendingRef.current?.rpid === rpid) pendingRef.current = null;
+      const stripped = stripComment(commentsRef.current, rpid);
+      commentsRef.current = stripped.list;
+      setComments(stripped.list);
+      setTotal((count) => Math.max(0, count - Math.max(stripped.removed, 1)));
+      commentsCache.delete(commentsCacheKey(aid, 0));
+      commentsCache.delete(commentsCacheKey(aid, 2));
+    },
+    [aid],
+  );
+
   const handleSend = async () => {
     const text = draft.trim();
     if (!text) return;
     setSending(true);
     setError("");
     try {
-      await window.biliDesk.bili.addComment(aid, text);
+      const created = await window.biliDesk.bili.addComment(aid, text);
       setDraft("");
-      commentsCache.delete(commentsCacheKey(aid, sort));
-      await loadComments(1, sort, true);
+      commentsCache.delete(commentsCacheKey(aid, 0));
+      commentsCache.delete(commentsCacheKey(aid, 2));
+      if (created) {
+        pendingRef.current = created;
+        const next = [
+          created,
+          ...commentsRef.current.filter((item) => item.rpid !== created.rpid),
+        ];
+        commentsRef.current = next;
+        setComments(next);
+        setTotal((count) => count + 1);
+        setLoading(false);
+      }
+      await loadComments(1, sort, true, true);
+      pendingRef.current = null;
     } catch (err) {
       setError(err instanceof Error ? err.message : "发表评论失败");
     } finally {
@@ -496,7 +653,7 @@ export function VideoCommentSection({
         <VirtualList
           items={comments}
           scrollRootRef={scrollRootRef}
-          estimateSize={168}
+          estimateSize={estimateCommentSize}
           overscan={8}
           getItemKey={(item) => item.rpid}
           onEndReached={handleLoadMore}
@@ -505,7 +662,11 @@ export function VideoCommentSection({
               <CommentRow
                 item={item}
                 aid={aid}
+                bvid={bvid}
+                ownerMid={ownerMid}
+                selfMid={selfMid}
                 onChanged={() => void loadComments(1, sort, true)}
+                onDeleted={handleDeleted}
               />
             </div>
           )}

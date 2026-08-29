@@ -2384,24 +2384,33 @@ class BiliApiService {
     }
   }
 
-  async getComments(
-    aid: number,
-    page = 1,
-    sort: 0 | 1 | 2 = 0,
+  /**
+   * 官方 Web 评论列表：/x/v2/reply/main（mode 3 热度 / 2 时间）
+   * /x/v2/reply 会被 CDN 缓存，刚发的评论不在第一页；
+   * /x/v2/reply/wbi/main 在 Electron 里会 -403，不能用。
+   */
+  private async fetchReplyMainPage(
+    oid: string | number,
+    type: number,
+    sort: 0 | 1 | 2,
+    page: number,
+    offset = "",
   ): Promise<CommentPage> {
     await this.ensureBuvid3();
     const pageSize = 20;
-    // 经典接口：sort=2 热度，sort=0 时间
-    const apiSort = sort === 2 ? 0 : 2;
+    const isFirst = page <= 1 && !offset;
+    const params: Record<string, string | number> = {
+      oid: String(oid),
+      type,
+      mode: sort === 2 ? 2 : 3,
+      plat: 1,
+      web_location: 1315875,
+      pagination_str: JSON.stringify({ offset: offset || "" }),
+    };
+    if (isFirst) params.next = 0;
 
-    const res = await this.client.get("/x/v2/reply", {
-      params: {
-        type: 1,
-        oid: aid,
-        pn: page,
-        ps: pageSize,
-        sort: apiSort,
-      },
+    const res = await this.client.get("/x/v2/reply/main", {
+      params,
       headers: { Referer: "https://www.bilibili.com/" },
       validateStatus: () => true,
     });
@@ -2413,7 +2422,18 @@ class BiliApiService {
       throw new Error((res.data?.message as string) || "评论加载失败");
     }
 
-    return this.normalizeCommentPage(res.data?.data, page, pageSize);
+    return this.normalizeCommentPage(res.data?.data, page, pageSize, {
+      includeTop: isFirst,
+    });
+  }
+
+  async getComments(
+    aid: number,
+    page = 1,
+    sort: 0 | 1 | 2 = 0,
+    offset = "",
+  ): Promise<CommentPage> {
+    return this.fetchReplyMainPage(aid, 1, sort, page, offset);
   }
 
   /** 拉少量热评原文，给收藏整理/推荐夹用 */
@@ -2481,7 +2501,7 @@ class BiliApiService {
     message: string,
     root = 0,
     parent = 0,
-  ): Promise<void> {
+  ): Promise<CommentItem | null> {
     const csrf = getCsrf();
     if (!csrf) throw new Error("请先登录后再发表评论");
 
@@ -2492,6 +2512,7 @@ class BiliApiService {
       type: "1",
       oid: String(aid),
       message: text,
+      plat: "1",
       csrf,
     });
     if (root > 0) body.set("root", String(root));
@@ -2511,6 +2532,11 @@ class BiliApiService {
     if (res.data?.code !== 0) {
       throw new Error((res.data?.message as string) || "发表评论失败");
     }
+
+    const reply = (
+      res.data?.data as { reply?: Record<string, unknown> } | undefined
+    )?.reply;
+    return reply ? this.normalizeCommentItem(reply) : null;
   }
 
   async likeComment(aid: number, rpid: number, like: boolean): Promise<void> {
@@ -2541,29 +2567,126 @@ class BiliApiService {
     }
   }
 
+  private async postReplyForm(
+    path: string,
+    fields: Record<string, string>,
+    fallback: string,
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再操作评论");
+    const body = new URLSearchParams({ ...fields, csrf });
+    const res = await this.client.post(path, body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || fallback);
+    }
+  }
+
+  async hateComment(
+    oid: string,
+    type: number,
+    rpid: number | string,
+    hate: boolean,
+  ): Promise<void> {
+    await this.postReplyForm(
+      "/x/v2/reply/hate",
+      {
+        type: String(type),
+        oid: String(oid),
+        rpid: String(rpid),
+        action: hate ? "1" : "0",
+      },
+      "点踩失败",
+    );
+  }
+
+  async deleteReply(
+    oid: string,
+    type: number,
+    rpid: number | string,
+  ): Promise<void> {
+    await this.postReplyForm(
+      "/x/v2/reply/del",
+      {
+        type: String(type),
+        oid: String(oid),
+        rpid: String(rpid),
+      },
+      "删除评论失败",
+    );
+  }
+
+  async reportComment(
+    oid: string,
+    type: number,
+    rpid: number | string,
+    reason: number,
+  ): Promise<void> {
+    await this.postReplyForm(
+      "/x/v2/reply/report",
+      {
+        type: String(type),
+        oid: String(oid),
+        rpid: String(rpid),
+        reason: String(reason),
+      },
+      "举报失败",
+    );
+  }
+
   private normalizeCommentPage(
     data: Record<string, unknown> | undefined,
     page: number,
     pageSize: number,
+    options?: { includeTop?: boolean },
   ): CommentPage {
     const rawReplies = data?.replies;
     const replies = (Array.isArray(rawReplies) ? rawReplies : []) as Record<
       string,
       unknown
     >[];
+    const rawTop = options?.includeTop ? data?.top_replies : undefined;
+    const tops = (Array.isArray(rawTop) ? rawTop : []) as Record<
+      string,
+      unknown
+    >[];
+
+    const seen = new Set<number>();
+    const comments: CommentItem[] = [];
+    for (const item of [...tops, ...replies]) {
+      const normalized = this.normalizeCommentItem(item);
+      if (!normalized || seen.has(normalized.rpid)) continue;
+      seen.add(normalized.rpid);
+      comments.push(normalized);
+    }
+
+    const cursor = data?.cursor as
+      | {
+          is_end?: boolean;
+          all_count?: number;
+          pagination_reply?: { next_offset?: string };
+        }
+      | undefined;
     const pageInfo = data?.page as
       | { num?: number; size?: number; count?: number; acount?: number }
       | undefined;
-    const count = pageInfo?.count ?? replies.length;
-    const acount = pageInfo?.acount ?? count;
-
-    const comments = replies
-      .map((item) => this.normalizeCommentItem(item))
-      .filter((item): item is CommentItem => item != null);
-
-    // 以本页实际条数为准：空页 / 不足一页即视为没有更多，避免 hasMore 虚高导致无限请求
-    const hasMore =
-      comments.length >= pageSize && page * pageSize < Math.max(count, 1);
+    const count = pageInfo?.count ?? comments.length;
+    const acount =
+      Number(cursor?.all_count ?? pageInfo?.acount ?? count) || count;
+    const nextOffset = String(
+      cursor?.pagination_reply?.next_offset ?? "",
+    ).trim();
+    const hasMore = cursor
+      ? cursor.is_end === false && Boolean(nextOffset)
+      : comments.length >= pageSize && page * pageSize < Math.max(count, 1);
 
     return {
       comments,
@@ -2572,13 +2695,14 @@ class BiliApiService {
       count,
       acount,
       hasMore,
+      nextOffset: nextOffset || undefined,
     };
   }
 
   private normalizeCommentItem(
     item: Record<string, unknown>,
   ): CommentItem | null {
-    const rpid = Number(item.rpid);
+    const rpid = Number(item.rpid_str ?? item.rpid);
     if (!Number.isFinite(rpid) || rpid <= 0) return null;
 
     const member = (item.member ?? {}) as Record<string, unknown>;
@@ -2595,6 +2719,7 @@ class BiliApiService {
 
     return {
       rpid,
+      rpidStr: String(item.rpid_str ?? item.rpid ?? ""),
       oid: Number(item.oid) || 0,
       mid: Number(item.mid) || Number(member.mid) || 0,
       root: Number(item.root) || 0,
@@ -5613,15 +5738,15 @@ class BiliApiService {
 
     await this.ensureBuvid3();
 
-    const params: Record<string, string | number> = {
+    const params = await signParams({
       type,
       timezone_offset: -480,
       platform: "web",
       web_location: "333.1365",
       features:
         "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,onlyfansAssetsV2,forwardListHidden,ugcDelete,onlyfansQaCard",
-    };
-    if (offset) params.offset = offset;
+      ...(offset ? { offset } : {}),
+    });
 
     const res = await this.client.get("/x/polymer/web-dynamic/v1/feed/all", {
       params,
@@ -5720,31 +5845,9 @@ class BiliApiService {
     type: number,
     page = 1,
     sort: 0 | 1 | 2 = 0,
+    offset = "",
   ): Promise<CommentPage> {
-    await this.ensureBuvid3();
-    const pageSize = 20;
-    const apiSort = sort === 2 ? 0 : 2;
-
-    const res = await this.client.get("/x/v2/reply", {
-      params: {
-        type,
-        oid: String(oid),
-        pn: page,
-        ps: pageSize,
-        sort: apiSort,
-      },
-      headers: { Referer: "https://www.bilibili.com/" },
-      validateStatus: () => true,
-    });
-
-    if (res.status === 412 || res.data?.code === -412) {
-      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
-    }
-    if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "评论加载失败");
-    }
-
-    return this.normalizeCommentPage(res.data?.data, page, pageSize);
+    return this.fetchReplyMainPage(oid, type, sort, page, offset);
   }
 
   async getTargetCommentReplies(
@@ -5784,7 +5887,7 @@ class BiliApiService {
     message: string,
     root = 0,
     parent = 0,
-  ): Promise<void> {
+  ): Promise<CommentItem | null> {
     const csrf = getCsrf();
     if (!csrf) throw new Error("请先登录后再发表评论");
 
@@ -5795,6 +5898,7 @@ class BiliApiService {
       type: String(type),
       oid: String(oid),
       message: text,
+      plat: "1",
       csrf,
     });
     if (root > 0) body.set("root", String(root));
@@ -5814,6 +5918,11 @@ class BiliApiService {
     if (res.data?.code !== 0) {
       throw new Error((res.data?.message as string) || "发表评论失败");
     }
+
+    const reply = (
+      res.data?.data as { reply?: Record<string, unknown> } | undefined
+    )?.reply;
+    return reply ? this.normalizeCommentItem(reply) : null;
   }
 
   async likeTargetComment(
@@ -6419,13 +6528,11 @@ class BiliApiService {
 
     const merged = new Map<number, CheeseCourseItem>();
     let paidTotal = 0;
-    let paidHasMore = false;
 
     if (page === 1) {
-      const paid = await this.fetchCheesePaidList(1, pageSize);
-      paidTotal = paid.total;
-      paidHasMore = paid.hasMore;
-      for (const item of paid.list) merged.set(item.seasonId, item);
+      const cheesePaid = await this.collectPaidPugvByKind("cheese");
+      paidTotal = cheesePaid.length;
+      for (const item of cheesePaid) merged.set(item.seasonId, item);
     }
 
     const favorite = await this.fetchCheeseFavoriteList(
@@ -6433,10 +6540,13 @@ class BiliApiService {
       page,
       pageSize,
     );
-    for (const item of favorite.list) merged.set(item.seasonId, item);
+    for (const item of favorite.list) {
+      if (item.kind === "upower") continue;
+      merged.set(item.seasonId, item);
+    }
 
     const total = paidTotal + favorite.total;
-    const hasMore = favorite.hasMore || (page === 1 && paidHasMore);
+    const hasMore = favorite.hasMore;
 
     return {
       list: [...merged.values()],
@@ -6444,6 +6554,131 @@ class BiliApiService {
       hasMore,
       total: total || merged.size,
     };
+  }
+
+  async getUpowerPaidList(page = 1): Promise<CheeseCoursePage> {
+    await this.ensureBuvid3();
+    if (!isLoggedIn()) {
+      return { list: [], page, hasMore: false, total: 0 };
+    }
+
+    const all = await this.filterActiveUpowerItems(
+      await this.collectPaidPugvByKind("upower"),
+    );
+    const pageSize = 20;
+    const start = (Math.max(page, 1) - 1) * pageSize;
+    const list = all.slice(start, start + pageSize);
+    return {
+      list,
+      page,
+      hasMore: start + list.length < all.length,
+      total: all.length,
+    };
+  }
+
+  private async collectPaidPugvByKind(
+    kind: "cheese" | "upower",
+  ): Promise<CheeseCourseItem[]> {
+    const list: CheeseCourseItem[] = [];
+    let page = 1;
+    let hasMore = true;
+    while (hasMore && page <= 15) {
+      const paid = await this.fetchCheesePaidList(page, 20);
+      for (const item of paid.list) {
+        if (item.kind === kind) list.push(item);
+      }
+      hasMore = paid.hasMore;
+      page += 1;
+    }
+    return list;
+  }
+
+  /** 充电 tab 只保留仍在包月有效期内的专属内容；过期的从已购 PUGV 里也会残留 */
+  private async filterActiveUpowerItems(
+    items: CheeseCourseItem[],
+  ): Promise<CheeseCourseItem[]> {
+    const pending = items.filter((item) => !item.expired);
+    if (pending.length === 0) return [];
+
+    let activeMids: Set<number> | null = null;
+    try {
+      activeMids = await this.fetchActiveChargeUpMids();
+    } catch {
+      activeMids = null;
+    }
+
+    if (activeMids && activeMids.size === 0) return [];
+
+    const kept: CheeseCourseItem[] = [];
+    for (const item of pending) {
+      const mid = item.mid ?? 0;
+      if (activeMids && mid > 0) {
+        if (activeMids.has(mid)) kept.push(item);
+        continue;
+      }
+      if (mid > 0 && (await this.isChargeFollowActive(mid))) {
+        kept.push(item);
+      }
+    }
+    return kept.filter((item) => Boolean(item.url));
+  }
+
+  private async fetchActiveChargeUpMids(): Promise<Set<number>> {
+    const mids = new Set<number>();
+    const nowSec = Date.now() / 1000;
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore && page <= 20) {
+      const res = await this.liveClient.get(
+        "/xlive/revenue/v1/guard/getChargeRecord",
+        {
+          params: { page, type: 1 },
+          validateStatus: () => true,
+        },
+      );
+      if (res.data?.code !== 0) {
+        throw new Error((res.data?.message as string) || "充电记录获取失败");
+      }
+
+      const data = res.data?.data as Record<string, unknown> | undefined;
+      const list = Array.isArray(data?.list) ? data.list : [];
+      for (const row of list) {
+        if (!row || typeof row !== "object") continue;
+        const record = row as Record<string, unknown>;
+        const uid = Number(record.up_uid ?? record.mid ?? 0);
+        if (!uid) continue;
+        const tiers = Array.isArray(record.item) ? record.item : [];
+        const stillValid =
+          tiers.length === 0 ||
+          tiers.some((tier) => {
+            if (!tier || typeof tier !== "object") return false;
+            return (
+              Number((tier as { expire_time?: number }).expire_time) > nowSec
+            );
+          });
+        if (stillValid) mids.add(uid);
+      }
+
+      hasMore = data?.is_more === 1;
+      page += 1;
+    }
+
+    return mids;
+  }
+
+  private async isChargeFollowActive(upMid: number): Promise<boolean> {
+    const res = await this.client.get("/x/upower/charge/follow/info", {
+      params: { up_mid: upMid },
+      headers: { Referer: `https://space.bilibili.com/${upMid}` },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) return false;
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const remain = Number(data?.remain_days);
+    const privilege = Number(data?.privilege_type);
+    if (privilege > 0 && remain >= 0) return true;
+    return Number.isFinite(remain) && remain > 0;
   }
 
   private async fetchCheesePaidList(
@@ -6808,34 +7043,213 @@ class BiliApiService {
       cover = ((coverRaw as { url?: string }).url as string) ?? "";
     }
 
-    const link = String(season.link ?? raw.link ?? raw.url ?? "");
-    const url = link.startsWith("http")
-      ? link
-      : `https://www.bilibili.com/cheese/play/ss${seasonId}`;
-
-    const statusRaw = season.status ?? raw.status ?? raw.update_info ?? "";
+    const statusRaw = season.update_info ?? raw.update_info ?? "";
     const status =
       typeof statusRaw === "string" || typeof statusRaw === "number"
         ? String(statusRaw)
         : "";
+    const playRaw = Number(season.play ?? raw.play ?? season.view ?? raw.view);
+    const epRaw = Number(
+      season.ep_count ??
+        raw.ep_count ??
+        season.episode_count ??
+        raw.episode_count,
+    );
+    const kind = this.detectPugvKind(raw, season, playRaw);
+    const mid = this.extractPugvMid(raw, season);
+    const expired = this.isPugvAccessExpired(raw, season) === true;
 
     return {
       seasonId,
       title: String(season.title ?? raw.title ?? "未命名课程"),
       cover: this.normalizeBfsUrl(cover),
       subtitle: String(season.subtitle ?? raw.subtitle ?? raw.sub_title ?? ""),
-      epCount:
-        Number(
-          season.ep_count ??
-            raw.ep_count ??
-            season.episode_count ??
-            raw.episode_count,
-        ) || 0,
-      playCount:
-        Number(season.play ?? raw.play ?? season.view ?? raw.view) || 0,
-      status,
-      url,
+      epCount: Number.isFinite(epRaw) && epRaw > 0 ? epRaw : 0,
+      playCount: Number.isFinite(playRaw) && playRaw > 0 ? playRaw : 0,
+      status: this.normalizeCheeseStatus(status),
+      url: this.resolvePugvUrl(kind, seasonId, raw, season, mid),
+      kind,
+      mid: mid > 0 ? mid : undefined,
+      expired,
     };
+  }
+
+  /** 课堂 status=10 等是内部码；充电专属常给 play/status = -1 */
+  private normalizeCheeseStatus(raw: string): string {
+    const text = raw.trim();
+    if (!text) return "";
+    if (/^-?\d+$/.test(text)) return "";
+    return text;
+  }
+
+  private extractPugvMid(
+    raw: Record<string, unknown>,
+    season: Record<string, unknown>,
+  ): number {
+    const nested = [
+      season.up,
+      raw.up,
+      season.up_info,
+      raw.up_info,
+      season.upper,
+      raw.upper,
+      season.author,
+      raw.author,
+      season.owner,
+      raw.owner,
+    ];
+    for (const value of nested) {
+      if (!value || typeof value !== "object") continue;
+      const mid = Number(
+        (value as { mid?: unknown; uid?: unknown }).mid ??
+          (value as { uid?: unknown }).uid,
+      );
+      if (mid > 0) return mid;
+    }
+    return (
+      Number(
+        season.mid ??
+          raw.mid ??
+          season.up_mid ??
+          raw.up_mid ??
+          season.up_id ??
+          raw.up_id,
+      ) || 0
+    );
+  }
+
+  /** true 已过期；false 仍有效；null 字段里看不出来 */
+  private isPugvAccessExpired(
+    raw: Record<string, unknown>,
+    season: Record<string, unknown>,
+  ): boolean | null {
+    const flags = [
+      raw.expired,
+      season.expired,
+      raw.is_expired,
+      season.is_expired,
+      raw.overdue,
+      season.overdue,
+    ];
+    if (flags.some((flag) => flag === true || flag === 1 || flag === "1")) {
+      return true;
+    }
+
+    const expire = Number(
+      raw.expire_time ??
+        season.expire_time ??
+        raw.expired_time ??
+        season.expired_time ??
+        raw.overdue_time ??
+        raw.pay_expire ??
+        season.pay_expire,
+    );
+    if (!Number.isFinite(expire) || expire <= 0) return null;
+    const ms = expire > 1e12 ? expire : expire * 1000;
+    return ms < Date.now();
+  }
+
+  private firstPugvBvid(
+    raw: Record<string, unknown>,
+    season: Record<string, unknown>,
+  ): string {
+    const direct = String(season.bvid ?? raw.bvid ?? "");
+    if (/^BV/i.test(direct)) return direct;
+
+    const episodes = [
+      season.episodes,
+      raw.episodes,
+      season.ep_list,
+      raw.ep_list,
+    ];
+    for (const list of episodes) {
+      if (!Array.isArray(list) || list.length === 0) continue;
+      const first = list[0] as Record<string, unknown> | undefined;
+      const bvid = String(first?.bvid ?? "");
+      if (/^BV/i.test(bvid)) return bvid;
+    }
+    return "";
+  }
+
+  /**
+   * 充电专属是 UGC 合集，不是课堂。
+   * /cheese/play/ss{id} 对充电合集会返回 6009083「由于版权原因…」空页。
+   */
+  private resolvePugvUrl(
+    kind: "cheese" | "upower",
+    seasonId: number,
+    raw: Record<string, unknown>,
+    season: Record<string, unknown>,
+    mid: number,
+  ): string {
+    const rawLink = String(
+      season.link ?? raw.link ?? raw.url ?? raw.jump_url ?? "",
+    ).trim();
+    const abs = rawLink.startsWith("http")
+      ? rawLink
+      : rawLink.startsWith("//")
+        ? `https:${rawLink}`
+        : "";
+
+    if (kind === "upower") {
+      if (abs && !/\/cheese\//i.test(abs)) return abs;
+      if (mid > 0) {
+        return `https://space.bilibili.com/${mid}/lists/${seasonId}?type=season`;
+      }
+      const bvid = this.firstPugvBvid(raw, season);
+      if (bvid) return `https://www.bilibili.com/video/${bvid}`;
+      return abs;
+    }
+
+    if (abs) return abs;
+    return `https://www.bilibili.com/cheese/play/ss${seasonId}`;
+  }
+
+  private detectPugvKind(
+    raw: Record<string, unknown>,
+    season: Record<string, unknown>,
+    playRaw: number,
+  ): "cheese" | "upower" {
+    const flags = [
+      season.is_upower,
+      raw.is_upower,
+      season.is_upower_exclusive,
+      raw.is_upower_exclusive,
+      season.upower_exclusive,
+      raw.upower_exclusive,
+      season.is_chargeable_season,
+      raw.is_chargeable_season,
+      season.upower,
+      raw.upower,
+    ];
+    if (flags.some((flag) => flag === true || flag === 1 || flag === "1")) {
+      return "upower";
+    }
+
+    const labels = [
+      season.cate_name,
+      raw.cate_name,
+      season.category,
+      raw.category,
+      season.badge,
+      raw.badge,
+      season.subtitle,
+      raw.subtitle,
+    ]
+      .map((value) => String(value ?? ""))
+      .join(" ");
+    if (/充电|upower/.test(labels)) return "upower";
+
+    const link = String(
+      season.link ?? raw.link ?? raw.url ?? raw.jump_url ?? "",
+    );
+    if (/upower/i.test(link)) return "upower";
+
+    if (playRaw < 0) return "upower";
+    const statusCode = season.status ?? raw.status;
+    if (statusCode === -1 || statusCode === "-1") return "upower";
+
+    return "cheese";
   }
 
   private normalizeBangumiItem(
@@ -6909,7 +7323,7 @@ class BiliApiService {
   private normalizeSpaceDynamicItem(
     item: Record<string, unknown>,
   ): SpaceDynamicItem | null {
-    const id = (item.id_str as string) ?? String(item.id ?? "");
+    const id = String(item.id_str || item.id || "").trim();
     if (!id) return null;
 
     const type = (item.type as string) ?? "";

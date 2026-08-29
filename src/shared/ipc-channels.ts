@@ -30,6 +30,9 @@ export const IPC = {
   BILI_COMMENT_REPLIES: "bili:comment-replies",
   BILI_COMMENT_ADD: "bili:comment-add",
   BILI_COMMENT_LIKE: "bili:comment-like",
+  BILI_COMMENT_HATE: "bili:comment-hate",
+  BILI_COMMENT_DELETE: "bili:comment-delete",
+  BILI_COMMENT_REPORT: "bili:comment-report",
   BILI_REPLY_EMOTES: "bili:reply-emotes",
   BILI_FAV_FOLDERS: "bili:fav-folders",
   BILI_FAV_FOLDER_CREATE: "bili:fav-folder-create",
@@ -86,6 +89,7 @@ export const IPC = {
   BILI_FAV_VIDEO_MEDIAS: "bili:fav-video-medias",
   BILI_OPUS_FAVORITES: "bili:opus-favorites",
   BILI_CHEESE_FOLLOW: "bili:cheese-follow",
+  BILI_UPOWER_PAID: "bili:upower-paid",
 
   TAXONOMY_L1_LIST: "taxonomy:l1-list",
   TAXONOMY_L1_CREATE: "taxonomy:l1-create",
@@ -117,6 +121,7 @@ export const IPC = {
   APP_SET_FULLSCREEN: "app:set-fullscreen",
   APP_GET_FULLSCREEN: "app:get-fullscreen",
   APP_FULLSCREEN_CHANGED: "app:fullscreen-changed",
+  APP_OPEN_EXTERNAL: "app:open-external",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import type { VideoItem } from "@shared/types";
 import { Button } from "@/components/ui/button";
+import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
 import { cn } from "@/lib/utils";
 import { formatWatchLaterError } from "@/lib/watch-later-error";
 import { useAppStore } from "@/stores/app-store";
@@ -83,7 +84,8 @@ export function WatchLaterButton({
     createPortal(
       <div
         className={cn(
-          "pointer-events-none fixed left-1/2 top-1/2 z-[9999] -translate-x-1/2 -translate-y-1/2 rounded-xl px-5 py-3 text-sm font-semibold shadow-2xl",
+          "pointer-events-none fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl px-5 py-3 text-sm font-semibold shadow-2xl",
+          APP_OVERLAY_ZCLASS,
           tipIsError
             ? "border border-primary/40 bg-black/90 text-primary"
             : "border border-border/40 bg-black/85 text-white",

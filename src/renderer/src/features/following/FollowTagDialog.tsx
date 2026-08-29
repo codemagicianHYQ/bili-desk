@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import type { FollowTag } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { CreateFollowTagControl } from "@/components/following/CreateFollowTagControl";
+import {
+  APP_OVERLAY_ZCLASS,
+  OverlayPortal,
+} from "@/components/ui/overlay-portal";
 import { Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -71,7 +75,13 @@ export function FollowTagDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
+    <OverlayPortal>
+    <div
+      className={cn(
+        "fixed inset-0 flex items-end justify-center bg-black/50 p-4 sm:items-center",
+        APP_OVERLAY_ZCLASS,
+      )}
+    >
       <div className="w-full max-w-md rounded-2xl border border-border bg-card shadow-xl">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div>
@@ -171,5 +181,6 @@ export function FollowTagDialog({
         </div>
       </div>
     </div>
+    </OverlayPortal>
   );
 }

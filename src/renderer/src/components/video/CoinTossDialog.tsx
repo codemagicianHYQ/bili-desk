@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
 import { cn } from "@/lib/utils";
 import { Loader2, X } from "lucide-react";
 
@@ -78,7 +79,7 @@ export function CoinTossDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/65 p-4 backdrop-blur-sm sm:items-center"
+      className={`fixed inset-0 flex items-end justify-center bg-black/65 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
       onClick={() => {
         if (!loading && !tossing) onClose();
       }}
