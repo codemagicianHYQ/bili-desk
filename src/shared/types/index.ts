@@ -651,6 +651,8 @@ export interface SpaceDynamicItem {
     danmaku?: number;
     forward?: number;
   };
+  /** 转发动态里被转的原内容 */
+  orig?: SpaceDynamicItem;
 }
 
 export type DynamicFeedType = "all" | "video" | "article";

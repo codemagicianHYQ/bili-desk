@@ -7790,6 +7790,7 @@ class BiliApiService {
 
   private normalizeSpaceDynamicItem(
     item: Record<string, unknown>,
+    depth = 0,
   ): SpaceDynamicItem | null {
     const id = String(item.id_str || item.id || "").trim();
     if (!id) return null;
@@ -7858,6 +7859,12 @@ class BiliApiService {
       Number((moduleStat?.comment as Record<string, unknown>)?.count) || 0;
     const forwardCount = Number(forwardStat.count) || 0;
     const liked = Boolean(likeStat.status);
+    const origRaw =
+      item.orig ??
+      item.origin ??
+      (major?.forward && typeof major.forward === "object"
+        ? major.forward
+        : undefined);
 
     const base = {
       id,
@@ -7872,6 +7879,19 @@ class BiliApiService {
       commentType,
       liked,
     };
+
+    if (type.includes("FORWARD") || Boolean(major?.forward)) {
+      const desc = moduleDynamic?.desc as Record<string, unknown> | undefined;
+      const text = this.extractRichText(desc);
+      return {
+        ...base,
+        kind: "forward",
+        text,
+        title: undefined,
+        orig: this.normalizeOrigDynamic(origRaw, depth + 1),
+        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+      };
+    }
 
     if (major?.archive) {
       const archive = major.archive as Record<string, unknown>;
@@ -7983,21 +8003,6 @@ class BiliApiService {
       };
     }
 
-    if (type.includes("FORWARD") || major?.forward) {
-      const desc = moduleDynamic?.desc as Record<string, unknown> | undefined;
-      const text =
-        this.extractRichText(desc) ||
-        this.extractRichText(moduleDynamic) ||
-        "转发动态";
-      return {
-        ...base,
-        kind: "forward",
-        text,
-        title: undefined,
-        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
-      };
-    }
-
     const desc = moduleDynamic?.desc as Record<string, unknown> | undefined;
     const text =
       this.extractRichText(desc) ||
@@ -8023,6 +8028,47 @@ class BiliApiService {
       images,
       stats: { like: likeCount, reply: replyCount, forward: forwardCount },
     };
+  }
+
+  private normalizeOrigDynamic(
+    raw: unknown,
+    depth: number,
+  ): SpaceDynamicItem | undefined {
+    if (!raw || typeof raw !== "object" || depth > 2) return undefined;
+    const orig = raw as Record<string, unknown>;
+    const origId = String(orig.id_str ?? orig.id ?? "").trim();
+    const origType = String(orig.type ?? "");
+    const modules = orig.modules as Record<string, unknown> | undefined;
+    const major = (
+      modules?.module_dynamic as Record<string, unknown> | undefined
+    )?.major as Record<string, unknown> | undefined;
+    const none = major?.none as Record<string, unknown> | undefined;
+    const tips = String(none?.tips ?? orig.tips ?? "").trim();
+
+    if (
+      !origId ||
+      origId === "0" ||
+      origType.includes("NONE") ||
+      Boolean(none)
+    ) {
+      return {
+        id: origId || "0",
+        type: origType || "DYNAMIC_TYPE_NONE",
+        kind: "text",
+        text: tips || "源动态已删除",
+        pubTime: 0,
+      };
+    }
+
+    return (
+      this.normalizeSpaceDynamicItem(orig, depth) ?? {
+        id: origId,
+        type: origType,
+        kind: "text",
+        text: tips || "源动态已删除",
+        pubTime: 0,
+      }
+    );
   }
 
   private parseDynamicDuration(value: unknown): number {

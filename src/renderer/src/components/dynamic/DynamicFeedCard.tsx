@@ -283,6 +283,146 @@ function ImageGrid({ images }: { images: string[] }) {
   );
 }
 
+function openDynamicTarget(
+  item: SpaceDynamicItem,
+  navigate: ReturnType<typeof useNavigate>,
+) {
+  if (item.bvid) {
+    navigate(`/video/${item.bvid}`);
+    return;
+  }
+  if (item.liveRoomId) {
+    navigate(`/live/${item.liveRoomId}`);
+    return;
+  }
+  if (
+    item.id &&
+    item.id !== "0" &&
+    (item.kind === "opus" ||
+      item.kind === "text" ||
+      item.kind === "draw" ||
+      item.kind === "forward" ||
+      item.kind === "article")
+  ) {
+    navigate(`/dynamic/${item.id}`);
+  }
+}
+
+function dynamicImages(item: SpaceDynamicItem): string[] {
+  if (item.images?.length) return item.images;
+  if (item.cover) return [item.cover];
+  return [];
+}
+
+function DynamicCardBody({
+  item,
+  depth = 0,
+}: {
+  item: SpaceDynamicItem;
+  depth?: number;
+}) {
+  const images = dynamicImages(item);
+
+  if (item.kind === "video") {
+    return (
+      <>
+        {item.text && (
+          <p className="text-sm text-muted-foreground">
+            <LinkifiedText text={item.text} />
+          </p>
+        )}
+        <VideoDynamicBody item={item} />
+      </>
+    );
+  }
+
+  if (item.kind === "live") {
+    return <LiveDynamicBody item={item} />;
+  }
+
+  return (
+    <>
+      {item.title && (
+        <h3 className="text-[17px] font-semibold leading-snug text-foreground">
+          {item.title}
+        </h3>
+      )}
+      {item.text && (
+        <p className="text-sm leading-relaxed">
+          <LinkifiedText text={item.text} />
+        </p>
+      )}
+      {(item.kind === "draw" ||
+        item.kind === "opus" ||
+        item.kind === "text" ||
+        item.kind === "article") && <ImageGrid images={images} />}
+      {item.kind === "forward" && item.orig && depth < 2 && (
+        <ForwardedOrigEmbed item={item.orig} depth={depth + 1} />
+      )}
+      {item.kind === "forward" && !item.orig && (
+        <p className="text-sm text-muted-foreground">源动态已删除</p>
+      )}
+    </>
+  );
+}
+
+export function ForwardedOrigEmbed({
+  item,
+  depth = 0,
+}: {
+  item: SpaceDynamicItem;
+  depth?: number;
+}) {
+  const navigate = useNavigate();
+  const deleted = !item.id || item.id === "0" || item.text === "源动态已删除";
+
+  return (
+    <div
+      className="space-y-2 rounded-lg border border-border/70 bg-secondary/45 p-3"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!deleted) openDynamicTarget(item, navigate);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!deleted) openDynamicTarget(item, navigate);
+        }
+      }}
+      role={deleted ? undefined : "link"}
+      tabIndex={deleted ? undefined : 0}
+    >
+      {(item.authorName || item.authorMid) && (
+        <div className="flex items-center gap-2">
+          {item.authorFace ? (
+            <BiliImage
+              src={item.authorFace}
+              alt={item.authorName || ""}
+              className="h-6 w-6 rounded-full object-cover"
+            />
+          ) : null}
+          {item.authorMid ? (
+            <Link
+              to={`/up/${item.authorMid}`}
+              onClick={(event) => event.stopPropagation()}
+              className="truncate text-sm font-medium text-sky-400 hover:underline"
+            >
+              {item.authorName || "用户"}
+            </Link>
+          ) : (
+            <p className="truncate text-sm font-medium text-sky-400">
+              {item.authorName || "用户"}
+            </p>
+          )}
+        </div>
+      )}
+      <DynamicCardBody item={item} depth={depth} />
+    </div>
+  );
+}
+
 export function DynamicFeedCard({
   item,
   fallbackName = "用户",
@@ -296,11 +436,6 @@ export function DynamicFeedCard({
   const authorName = item.authorName || fallbackName;
   const authorFace = item.authorFace || fallbackFace;
   const meta = [item.pubTimeLabel, item.pubAction].filter(Boolean).join(" · ");
-  const images = item.images?.length
-    ? item.images
-    : item.cover
-      ? [item.cover]
-      : [];
   const canOpenDetail =
     item.kind === "opus" ||
     item.kind === "text" ||
@@ -309,17 +444,7 @@ export function DynamicFeedCard({
     item.kind === "article";
 
   const openDetail = () => {
-    if (item.bvid) {
-      navigate(`/video/${item.bvid}`);
-      return;
-    }
-    if (item.liveRoomId) {
-      navigate(`/live/${item.liveRoomId}`);
-      return;
-    }
-    if (canOpenDetail) {
-      navigate(`/dynamic/${item.id}`);
-    }
+    openDynamicTarget(item, navigate);
   };
 
   const authorBlock = (
@@ -369,38 +494,7 @@ export function DynamicFeedCard({
         role={canOpenDetail ? "link" : undefined}
         tabIndex={canOpenDetail ? 0 : undefined}
       >
-        {item.kind === "video" ? (
-          <>
-            {item.text && (
-              <p className="text-sm text-muted-foreground">
-                <LinkifiedText text={item.text} />
-              </p>
-            )}
-            <VideoDynamicBody item={item} />
-          </>
-        ) : item.kind === "live" ? (
-          <LiveDynamicBody item={item} />
-        ) : (
-          <>
-            {item.title && (
-              <h3 className="text-[17px] font-semibold leading-snug text-foreground">
-                {item.title}
-              </h3>
-            )}
-            {item.text && (
-              <p className="text-sm leading-relaxed">
-                <LinkifiedText text={item.text} />
-              </p>
-            )}
-            {(item.kind === "draw" ||
-              item.kind === "opus" ||
-              item.kind === "text" ||
-              item.kind === "article") && <ImageGrid images={images} />}
-            {item.kind === "forward" && !item.text && (
-              <p className="text-sm text-muted-foreground">转发动态</p>
-            )}
-          </>
-        )}
+        <DynamicCardBody item={item} />
       </div>
 
       <DynamicActionBar item={item} onOpenDetail={openDetail} />

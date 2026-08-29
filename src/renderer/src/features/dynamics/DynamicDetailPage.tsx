@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
+import { ForwardedOrigEmbed } from "@/components/dynamic/DynamicFeedCard";
 import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection";
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -171,6 +172,13 @@ export function DynamicDetailPage() {
                 <p className="text-[15px] leading-relaxed">
                   <LinkifiedText text={item.text} />
                 </p>
+              )}
+
+              {item.kind === "forward" && item.orig && (
+                <ForwardedOrigEmbed item={item.orig} />
+              )}
+              {item.kind === "forward" && !item.orig && (
+                <p className="text-sm text-muted-foreground">源动态已删除</p>
               )}
 
               {images.length > 1 && (
