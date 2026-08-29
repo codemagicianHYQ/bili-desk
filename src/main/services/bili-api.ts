@@ -3180,7 +3180,6 @@ class BiliApiService {
         res.data?.data?.info?.media_count ?? res.data?.data?.media_count;
       const infoCount = Number(rawCount);
       const countKnown = Number.isFinite(infoCount);
-      const hasMoreFlag = Boolean(res.data?.data?.has_more);
       // 空夹：medias 常为 null，且 info.media_count 明确为 0
       if (medias == null) {
         if (code === 0 && countKnown && infoCount === 0) {

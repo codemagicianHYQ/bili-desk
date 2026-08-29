@@ -605,6 +605,7 @@ export class FavClassifyEngine {
         sourceIndex++
       ) {
         const source = sourceFolders[sourceIndex];
+        if (source.mediaCount <= 0) continue;
         let page = 1;
         while (
           movedCount < ORGANIZE_BATCH_SIZE &&
@@ -616,6 +617,7 @@ export class FavClassifyEngine {
             LIST_PAGE_SIZE,
             "long",
           );
+          let movedThisPage = 0;
           for (const raw of result.resources) {
             if (movedCount >= ORGANIZE_BATCH_SIZE) break scan;
             if (looked >= ORGANIZE_LOOKAHEAD_CAP) break scan;
@@ -660,8 +662,10 @@ export class FavClassifyEngine {
               );
               dest.mediaCount += 1;
               folderByTitle.set(dest.title, dest);
+              source.mediaCount = Math.max(0, source.mediaCount - 1);
               addMidVote(raw.upper.mid, dest.title);
               movedCount += 1;
+              movedThisPage += 1;
               await sleepJitter(DELAY_AFTER_MOVE_MS);
             } catch (error) {
               if (isFavFolderFullError(error)) {
@@ -683,6 +687,12 @@ export class FavClassifyEngine {
             await yieldToEventLoop();
           }
 
+          if (result.resources.length === 0) break;
+          // 搬走后后面的条目会顶到当前页，必须从第 1 页再扫，否则会漏
+          if (movedThisPage > 0) {
+            page = 1;
+            continue;
+          }
           if (!result.hasMore) break;
           page += 1;
           await sleepJitter(DELAY_BETWEEN_LIST_PAGES_MS);
@@ -989,6 +999,21 @@ export class FavClassifyEngine {
         progress: Math.min(90, Math.round((moved / totalEstimate) * 80)),
         message: `正在把「${src.title}」并入「${dest.title}」...`,
       });
+
+      if (src.mediaCount <= 0) {
+        try {
+          await withFavWriteRetry(
+            () => biliApi.deleteFavFolder(src.id),
+            onRiskWait,
+          );
+          folderByTitle.delete(src.title);
+          deleted += 1;
+          await sleepJitter(DELAY_AFTER_CREATE_MS);
+        } catch {
+          // 空夹删不掉也不阻断后面几对
+        }
+        continue;
+      }
 
       const items = await biliApi.getAllFavResourcesInFolder(
         src.id,
