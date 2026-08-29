@@ -337,7 +337,7 @@ export function SettingsPage() {
                   title="版本"
                   description="B 站 Windows 第三方客户端原型"
                 >
-                  <span className="text-sm text-muted-foreground">0.1.0</span>
+                  <span className="text-sm text-muted-foreground">0.2.0</span>
                 </SettingRow>
                 <div className="py-4 text-muted-foreground">
                   <p className="mb-2 text-sm font-medium text-foreground">

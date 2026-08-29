@@ -1,6 +1,6 @@
 {
   "name": "bili-desk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "BiliDesk - Bilibili third-party Windows desktop client",
   "main": "./out/main/index.js",
   "type": "module",
