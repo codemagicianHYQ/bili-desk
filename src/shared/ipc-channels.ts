@@ -125,6 +125,7 @@ export const IPC = {
   APP_GET_FULLSCREEN: "app:get-fullscreen",
   APP_FULLSCREEN_CHANGED: "app:fullscreen-changed",
   APP_OPEN_EXTERNAL: "app:open-external",
+  APP_RESOLVE_BILI_URL: "app:resolve-bili-url",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

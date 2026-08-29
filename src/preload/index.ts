@@ -448,6 +448,8 @@ const api = {
       subscribeFullscreenChange(callback),
     openExternal: (url: string) =>
       ipcRenderer.invoke(IPC.APP_OPEN_EXTERNAL, url),
+    resolveBiliUrl: (url: string) =>
+      ipcRenderer.invoke(IPC.APP_RESOLVE_BILI_URL, url),
   },
 };
 

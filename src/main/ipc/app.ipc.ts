@@ -3,6 +3,7 @@ import { IPC } from "@shared/ipc-channels";
 import { appStore } from "../store/app-store";
 import type { Theme } from "@shared/types";
 import { sanitizeExternalUrl } from "@shared/utils/external-url";
+import { resolveBiliUrl } from "../services/bili-link";
 
 function windowFromEvent(
   event: Electron.IpcMainInvokeEvent,
@@ -32,4 +33,7 @@ export function registerAppIpc(): void {
     if (!url) throw new Error("不支持的链接");
     await shell.openExternal(url);
   });
+  ipcMain.handle(IPC.APP_RESOLVE_BILI_URL, (_event, raw: string) =>
+    resolveBiliUrl(raw),
+  );
 }
