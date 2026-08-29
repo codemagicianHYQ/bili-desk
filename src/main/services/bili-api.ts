@@ -94,6 +94,8 @@ import type {
   OpusFavPage,
   CheeseCourseItem,
   CheeseCoursePage,
+  ChargeUpItem,
+  ChargeRecordResult,
   LiveRoomItem,
   LiveRecommendPage,
   FollowingLivePage,
@@ -4403,6 +4405,24 @@ class BiliApiService {
     page = 1,
     order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
+    const key = `${mid}:${Math.max(1, page)}:${order}`;
+    const pending = this.upVideosInflight.get(key);
+    if (pending) return pending;
+
+    const task = this.loadUpVideos(mid, page, order).finally(() => {
+      if (this.upVideosInflight.get(key) === task) {
+        this.upVideosInflight.delete(key);
+      }
+    });
+    this.upVideosInflight.set(key, task);
+    return task;
+  }
+
+  private async loadUpVideos(
+    mid: number,
+    page = 1,
+    order: UpVideosOrder = "pubdate",
+  ): Promise<UpVideosPage> {
     await this.ensureBuvid3();
 
     const sort = order === "click" ? "click" : "pubdate";
@@ -4417,37 +4437,54 @@ class BiliApiService {
 
     let lastError: Error | null = null;
 
-    // 1) 空间投稿（唯一主通道）
-    try {
-      const space = await this.fetchSpaceArcList(mid, page, sort);
-      if (space.videos.length > 0) return space;
-      if (page === 1 && space.total === 0) {
-        return { videos: [], page: 1, total: 0, hasMore: false };
+    // 第 1 页走空间 wbi（每页 30，支持 pn）。第 2 页起 wbi 常返回空列表，
+    // APP `/x/v2/space/archive?pn=` 会稳定 -400，改走带签名的 archive/cursor。
+    if (page === 1) {
+      try {
+        const space = await this.fetchSpaceArcList(mid, page, sort);
+        if (space.videos.length > 0) {
+          this.seedUpVideoCursor(mid, sort, space.videos, space.total);
+          return space;
+        }
+        if (space.total === 0) {
+          return { videos: [], page: 1, total: 0, hasMore: false };
+        }
+      } catch (error) {
+        lastError =
+          error instanceof Error ? error : new Error("投稿列表获取失败");
       }
-    } catch (error) {
-      lastError =
-        error instanceof Error ? error : new Error("投稿列表获取失败");
+
+      try {
+        const upName = await this.fetchUpName(mid);
+        if (upName) {
+          const fallback = await this.fetchUpVideosBySearchPaged(
+            mid,
+            upName,
+            page,
+            sort,
+            0,
+          );
+          if (fallback.videos.length > 0) {
+            this.seedUpVideoCursor(mid, sort, fallback.videos, fallback.total);
+            return fallback;
+          }
+        }
+      } catch (error) {
+        lastError =
+          error instanceof Error
+            ? error
+            : (lastError ?? new Error("投稿列表获取失败"));
+      }
     }
 
-    // 2) 搜索兜底（不再走已失效的 cursor，避免「请求错误」盖掉可用结果）
     try {
-      const upName = await this.fetchUpName(mid);
-      if (!upName) {
-        throw lastError ?? new Error("投稿列表获取失败，请稍后重试");
-      }
-      const fallback = await this.fetchUpVideosBySearchPaged(
-        mid,
-        upName,
-        page,
-        sort,
-        0,
-      );
-      if (fallback.videos.length > 0) return fallback;
+      const cursorPage = await this.fetchSpaceArchiveCursor(mid, page, sort);
+      if (cursorPage.videos.length > 0) return cursorPage;
     } catch (error) {
       lastError =
         error instanceof Error
           ? error
-          : (lastError ?? new Error("投稿列表获取失败"));
+          : (lastError ?? new Error("翻页失败，请稍后重试"));
     }
 
     throw (
@@ -4470,15 +4507,21 @@ class BiliApiService {
     return String(card?.name ?? "").trim();
   }
 
-  /** APP 空间投稿分页（TV 签名），作为 web wbi 失败时的稳定兜底 */
+  /** APP 空间投稿分页；需要 TV 登录的 access_key，否则会直接「请求错误」 */
   private async fetchAppSpaceArchive(
     mid: number,
     page: number,
     order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
+    const accessKey = appStore.get("accessToken");
+    if (!accessKey) {
+      throw new Error("APP 投稿通道需要登录凭证");
+    }
+
     await this.waitSpaceArcGate();
     const pageSize = 30;
     const params = this.buildTvSignedParams({
+      access_key: accessKey,
       vmid: mid,
       pn: Math.max(1, page),
       ps: pageSize,
@@ -4933,8 +4976,35 @@ class BiliApiService {
     page: number,
     order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
-    const referer = `https://space.bilibili.com/${mid}/video`;
+    const referer = `https://space.bilibili.com/${mid}/video?tid=0&pn=${page}&keyword=&order=${order}`;
     const pageSize = 30;
+    const locations = page > 1 ? ["1550101", "333.1387"] : ["1550101"];
+    let lastError: Error | null = null;
+
+    for (const webLocation of locations) {
+      const result = await this.requestSpaceArcList(
+        mid,
+        page,
+        order,
+        pageSize,
+        referer,
+        webLocation,
+      );
+      if (result.ok) return result.page;
+      lastError = result.error;
+    }
+
+    throw lastError ?? new Error("投稿列表获取失败，请稍后重试");
+  }
+
+  private async requestSpaceArcList(
+    mid: number,
+    page: number,
+    order: UpVideosOrder,
+    pageSize: number,
+    referer: string,
+    webLocation: string,
+  ): Promise<{ ok: true; page: UpVideosPage } | { ok: false; error: Error }> {
     const baseParams: Record<string, string | number> = {
       mid: String(mid),
       pn: page,
@@ -4943,11 +5013,15 @@ class BiliApiService {
       keyword: "",
       order,
       platform: "web",
-      web_location: "1550101",
+      web_location: webLocation,
       order_avoided: "true",
+      dm_img_list: "[]",
+      dm_img_str: "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
+      dm_cover_img_str:
+        "QU5HTEUgKEludGVsLCBJbnRlbChSKSBVSEQgR3JhcGhpY3MgRGlyZWN0M0QxMSB2c181XzAgcHNfNV8wLCBEM0QxMSlHb29nbGUgSW5jLiAoSW50ZWw",
+      dm_img_inter: '{"ds":[],"wh":[0,0,0],"of":["","",""]}',
     };
 
-    // wbi 优先：plain 翻页极易 -403
     const modes: Array<"wbi" | "plain"> = ["wbi", "plain"];
     let lastError: Error | null = null;
 
@@ -4990,16 +5064,18 @@ class BiliApiService {
             | undefined;
           const total = Number(pageInfo?.count ?? vlist.length) || 0;
           const ps = Number(pageInfo?.ps ?? pageSize) || pageSize;
-          // 翻页空包（常见于风控软失败）不要当成功，交给后续通道
           if (page > 1 && vlist.length === 0 && total > (page - 1) * ps) {
             lastError = new Error("投稿翻页返回空数据，正在尝试其它通道");
             break;
           }
           return {
-            videos: vlist.map((item) => this.normalizeSpaceVideo(item, mid)),
-            page,
-            total,
-            hasMore: vlist.length >= ps || page * ps < total,
+            ok: true,
+            page: {
+              videos: vlist.map((item) => this.normalizeSpaceVideo(item, mid)),
+              page,
+              total,
+              hasMore: vlist.length >= ps || page * ps < total,
+            },
           };
         }
 
@@ -5040,20 +5116,55 @@ class BiliApiService {
       }
     }
 
-    throw lastError ?? new Error("投稿列表获取失败，请稍后重试");
+    return {
+      ok: false,
+      error: lastError ?? new Error("投稿列表获取失败，请稍后重试"),
+    };
   }
 
-  /** UP 投稿游标缓存：支持页码跳转时按链拉取 */
+  /** UP 投稿游标缓存：cursor 接口每段最多 20 条，按 30 条一页切片 */
   private upVideoCursorCache = new Map<
     string,
     {
+      videos: VideoItem[];
+      lastAid: number;
+      hasNext: boolean;
       total: number;
-      pages: Map<number, VideoItem[]>;
-      hasNext: Map<number, boolean>;
-      lastAid: Map<number, number>;
       at: number;
     }
   >();
+
+  private resolveVideoAid(video: VideoItem | undefined): number {
+    if (!video) return 0;
+    if (video.aid && video.aid > 0) return video.aid;
+    if (video.bvid) return bvToAid(video.bvid);
+    return 0;
+  }
+
+  private seedUpVideoCursor(
+    mid: number,
+    order: UpVideosOrder,
+    videos: VideoItem[],
+    total: number,
+  ): void {
+    if (videos.length === 0) return;
+    const cacheKey = `${mid}:${order}`;
+    this.pruneBoundedMap(this.upVideoCursorCache, 8, (entry) => entry.at);
+    const existing = this.upVideoCursorCache.get(cacheKey);
+    if (existing && existing.videos.length >= videos.length) {
+      existing.at = Date.now();
+      if (existing.total < total) existing.total = total;
+      return;
+    }
+    const lastAid = this.resolveVideoAid(videos[videos.length - 1]);
+    this.upVideoCursorCache.set(cacheKey, {
+      videos: [...videos],
+      lastAid,
+      hasNext: total <= 0 || videos.length < total,
+      total: Math.max(total, videos.length),
+      at: Date.now(),
+    });
+  }
 
   private async fetchSpaceArchiveCursor(
     mid: number,
@@ -5061,54 +5172,59 @@ class BiliApiService {
     order: UpVideosOrder = "pubdate",
   ): Promise<UpVideosPage> {
     const pageSize = 30;
+    const fetchSize = 20;
     const targetPage = Math.max(1, page);
     const cacheKey = `${mid}:${order}`;
     this.pruneBoundedMap(this.upVideoCursorCache, 8, (entry) => entry.at);
 
-    if (targetPage === 1) {
-      this.upVideoCursorCache.delete(cacheKey);
-    }
-
     let cache = this.upVideoCursorCache.get(cacheKey);
     if (!cache) {
       cache = {
+        videos: [],
+        lastAid: 0,
+        hasNext: true,
         total: 0,
-        pages: new Map(),
-        hasNext: new Map(),
-        lastAid: new Map(),
         at: Date.now(),
       };
       this.upVideoCursorCache.set(cacheKey, cache);
+    } else {
+      cache.at = Date.now();
     }
 
-    for (let p = 1; p <= targetPage; p++) {
-      if (cache.pages.has(p)) continue;
+    const needed = targetPage * pageSize;
+    const seen = new Set(cache.videos.map((video) => video.bvid));
+    const maxFetches =
+      Math.max(1, Math.ceil((needed - cache.videos.length) / fetchSize) + 3);
+    let fetches = 0;
+    let lastError: Error | null = null;
 
-      if (p > 1 && !cache.lastAid.has(p - 1)) {
-        throw new Error("翻页状态失效，请回到第 1 页后重试");
-      }
+    while (
+      cache.videos.length < needed &&
+      cache.hasNext &&
+      fetches < maxFetches
+    ) {
+      await this.waitSpaceArcGate(80);
+      fetches += 1;
+      const prevAid = cache.lastAid;
 
-      await this.waitSpaceArcGate();
-
-      const params: Record<string, string | number> = {
-        vmid: String(mid),
-        ps: pageSize,
-        order,
+      const extra: Record<string, string | number> = {
+        vmid: mid,
+        ps: fetchSize,
+        order: order === "click" ? "click" : "pubdate",
         platform: "web",
         mobi_app: "web",
       };
-      if (p > 1) {
-        params.aid = cache.lastAid.get(p - 1)!;
-      }
+      const accessKey = appStore.get("accessToken");
+      if (accessKey) extra.access_key = accessKey;
+      if (cache.lastAid > 0) extra.aid = cache.lastAid;
 
+      const params = this.buildTvSignedParams(extra);
       const hosts = [
-        "https://app.bilibili.com/x/v2/space/archive/cursor",
         "https://app.biliapi.com/x/v2/space/archive/cursor",
+        "https://app.bilibili.com/x/v2/space/archive/cursor",
       ];
 
       let payload: Record<string, unknown> | null = null;
-      let lastError: Error | null = null;
-
       for (const url of hosts) {
         const res = await axios.get(url, {
           params,
@@ -5131,46 +5247,67 @@ class BiliApiService {
           this.formatUserSpaceApiError(
             res.data?.code,
             res.data?.message,
-            "投稿列表获取失败，请稍后重试",
+            "翻页失败，请稍后重试",
           ),
         );
       }
 
       if (!payload) {
-        throw lastError ?? new Error("投稿列表获取失败，请稍后重试");
+        cache.hasNext = false;
+        break;
       }
 
       const rawItems = (payload.item ?? []) as Record<string, unknown>[];
-      const videos = rawItems
+      const batch = rawItems
         .map((item) => this.normalizeCursorSpaceVideo(item, mid))
         .filter((item): item is VideoItem => item != null);
 
+      let added = 0;
+      for (const video of batch) {
+        if (!video.bvid || seen.has(video.bvid)) continue;
+        seen.add(video.bvid);
+        cache.videos.push(video);
+        added += 1;
+      }
+
       const total = Number(payload.count ?? cache.total) || cache.total || 0;
-      const hasNext = Boolean(payload.has_next);
+      if (total > 0) cache.total = Math.max(cache.total, total);
 
-      cache.total = total;
-      cache.pages.set(p, videos);
-      cache.hasNext.set(p, hasNext);
+      const last = cache.videos[cache.videos.length - 1];
+      const nextAid = this.resolveVideoAid(last);
+      const batchAid = this.resolveVideoAid(batch[batch.length - 1]);
+      if (batchAid > 0) cache.lastAid = batchAid;
+      else if (nextAid > 0) cache.lastAid = nextAid;
 
-      const last = videos[videos.length - 1];
-      if (last?.aid) {
-        cache.lastAid.set(p, last.aid);
-      } else if (hasNext) {
-        // 没有 aid 无法继续翻
-        cache.hasNext.set(p, false);
+      const flaggedHasNext = payload.has_next;
+      if (flaggedHasNext == null) {
+        cache.hasNext =
+          batch.length >= fetchSize &&
+          (cache.total <= 0 || cache.videos.length < cache.total);
+      } else {
+        cache.hasNext = Boolean(flaggedHasNext);
+      }
+
+      // 与第 1 页空间列表重叠时本段可能全是重复，用本段末 aid 继续往后走
+      if (added === 0 && (batchAid <= 0 || batch.length === 0 || batchAid === prevAid)) {
+        cache.hasNext = false;
       }
     }
 
-    const videos = cache.pages.get(targetPage) ?? [];
-    const hasMore =
-      cache.hasNext.get(targetPage) ??
-      (cache.total > 0 && targetPage * pageSize < cache.total);
+    const start = (targetPage - 1) * pageSize;
+    const videos = cache.videos.slice(start, start + pageSize);
+    if (videos.length === 0) {
+      throw lastError ?? new Error("翻页失败，请稍后重试");
+    }
 
+    const total = Math.max(cache.total, cache.videos.length);
     return {
       videos,
       page: targetPage,
-      total: cache.total,
-      hasMore: Boolean(hasMore) && videos.length > 0,
+      total,
+      hasMore:
+        start + videos.length < total ||
+        (cache.hasNext && cache.videos.length > start + videos.length),
     };
   }
 
@@ -5237,10 +5374,8 @@ class BiliApiService {
       return "该用户已设置隐私，无法查看主页内容";
     }
 
-    if (numericCode === -403) {
-      return text
-        ? `投稿列表暂时无法访问：${text}`
-        : "投稿列表暂时无法访问，请稍后重试或重新登录";
+    if (numericCode === -400 || text.includes("请求错误")) {
+      return "翻页失败，请稍后重试";
     }
 
     if (text) {
@@ -5258,10 +5393,10 @@ class BiliApiService {
 
   private spaceArcGate: Promise<void> = Promise.resolve();
   private lastSpaceArcAt = 0;
+  private upVideosInflight = new Map<string, Promise<UpVideosPage>>();
 
   /** 串行化空间投稿请求，避免短时间并发触发 -799 */
-  private waitSpaceArcGate(): Promise<void> {
-    const minIntervalMs = 650;
+  private waitSpaceArcGate(minIntervalMs = 650): Promise<void> {
     const run = this.spaceArcGate.then(async () => {
       const wait = Math.max(
         0,
@@ -5421,8 +5556,8 @@ class BiliApiService {
 
     const needed = targetPage * pageSize;
     let emptyStreak = 0;
-    // 搜索兜底要快失败：扫太多页会把 UP 主页拖成卡顿
-    const maxScans = Math.min(12, Math.max(4, targetPage * 3));
+    // 只给首页兜底用：最多扫几页搜索，禁止为了第 N 页从 1 连打
+    const maxScans = Math.min(4, Math.max(2, targetPage));
 
     while (
       cache.videos.length < needed &&
@@ -6556,24 +6691,23 @@ class BiliApiService {
     };
   }
 
-  async getUpowerPaidList(page = 1): Promise<CheeseCoursePage> {
+  async getUpowerPaidList(): Promise<ChargeRecordResult> {
     await this.ensureBuvid3();
     if (!isLoggedIn()) {
-      return { list: [], page, hasMore: false, total: 0 };
+      return { active: [], expired: [] };
     }
 
-    const all = await this.filterActiveUpowerItems(
-      await this.collectPaidPugvByKind("upower"),
-    );
-    const pageSize = 20;
-    const start = (Math.max(page, 1) - 1) * pageSize;
-    const list = all.slice(start, start + pageSize);
-    return {
-      list,
-      page,
-      hasMore: start + list.length < all.length,
-      total: all.length,
-    };
+    const exclusives = await this.collectPaidPugvByKind("upower");
+
+    try {
+      const [activeList, expiredList] = await Promise.all([
+        this.fetchChargeUpList(1),
+        this.fetchChargeUpList(2),
+      ]);
+      return this.mergeChargeRecords(activeList, expiredList, exclusives);
+    } catch {
+      return this.splitExclusivesByFollow(exclusives);
+    }
   }
 
   private async collectPaidPugvByKind(
@@ -6593,38 +6727,147 @@ class BiliApiService {
     return list;
   }
 
-  /** 充电 tab 只保留仍在包月有效期内的专属内容；过期的从已购 PUGV 里也会残留 */
-  private async filterActiveUpowerItems(
-    items: CheeseCourseItem[],
-  ): Promise<CheeseCourseItem[]> {
-    const pending = items.filter((item) => !item.expired);
-    if (pending.length === 0) return [];
-
-    let activeMids: Set<number> | null = null;
-    try {
-      activeMids = await this.fetchActiveChargeUpMids();
-    } catch {
-      activeMids = null;
+  private mergeChargeRecords(
+    activeList: ChargeUpItem[],
+    expiredList: ChargeUpItem[],
+    exclusives: CheeseCourseItem[],
+  ): ChargeRecordResult {
+    const activeMap = new Map(activeList.map((item) => [item.mid, item]));
+    const expiredMap = new Map<number, ChargeUpItem>();
+    for (const item of expiredList) {
+      if (activeMap.has(item.mid)) continue;
+      expiredMap.set(item.mid, item);
     }
 
-    if (activeMids && activeMids.size === 0) return [];
-
-    const kept: CheeseCourseItem[] = [];
-    for (const item of pending) {
-      const mid = item.mid ?? 0;
-      if (activeMids && mid > 0) {
-        if (activeMids.has(mid)) kept.push(item);
+    let orphanSeq = 0;
+    for (const exclusive of exclusives) {
+      const host = this.pickChargeHost(exclusive, activeMap, expiredMap);
+      if (host) {
+        host.exclusives.push({ ...exclusive, expired: host.expired });
         continue;
       }
-      if (mid > 0 && (await this.isChargeFollowActive(mid))) {
-        kept.push(item);
-      }
+
+      const mid = exclusive.mid && exclusive.mid > 0 ? exclusive.mid : 0;
+      const key = mid > 0 ? mid : -++orphanSeq;
+      expiredMap.set(key, {
+        mid,
+        name: exclusive.subtitle || exclusive.title,
+        face: "",
+        expireTime: 0,
+        privilegeName: "",
+        url: mid > 0 ? `https://space.bilibili.com/${mid}` : exclusive.url,
+        expired: true,
+        exclusives: [{ ...exclusive, expired: true }],
+      });
     }
-    return kept.filter((item) => Boolean(item.url));
+
+    return {
+      active: this.collapseDuplicateChargeUps([...activeMap.values()]),
+      expired: this.collapseDuplicateChargeUps([...expiredMap.values()]),
+    };
   }
 
-  private async fetchActiveChargeUpMids(): Promise<Set<number>> {
-    const mids = new Set<number>();
+  private pickChargeHost(
+    exclusive: CheeseCourseItem,
+    activeMap: Map<number, ChargeUpItem>,
+    expiredMap: Map<number, ChargeUpItem>,
+  ): ChargeUpItem | undefined {
+    const mid = exclusive.mid ?? 0;
+    if (mid > 0) {
+      const byMid = activeMap.get(mid) ?? expiredMap.get(mid);
+      if (byMid) return byMid;
+    }
+
+    const hosts = [...activeMap.values(), ...expiredMap.values()];
+    const matches = hosts.filter((up) =>
+      this.chargeNamesRelated(up.name, exclusive.title, exclusive.subtitle),
+    );
+    if (matches.length === 0) return undefined;
+    matches.sort((a, b) => this.chargeHostScore(b) - this.chargeHostScore(a));
+    return matches[0];
+  }
+
+  private chargeHostScore(up: ChargeUpItem): number {
+    return (
+      (up.face ? 4 : 0) +
+      (up.expireTime ? 2 : 0) +
+      (up.privilegeName ? 1 : 0) +
+      up.name.length / 100
+    );
+  }
+
+  private collapseDuplicateChargeUps(list: ChargeUpItem[]): ChargeUpItem[] {
+    const kept: ChargeUpItem[] = [];
+    for (const item of list) {
+      const host = kept.find(
+        (up) =>
+          (item.mid > 0 && up.mid === item.mid) ||
+          this.chargeNamesRelated(up.name, item.name),
+      );
+      if (!host) {
+        kept.push(item);
+        continue;
+      }
+      const [primary, extra] =
+        this.chargeHostScore(item) > this.chargeHostScore(host)
+          ? [item, host]
+          : [host, item];
+      primary.exclusives.push(...extra.exclusives);
+      if (!primary.face && extra.face) primary.face = extra.face;
+      if (!primary.expireTime && extra.expireTime) {
+        primary.expireTime = extra.expireTime;
+      }
+      if (!primary.privilegeName && extra.privilegeName) {
+        primary.privilegeName = extra.privilegeName;
+      }
+      if (primary !== host) {
+        const index = kept.indexOf(host);
+        kept[index] = primary;
+      }
+    }
+    return kept;
+  }
+
+  private chargeNamesRelated(a: string, b: string, extra = ""): boolean {
+    const left = this.normalizeChargeName(a);
+    const right = this.normalizeChargeName(`${b}${extra}`);
+    if (left.length < 2 || right.length < 2) return false;
+    return left.includes(right) || right.includes(left);
+  }
+
+  private normalizeChargeName(text: string): string {
+    return text.replace(/[\[\]【】\s·\-_/]/g, "").toLowerCase();
+  }
+
+  private async splitExclusivesByFollow(
+    exclusives: CheeseCourseItem[],
+  ): Promise<ChargeRecordResult> {
+    const active: ChargeUpItem[] = [];
+    const expired: ChargeUpItem[] = [];
+    for (const exclusive of exclusives) {
+      const mid = exclusive.mid ?? 0;
+      const expiredFlag =
+        exclusive.expired === true ||
+        (mid > 0 ? !(await this.isChargeFollowActive(mid)) : true);
+      const card: ChargeUpItem = {
+        mid,
+        name: exclusive.subtitle || exclusive.title,
+        face: "",
+        expireTime: 0,
+        privilegeName: "",
+        url:
+          exclusive.url || (mid > 0 ? `https://space.bilibili.com/${mid}` : ""),
+        expired: expiredFlag,
+        exclusives: [{ ...exclusive, expired: expiredFlag }],
+      };
+      if (!card.url) continue;
+      (expiredFlag ? expired : active).push(card);
+    }
+    return { active, expired };
+  }
+
+  private async fetchChargeUpList(type: 1 | 2): Promise<ChargeUpItem[]> {
+    const result: ChargeUpItem[] = [];
     const nowSec = Date.now() / 1000;
     let page = 1;
     let hasMore = true;
@@ -6633,7 +6876,7 @@ class BiliApiService {
       const res = await this.liveClient.get(
         "/xlive/revenue/v1/guard/getChargeRecord",
         {
-          params: { page, type: 1 },
+          params: { page, type },
           validateStatus: () => true,
         },
       );
@@ -6646,25 +6889,36 @@ class BiliApiService {
       for (const row of list) {
         if (!row || typeof row !== "object") continue;
         const record = row as Record<string, unknown>;
-        const uid = Number(record.up_uid ?? record.mid ?? 0);
-        if (!uid) continue;
+        const mid = Number(record.up_uid ?? record.mid ?? 0);
+        if (!mid) continue;
         const tiers = Array.isArray(record.item) ? record.item : [];
-        const stillValid =
-          tiers.length === 0 ||
-          tiers.some((tier) => {
-            if (!tier || typeof tier !== "object") return false;
-            return (
-              Number((tier as { expire_time?: number }).expire_time) > nowSec
-            );
-          });
-        if (stillValid) mids.add(uid);
+        const expireTime = tiers.reduce((max, tier) => {
+          if (!tier || typeof tier !== "object") return max;
+          const value = Number((tier as { expire_time?: number }).expire_time);
+          return Number.isFinite(value) ? Math.max(max, value) : max;
+        }, 0);
+        if (type === 1 && expireTime > 0 && expireTime <= nowSec) continue;
+
+        const firstTier = tiers[0] as
+          | { name?: string; expire_time?: number }
+          | undefined;
+        result.push({
+          mid,
+          name: String(record.user_name ?? "未知 UP"),
+          face: this.normalizeBfsUrl(String(record.user_face ?? "")),
+          expireTime,
+          privilegeName: String(firstTier?.name ?? ""),
+          url: `https://space.bilibili.com/${mid}`,
+          expired: type === 2,
+          exclusives: [],
+        });
       }
 
       hasMore = data?.is_more === 1;
       page += 1;
     }
 
-    return mids;
+    return result;
   }
 
   private async isChargeFollowActive(upMid: number): Promise<boolean> {
@@ -7086,6 +7340,9 @@ class BiliApiService {
     raw: Record<string, unknown>,
     season: Record<string, unknown>,
   ): number {
+    const seasonId = Number(
+      season.season_id ?? raw.season_id ?? season.id ?? raw.ssid ?? 0,
+    );
     const nested = [
       season.up,
       raw.up,
@@ -7104,18 +7361,18 @@ class BiliApiService {
         (value as { mid?: unknown; uid?: unknown }).mid ??
           (value as { uid?: unknown }).uid,
       );
-      if (mid > 0) return mid;
+      if (mid > 0 && mid !== seasonId) return mid;
     }
-    return (
-      Number(
+    const fallback = Number(
+      season.up_mid ??
+        raw.up_mid ??
+        season.up_id ??
+        raw.up_id ??
         season.mid ??
-          raw.mid ??
-          season.up_mid ??
-          raw.up_mid ??
-          season.up_id ??
-          raw.up_id,
-      ) || 0
+        raw.mid,
     );
+    if (fallback > 0 && fallback !== seasonId) return fallback;
+    return 0;
   }
 
   /** true 已过期；false 仍有效；null 字段里看不出来 */

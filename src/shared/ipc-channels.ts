@@ -68,6 +68,8 @@ export const IPC = {
   BILI_TOVIEW_LIST: "bili:toview-list",
   BILI_TOVIEW_ADD: "bili:toview-add",
   BILI_TOVIEW_REMOVE: "bili:toview-remove",
+  BILI_TOVIEW_LOCAL_LIST: "bili:toview-local-list",
+  BILI_TOVIEW_LOCAL_REMOVE: "bili:toview-local-remove",
   BILI_SPACE_DYNAMICS: "bili:space-dynamics",
   BILI_FOLLOW_DYNAMICS: "bili:follow-dynamics",
   BILI_DYNAMIC_DETAIL: "bili:dynamic-detail",

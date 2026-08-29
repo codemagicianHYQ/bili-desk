@@ -17,9 +17,30 @@ interface PaginationBarProps {
   openEnded?: boolean;
   /** openEnded 时跳转上限，默认 999 */
   maxJumpPage?: number;
+  /** pages：官网页码条（1 2 3 … N + 跳至） */
+  variant?: "bar" | "pages";
+  /** variant=pages 时「共 x 页 / y 个」里的 y */
+  totalCount?: number;
   info?: ReactNode;
   onPageChange: (page: number) => void;
   className?: string;
+}
+
+type PageToken = number | "ellipsis";
+
+function range(from: number, to: number): number[] {
+  const list: number[] = [];
+  for (let i = from; i <= to; i += 1) list.push(i);
+  return list;
+}
+
+/** 对齐 B 站空间投稿：首页 1–7 … 末页；中间当前页两侧各 2 个 */
+function buildPageTokens(current: number, total: number): PageToken[] {
+  if (total <= 1) return total === 1 ? [1] : [];
+  if (total <= 9) return range(1, total);
+  if (current <= 4) return [...range(1, 7), "ellipsis", total];
+  if (current >= total - 3) return [1, "ellipsis", ...range(total - 6, total)];
+  return [1, "ellipsis", ...range(current - 2, current + 2), "ellipsis", total];
 }
 
 export function PaginationBar({
@@ -29,6 +50,8 @@ export function PaginationBar({
   disableNext,
   openEnded = false,
   maxJumpPage = 999,
+  variant = "bar",
+  totalCount,
   info,
   onPageChange,
   className,
@@ -51,6 +74,86 @@ export function PaginationBar({
 
   if (totalPages <= 0 && !openEnded) return null;
   if (openEnded && page < 1) return null;
+
+  const canPrev = !disabled && page > 1;
+  const canNext =
+    !disabled && !Boolean(disableNext) && (openEnded || page < totalPages);
+
+  if (variant === "pages") {
+    const tokens = openEnded
+      ? [page]
+      : buildPageTokens(page, Math.max(totalPages, page));
+    const countText =
+      typeof totalCount === "number" && totalCount > 0
+        ? `共 ${Math.max(totalPages, page)} 页 / ${totalCount.toLocaleString()} 个，跳至`
+        : `共 ${Math.max(totalPages, page)} 页，跳至`;
+
+    return (
+      <div className={cn("border-t border-border px-6 py-3", className)}>
+        <div className="flex flex-wrap items-center gap-2">
+          {page > 1 && (
+            <button
+              type="button"
+              disabled={!canPrev}
+              className={pageBtnClass(false)}
+              onClick={() => onPageChange(page - 1)}
+            >
+              上一页
+            </button>
+          )}
+          {tokens.map((token, index) =>
+            token === "ellipsis" ? (
+              <span
+                key={`ellipsis-${index}`}
+                className="flex h-8 min-w-8 items-center justify-center rounded-md bg-secondary text-sm text-muted-foreground"
+              >
+                …
+              </span>
+            ) : (
+              <button
+                key={token}
+                type="button"
+                disabled={disabled}
+                aria-current={token === page ? "page" : undefined}
+                className={pageBtnClass(token === page)}
+                onClick={() => token !== page && onPageChange(token)}
+              >
+                {token}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            disabled={!canNext}
+            className={cn(pageBtnClass(false), "min-w-16 px-3")}
+            onClick={() => onPageChange(page + 1)}
+          >
+            下一页
+          </button>
+          <form
+            className="ml-auto flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleJump();
+            }}
+          >
+            <span>{countText}</span>
+            <input
+              type="number"
+              min={1}
+              max={jumpUpperBound}
+              value={jumpPageInput}
+              onChange={(event) => setJumpPageInput(event.target.value)}
+              disabled={disabled}
+              className="h-8 w-12 rounded-md border border-border bg-secondary/40 px-1 text-center text-sm text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+              aria-label="跳至页码"
+            />
+            <span>页</span>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("border-t border-border px-6 py-3", className)}>
@@ -129,5 +232,14 @@ export function PaginationBar({
         </div>
       </div>
     </div>
+  );
+}
+
+function pageBtnClass(active: boolean): string {
+  return cn(
+    "inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-sm tabular-nums transition-colors disabled:pointer-events-none disabled:opacity-40",
+    active
+      ? "bg-primary text-primary-foreground"
+      : "bg-secondary text-foreground hover:bg-secondary/70",
   );
 }

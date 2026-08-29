@@ -49,6 +49,10 @@ export function formatUserSpaceError(err: unknown): string {
     return "请求过于频繁，请稍后再试";
   }
 
+  if (raw.includes("请求错误") || raw.includes("-400")) {
+    return "翻页失败，请稍后重试";
+  }
+
   if (raw.includes("安全策略") || raw.includes("412") || raw.includes("-412")) {
     return "请求被 B 站安全策略拦截，请稍后重试";
   }

@@ -1,5 +1,5 @@
 import Store from 'electron-store'
-import type { AiConfig, Theme, UserInfo } from '@shared/types'
+import type { AiConfig, Theme, ToViewItem, UserInfo } from '@shared/types'
 
 interface StoreSchema {
   theme: Theme
@@ -15,6 +15,8 @@ interface StoreSchema {
   refreshToken: string
   accessToken: string
   localDb: unknown
+  /** 官方稍后再看满员后溢出到本机的列表 */
+  localToView: ToViewItem[]
 }
 
 const defaults: StoreSchema = {
@@ -33,7 +35,8 @@ const defaults: StoreSchema = {
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: '',
     model: 'deepseek-chat'
-  }
+  },
+  localToView: []
 }
 
 export const appStore = new Store<StoreSchema>({

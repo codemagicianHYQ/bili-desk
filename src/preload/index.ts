@@ -17,6 +17,7 @@ import type {
   UpGroupSelection,
   UpGroupTreeNode,
   UpVideosOrder,
+  VideoItem,
 } from "@shared/types";
 
 const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
@@ -281,10 +282,19 @@ const api = {
     getSearchTypeCounts: (keyword: string) =>
       ipcRenderer.invoke(IPC.BILI_SEARCH_TYPE_COUNTS, keyword),
     getToViewList: () => ipcRenderer.invoke(IPC.BILI_TOVIEW_LIST),
-    addToView: (aid: number, bvid: string) =>
-      ipcRenderer.invoke(IPC.BILI_TOVIEW_ADD, aid, bvid),
+    addToView: (
+      aid: number,
+      bvid: string,
+      video?: VideoItem,
+      forceLocal?: boolean,
+    ) => ipcRenderer.invoke(IPC.BILI_TOVIEW_ADD, aid, bvid, video, forceLocal),
     removeFromToView: (aid: number) =>
       ipcRenderer.invoke(IPC.BILI_TOVIEW_REMOVE, aid),
+    getLocalToViewList: () => ipcRenderer.invoke(IPC.BILI_TOVIEW_LOCAL_LIST),
+    removeFromLocalToView: (bvid: string) =>
+      ipcRenderer.invoke(IPC.BILI_TOVIEW_LOCAL_REMOVE, bvid),
+    removeManyFromLocalToView: (bvids: string[]) =>
+      ipcRenderer.invoke(IPC.BILI_TOVIEW_LOCAL_REMOVE, bvids),
     getSpaceDynamics: (mid: number, offset?: string) =>
       ipcRenderer.invoke(IPC.BILI_SPACE_DYNAMICS, mid, offset ?? ""),
     getFollowDynamics: (offset?: string, type?: DynamicFeedType) =>
@@ -379,8 +389,7 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_OPUS_FAVORITES, page ?? 1),
     getCheeseFollowList: (page?: number, mid?: number) =>
       ipcRenderer.invoke(IPC.BILI_CHEESE_FOLLOW, page ?? 1, mid),
-    getUpowerPaidList: (page?: number) =>
-      ipcRenderer.invoke(IPC.BILI_UPOWER_PAID, page ?? 1),
+    getUpowerPaidList: () => ipcRenderer.invoke(IPC.BILI_UPOWER_PAID),
   },
   taxonomy: {
     getTree: () => ipcRenderer.invoke(IPC.TAXONOMY_TREE),

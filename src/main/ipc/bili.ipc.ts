@@ -6,10 +6,13 @@ import type {
   SearchUserOrder,
   SearchUserTypeFilter,
   SuggestFavFolderPayload,
+  ToViewAddResult,
   UpVideosOrder,
   UserRelationListType,
+  VideoItem,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
+import { localToViewRepo } from "../db/repositories/local-toview";
 import {
   buildFavClassifyText,
   pickClassifyCommentSnippets,
@@ -108,13 +111,8 @@ export function registerBiliIpc(): void {
   );
   handleIpc(
     IPC.BILI_COMMENT_HATE,
-    (
-      _e,
-      oid: string,
-      type: number,
-      rpid: number | string,
-      hate: boolean,
-    ) => biliApi.hateComment(oid, type, rpid, hate),
+    (_e, oid: string, type: number, rpid: number | string, hate: boolean) =>
+      biliApi.hateComment(oid, type, rpid, hate),
   );
   handleIpc(
     IPC.BILI_COMMENT_DELETE,
@@ -289,12 +287,56 @@ export function registerBiliIpc(): void {
     biliApi.getSearchTypeCounts(keyword),
   );
   handleIpc(IPC.BILI_TOVIEW_LIST, () => biliApi.getToViewList());
-  handleIpc(IPC.BILI_TOVIEW_ADD, (_e, aid: number, bvid: string) =>
-    biliApi.addToView(aid, bvid),
+  handleIpc(
+    IPC.BILI_TOVIEW_ADD,
+    async (
+      _e,
+      aid: number,
+      bvid: string,
+      video?: VideoItem,
+      forceLocal?: boolean,
+    ): Promise<ToViewAddResult> => {
+      const aidNum = Number(aid) || 0;
+      const bvidStr = String(bvid ?? "").trim();
+      if (!bvidStr) throw new Error("缺少视频信息，无法加入稍后再看");
+
+      if (forceLocal) {
+        return {
+          source: "local",
+          item: localToViewRepo.add(video, aidNum, bvidStr),
+        };
+      }
+
+      try {
+        await biliApi.addToView(aidNum, bvidStr);
+        localToViewRepo.remove(bvidStr);
+        return { source: "official" };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("TOVIEW_FULL")) {
+          return {
+            source: "local",
+            item: localToViewRepo.add(video, aidNum, bvidStr),
+          };
+        }
+        throw error;
+      }
+    },
   );
   handleIpc(IPC.BILI_TOVIEW_REMOVE, (_e, aid: number) =>
     biliApi.removeFromToView(aid),
   );
+  handleIpc(IPC.BILI_TOVIEW_LOCAL_LIST, async () => {
+    const videos = localToViewRepo.list();
+    return { videos, count: videos.length };
+  });
+  handleIpc(IPC.BILI_TOVIEW_LOCAL_REMOVE, async (_e, bvid: string | string[]) => {
+    if (Array.isArray(bvid)) {
+      localToViewRepo.removeMany(bvid.map((item) => String(item ?? "")));
+      return;
+    }
+    localToViewRepo.remove(String(bvid ?? ""));
+  });
   handleIpc(IPC.BILI_SPACE_DYNAMICS, (_e, mid: number, offset?: string) =>
     biliApi.getSpaceDynamics(mid, offset),
   );
@@ -396,7 +438,5 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_CHEESE_FOLLOW, (_e, page?: number, mid?: number) =>
     biliApi.getCheeseFollowList(page, mid),
   );
-  handleIpc(IPC.BILI_UPOWER_PAID, (_e, page?: number) =>
-    biliApi.getUpowerPaidList(page),
-  );
+  handleIpc(IPC.BILI_UPOWER_PAID, () => biliApi.getUpowerPaidList());
 }

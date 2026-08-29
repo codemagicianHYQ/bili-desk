@@ -595,6 +595,13 @@ export interface ToViewList {
   count: number;
 }
 
+export type ToViewSource = "official" | "local";
+
+export interface ToViewAddResult {
+  source: ToViewSource;
+  item?: ToViewItem;
+}
+
 export interface SpaceDynamicItem {
   id: string;
   type: string;
@@ -760,7 +767,7 @@ export interface CheeseCourseItem {
   kind: "cheese" | "upower";
   /** UP mid，充电专属用来拼空间合集链接、核对是否仍在包月 */
   mid?: number;
-  /** 已过期（充电未续费）；充电 tab 不会返回这些 */
+  /** 已过期（充电未续费）；充电 tab 放进「已过期」 */
   expired?: boolean;
 }
 
@@ -769,6 +776,23 @@ export interface CheeseCoursePage {
   page: number;
   hasMore: boolean;
   total: number;
+}
+
+/** 我的充电：包月充电过的 UP，专属合集挂在对应 UP 下 */
+export interface ChargeUpItem {
+  mid: number;
+  name: string;
+  face: string;
+  expireTime: number;
+  privilegeName: string;
+  url: string;
+  expired: boolean;
+  exclusives: CheeseCourseItem[];
+}
+
+export interface ChargeRecordResult {
+  active: ChargeUpItem[];
+  expired: ChargeUpItem[];
 }
 
 export interface UserCollectionsPage {
@@ -1061,8 +1085,16 @@ export interface BiliDeskApi {
     ) => Promise<SearchArticlesPage>;
     getSearchTypeCounts: (keyword: string) => Promise<SearchTypeCounts>;
     getToViewList: () => Promise<ToViewList>;
-    addToView: (aid: number, bvid: string) => Promise<void>;
+    addToView: (
+      aid: number,
+      bvid: string,
+      video?: VideoItem,
+      forceLocal?: boolean,
+    ) => Promise<ToViewAddResult>;
     removeFromToView: (aid: number) => Promise<void>;
+    getLocalToViewList: () => Promise<ToViewList>;
+    removeFromLocalToView: (bvid: string) => Promise<void>;
+    removeManyFromLocalToView: (bvids: string[]) => Promise<void>;
     getSpaceDynamics: (
       mid: number,
       offset?: string,
@@ -1137,7 +1169,7 @@ export interface BiliDeskApi {
       page?: number,
       mid?: number,
     ) => Promise<CheeseCoursePage>;
-    getUpowerPaidList: (page?: number) => Promise<CheeseCoursePage>;
+    getUpowerPaidList: () => Promise<ChargeRecordResult>;
   };
   taxonomy: {
     getTree: () => Promise<CategoryTreeNode[]>;

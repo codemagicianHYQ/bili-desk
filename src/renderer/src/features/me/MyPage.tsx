@@ -375,7 +375,7 @@ export function MyPage() {
                   <div>
                     <p className="text-sm font-medium">稍后再看</p>
                     <p className="text-xs text-muted-foreground">
-                      同步 B 站列表
+                      官方列表 + 本地
                     </p>
                   </div>
                 </Link>

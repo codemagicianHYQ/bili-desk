@@ -297,7 +297,7 @@ export function UpSpacePage() {
   };
 
   const goToPage = (nextPage: number) => {
-    if (!mid || videosLoading || nextPage < 1) return;
+    if (!mid || videosLoading || nextPage < 1 || nextPage === page) return;
     if (nextPage > totalPages && !hasMore) return;
     void loadVideos(mid, nextPage, order);
   };
@@ -574,23 +574,14 @@ export function UpSpacePage() {
 
       {videos.length > 0 && (totalPages > 1 || hasMore || page > 1) && (
         <PaginationBar
+          variant="pages"
           page={page}
           totalPages={totalPages}
+          totalCount={total}
           disabled={videosLoading}
           disableNext={!hasMore && page >= totalPages}
           openEnded={total <= 0 && hasMore}
           onPageChange={goToPage}
-          info={
-            total > 0 ? (
-              <>
-                共 {total.toLocaleString()} 个投稿 · 第 {page} / {totalPages} 页
-              </>
-            ) : (
-              <>
-                第 {page} 页 · 本页 {videos.length} 个
-              </>
-            )
-          }
         />
       )}
 

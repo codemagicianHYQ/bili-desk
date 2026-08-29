@@ -29,7 +29,9 @@ export function WatchLaterButton({
   const user = useAppStore((state) => state.user);
   const ensureLoaded = useWatchLaterStore((state) => state.ensureLoaded);
   const toggle = useWatchLaterStore((state) => state.toggle);
-  const inList = useWatchLaterStore((state) => state.bvids.has(bvid));
+  const inOfficial = useWatchLaterStore((state) => state.bvids.has(bvid));
+  const inLocal = useWatchLaterStore((state) => state.localBvids.has(bvid));
+  const inList = inOfficial || inLocal;
   const [pending, setPending] = useState(false);
   const [tip, setTip] = useState("");
   const [tipIsError, setTipIsError] = useState(false);
@@ -63,13 +65,18 @@ export function WatchLaterButton({
       return;
     }
 
-    const wasInList = inList;
     setPending(true);
     setTip("");
     setTipIsError(false);
     try {
-      await toggle(aid, bvid, video);
-      showTip(wasInList ? "已从稍后再看移除" : "已添加到稍后再看");
+      const result = await toggle(aid, bvid, video);
+      if (result === "removed") {
+        showTip("已从稍后再看移除");
+      } else if (result === "local") {
+        showTip("官方稍后再看已满，已加入本地");
+      } else {
+        showTip("已添加到稍后再看");
+      }
     } catch (err) {
       showTip(formatWatchLaterError(err), true);
     } finally {

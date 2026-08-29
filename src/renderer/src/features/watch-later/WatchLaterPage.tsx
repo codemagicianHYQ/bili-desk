@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ToViewItem } from "@shared/types";
 import { useAppStore } from "@/stores/app-store";
-import { useWatchLaterStore } from "@/stores/watch-later-store";
+import { TOVIEW_MAX, useWatchLaterStore } from "@/stores/watch-later-store";
 import { VideoCard } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
@@ -10,7 +10,8 @@ import { cn, formatDuration } from "@/lib/utils";
 import { Check, Clock, Loader2, Trash2 } from "lucide-react";
 
 const PAGE_SIZE = 30;
-const TOVIEW_MAX = 1000;
+
+type WatchLaterTab = "official" | "local";
 
 const GRID_COLS_CLASS = {
   2: "grid-cols-2",
@@ -113,8 +114,10 @@ function WatchLaterCard({
 export function WatchLaterPage() {
   const user = useAppStore((state) => state.user);
   const homeGridColumns = useAppStore((state) => state.homeGridColumns);
-  const videos = useWatchLaterStore((state) => state.videos);
-  const count = useWatchLaterStore((state) => state.count);
+  const officialVideos = useWatchLaterStore((state) => state.videos);
+  const officialCount = useWatchLaterStore((state) => state.count);
+  const localVideos = useWatchLaterStore((state) => state.localVideos);
+  const localCount = useWatchLaterStore((state) => state.localCount);
   const loading = useWatchLaterStore((state) => state.loading);
   const ready = useWatchLaterStore((state) => state.ready);
   const error = useWatchLaterStore((state) => state.error);
@@ -123,10 +126,16 @@ export function WatchLaterPage() {
   const remove = useWatchLaterStore((state) => state.remove);
   const removeMany = useWatchLaterStore((state) => state.removeMany);
 
+  const [tab, setTab] = useState<WatchLaterTab>("official");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(false);
   const [selectedBvids, setSelectedBvids] = useState<Set<string>>(new Set());
   const [batchRemoving, setBatchRemoving] = useState(false);
+
+  const isLocalTab = tab === "local";
+  const videos = isLocalTab ? localVideos : officialVideos;
+  const count = isLocalTab ? localCount : officialCount;
+  const officialFull = officialCount >= TOVIEW_MAX;
 
   const totalPages = Math.max(1, Math.ceil(videos.length / PAGE_SIZE));
   const pageVideos = useMemo(() => {
@@ -141,6 +150,12 @@ export function WatchLaterPage() {
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  useEffect(() => {
+    setPage(1);
+    setEditing(false);
+    setSelectedBvids(new Set());
+  }, [tab]);
 
   useEffect(() => {
     if (!editing) setSelectedBvids(new Set());
@@ -182,7 +197,7 @@ export function WatchLaterPage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
         <Clock className="h-10 w-10 opacity-40" />
-        <p className="text-sm">登录后同步 B 站稍后再看列表</p>
+        <p className="text-sm">登录后查看稍后再看</p>
         <Link to="/login">
           <Button size="sm">去登录</Button>
         </Link>
@@ -203,9 +218,41 @@ export function WatchLaterPage() {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 space-y-3 border-b border-border px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
-            共 {count} 个视频 · 最多 {TOVIEW_MAX} 个 · 与 B 站账号同步
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex rounded-lg bg-secondary p-1">
+              <button
+                type="button"
+                onClick={() => setTab("official")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  tab === "official"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                B 站官方
+                {officialCount > 0 ? ` ${officialCount}` : ""}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("local")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  tab === "local"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                本地
+                {localCount > 0 ? ` ${localCount}` : ""}
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {isLocalTab
+                ? `共 ${count} 个视频 · 保存在本机，不占用官方 1000 上限`
+                : `共 ${count} 个视频 · 最多 ${TOVIEW_MAX} 个 · 与 B 站账号同步`}
+            </p>
+          </div>
           {videos.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               {editing ? (
@@ -262,11 +309,16 @@ export function WatchLaterPage() {
             </div>
           )}
         </div>
+        {officialFull && (
+          <p className="text-xs text-muted-foreground">
+            官方稍后再看已满 {TOVIEW_MAX} 个，再添加会自动进「本地」
+          </p>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="p-6">
-          {error && videos.length === 0 ? (
+          {!isLocalTab && error && videos.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-red-400">
               <p>{error}</p>
               <Button
@@ -280,8 +332,14 @@ export function WatchLaterPage() {
           ) : videos.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
               <Clock className="h-10 w-10 opacity-40" />
-              <p className="text-sm">暂无稍后再看视频</p>
-              <p className="text-xs">在视频卡片或播放页点击时钟图标即可添加</p>
+              <p className="text-sm">
+                {isLocalTab ? "本地稍后再看还是空的" : "暂无稍后再看视频"}
+              </p>
+              <p className="text-xs">
+                {isLocalTab
+                  ? "官方满员后，新添加的视频会自动出现在这里"
+                  : "在视频卡片或播放页点击时钟图标即可添加"}
+              </p>
             </div>
           ) : (
             <div className={cn("grid gap-4", GRID_COLS_CLASS[homeGridColumns])}>
