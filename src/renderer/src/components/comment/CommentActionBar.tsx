@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn, formatCount } from "@/lib/utils";
 import {
@@ -22,6 +22,7 @@ export const COMMENT_REPORT_REASONS: Array<{ id: number; label: string }> = [
 ];
 
 interface CommentActionBarProps {
+  leading?: ReactNode;
   liked: boolean;
   hated: boolean;
   likeCount: number;
@@ -40,6 +41,7 @@ interface CommentActionBarProps {
 }
 
 export function CommentActionBar({
+  leading,
   liked,
   hated,
   likeCount,
@@ -73,8 +75,9 @@ export function CommentActionBar({
   };
 
   return (
-    <div className="mt-2 space-y-2">
+    <div className="mt-1.5 space-y-2">
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        {leading}
         <button
           type="button"
           disabled={liking}

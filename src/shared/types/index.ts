@@ -89,6 +89,8 @@ export interface CommentMember {
   name: string;
   face: string;
   level?: number;
+  /** 硬核会员：官网 LV6 旁带闪电 */
+  isSeniorMember?: boolean;
   sex?: string;
 }
 

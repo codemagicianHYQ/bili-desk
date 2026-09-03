@@ -6,14 +6,14 @@ import { IPC } from "@shared/ipc-channels";
 function resolveAppIcon(): Electron.NativeImage | undefined {
   const candidates = app.isPackaged
     ? [
-        join(process.resourcesPath, "icon.ico"),
         join(process.resourcesPath, "icon.png"),
-        join(__dirname, "../../resources/icon.ico"),
+        join(process.resourcesPath, "icon.ico"),
         join(__dirname, "../../resources/icon.png"),
+        join(__dirname, "../../resources/icon.ico"),
       ]
     : [
-        join(__dirname, "../../resources/icon.ico"),
         join(__dirname, "../../resources/icon.png"),
+        join(__dirname, "../../resources/icon.ico"),
       ];
 
   for (const path of candidates) {

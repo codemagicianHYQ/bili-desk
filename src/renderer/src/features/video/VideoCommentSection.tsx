@@ -1,23 +1,20 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
 } from "react";
-import { Link } from "react-router-dom";
 import type { CommentItem } from "@shared/types";
-import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
+import { CommentThread } from "@/components/comment/CommentThread";
+import { commentRpid, stripComment } from "@/components/comment/comment-tree";
 import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
-import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
-import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { VirtualList } from "@/components/ui/virtual-list";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
-import { cn, formatCount } from "@/lib/utils";
 import { commentsCache, commentsCacheKey } from "@/lib/session-data-cache";
-import { CommentActionBar } from "@/components/comment/CommentActionBar";
-import { commentRpid, stripComment } from "@/components/comment/comment-tree";
+import { formatCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import { Loader2 } from "lucide-react";
 
@@ -45,373 +42,8 @@ function estimateCommentSize(item: CommentItem): number {
   return height;
 }
 
-function formatCommentTime(ctime: number): string {
-  if (!ctime) return "";
-  const date = new Date(ctime * 1000);
-  const now = Date.now();
-  const diff = Math.max(0, now - date.getTime());
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-
-  if (diff < minute) return "刚刚";
-  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
-  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
-
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function CommentRow({
-  item,
-  aid,
-  bvid,
-  ownerMid,
-  selfMid,
-  depth = 0,
-  onChanged,
-  onDeleted,
-}: {
-  item: CommentItem;
-  aid: number;
-  bvid?: string;
-  ownerMid?: number;
-  selfMid?: number;
-  depth?: number;
-  onChanged: () => void;
-  onDeleted: (rpid: number) => void;
-}) {
-  const emotes = useReplyEmotes(item.emotes);
-  const [liked, setLiked] = useState(item.action === 1);
-  const [hated, setHated] = useState(item.action === 2);
-  const [likeCount, setLikeCount] = useState(item.like);
-  const [liking, setLiking] = useState(false);
-  const [hating, setHating] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [reporting, setReporting] = useState(false);
-  const [showReply, setShowReply] = useState(false);
-  const [replyText, setReplyText] = useState("");
-  const [replying, setReplying] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [moreReplies, setMoreReplies] = useState<CommentItem[]>([]);
-  const [morePage, setMorePage] = useState(1);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState("");
-  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
-
-  const visibleReplies = depth === 0 ? [...item.replies, ...moreReplies] : [];
-  const pictureSrcs = item.pictures?.map((picture) => picture.src) ?? [];
-  const commentMid = item.member.mid || item.mid;
-  const isOwn = Boolean(selfMid && commentMid === selfMid);
-  const canDelete =
-    isOwn || Boolean(ownerMid && selfMid && ownerMid === selfMid);
-  const oid = String(aid);
-  const rpid = commentRpid(item);
-
-  const handleLike = async () => {
-    setLiking(true);
-    setError("");
-    try {
-      const next = !liked;
-      if (next && hated) {
-        await window.biliDesk.bili.hateComment(oid, 1, rpid, false);
-        setHated(false);
-      }
-      await window.biliDesk.bili.likeComment(aid, item.rpid, next);
-      setLiked(next);
-      setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "点赞失败");
-    } finally {
-      setLiking(false);
-    }
-  };
-
-  const handleHate = async () => {
-    setHating(true);
-    setError("");
-    try {
-      const next = !hated;
-      if (next && liked) {
-        await window.biliDesk.bili.likeComment(aid, item.rpid, false);
-        setLiked(false);
-        setLikeCount((count) => Math.max(0, count - 1));
-      }
-      await window.biliDesk.bili.hateComment(oid, 1, rpid, next);
-      setHated(next);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "点踩失败");
-    } finally {
-      setHating(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    setError("");
-    try {
-      await window.biliDesk.bili.deleteComment(oid, 1, rpid);
-      onDeleted(item.rpid);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败");
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const handleReport = async (reason: number) => {
-    setReporting(true);
-    setError("");
-    try {
-      await window.biliDesk.bili.reportComment(oid, 1, rpid, reason);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "举报失败");
-    } finally {
-      setReporting(false);
-    }
-  };
-
-  const handleReply = async () => {
-    const text = replyText.trim();
-    if (!text) return;
-    setReplying(true);
-    setError("");
-    try {
-      const root = item.root > 0 ? item.root : item.rpid;
-      await window.biliDesk.bili.addComment(aid, text, root, item.rpid);
-      setReplyText("");
-      setShowReply(false);
-      onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "回复失败");
-    } finally {
-      setReplying(false);
-    }
-  };
-
-  const loadMoreReplies = async () => {
-    if (loadingMore) return;
-    setLoadingMore(true);
-    setError("");
-    try {
-      const nextPage = moreReplies.length === 0 ? 1 : morePage + 1;
-      const page = await window.biliDesk.bili.getCommentReplies(
-        aid,
-        item.rpid,
-        nextPage,
-      );
-      setMoreReplies((prev) => {
-        const seen = new Set(prev.map((reply) => reply.rpid));
-        item.replies.forEach((reply) => seen.add(reply.rpid));
-        const merged = [...prev];
-        for (const reply of page.comments) {
-          if (!seen.has(reply.rpid)) merged.push(reply);
-        }
-        return merged;
-      });
-      setMorePage(nextPage);
-      setExpanded(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "楼中楼加载失败");
-    } finally {
-      setLoadingMore(false);
-    }
-  };
-
-  return (
-    <div className={cn("flex gap-3", depth > 0 && "mt-3")}>
-      <Link to={`/up/${item.member.mid}`} className="shrink-0">
-        <BiliImage
-          src={item.member.face}
-          alt={item.member.name}
-          className="h-9 w-9 rounded-full object-cover"
-        />
-      </Link>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <Link
-            to={`/up/${item.member.mid}`}
-            className="font-medium text-foreground hover:text-primary"
-          >
-            {item.member.name}
-          </Link>
-          {Boolean(ownerMid && commentMid === ownerMid) && (
-            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              UP
-            </span>
-          )}
-          {isOwn && (
-            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              自己
-            </span>
-          )}
-        </div>
-        {item.content.trim() && (
-          <p className="mt-1 text-sm leading-relaxed text-foreground/90">
-            <BiliEmoteText
-              text={item.content}
-              emotes={emotes}
-              mentions={item.mentions}
-              size={22}
-            />
-          </p>
-        )}
-        {item.pictures && item.pictures.length > 0 && (
-          <div
-            className={cn(
-              "mt-2 grid gap-1.5",
-              item.pictures.length === 1
-                ? "max-w-xs grid-cols-1"
-                : item.pictures.length === 2
-                  ? "max-w-md grid-cols-2"
-                  : "max-w-lg grid-cols-3",
-            )}
-          >
-            {item.pictures.map((picture, index) => (
-              <button
-                key={picture.src}
-                type="button"
-                onClick={() => setPreviewIndex(index)}
-                className={cn(
-                  "block w-full overflow-hidden rounded-lg bg-secondary/40 text-left",
-                  item.pictures!.length > 1 && "aspect-square",
-                  item.pictures!.length === 1 && "max-h-72 aspect-[4/3]",
-                )}
-                style={
-                  item.pictures!.length === 1 &&
-                  picture.width > 0 &&
-                  picture.height > 0
-                    ? { aspectRatio: `${picture.width} / ${picture.height}` }
-                    : undefined
-                }
-              >
-                <BiliImage
-                  src={picture.src}
-                  alt="评论图片"
-                  className="h-full w-full object-cover"
-                />
-              </button>
-            ))}
-          </div>
-        )}
-        <ImageLightbox
-          images={pictureSrcs}
-          index={previewIndex ?? 0}
-          open={previewIndex != null}
-          onClose={() => setPreviewIndex(null)}
-          onIndexChange={setPreviewIndex}
-        />
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <span>{formatCommentTime(item.ctime)}</span>
-            {item.location && <span>{item.location}</span>}
-          </span>
-        </div>
-        <CommentActionBar
-          liked={liked}
-          hated={hated}
-          likeCount={likeCount}
-          liking={liking}
-          hating={hating}
-          deleting={deleting}
-          reporting={reporting}
-          isOwn={isOwn}
-          canDelete={canDelete}
-          copyText={item.content}
-          onLike={() => void handleLike()}
-          onHate={() => void handleHate()}
-          onReply={() => setShowReply((value) => !value)}
-          onDelete={() => void handleDelete()}
-          onReport={(reason) => void handleReport(reason)}
-        />
-        {depth === 0 && item.rcount > visibleReplies.length && (
-          <button
-            type="button"
-            disabled={loadingMore}
-            onClick={() => void loadMoreReplies()}
-            className="mt-1 text-xs text-muted-foreground transition-colors hover:text-primary"
-          >
-            {loadingMore
-              ? "加载中..."
-              : expanded
-                ? `展开更多回复（共 ${item.rcount}）`
-                : `查看 ${item.rcount} 条回复`}
-          </button>
-        )}
-
-        {showReply && (
-          <div className="mt-3 space-y-2">
-            <textarea
-              value={replyText}
-              onChange={(event) => setReplyText(event.target.value)}
-              rows={2}
-              maxLength={1000}
-              placeholder={`回复 @${item.member.name}`}
-              className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-            />
-            <div className="flex items-center justify-between gap-2">
-              <EmotePickerButton
-                onPick={(emote) =>
-                  setReplyText((prev) => (prev + emote).slice(0, 1000))
-                }
-              />
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowReply(false)}
-                >
-                  取消
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={replying || !replyText.trim()}
-                  onClick={() => void handleReply()}
-                >
-                  {replying ? "发送中..." : "发送"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-
-        {visibleReplies.length > 0 && (
-          <div className="mt-3 rounded-xl bg-secondary/30 px-3 py-2">
-            {visibleReplies.map((reply) => (
-              <CommentRow
-                key={reply.rpid}
-                item={reply}
-                aid={aid}
-                bvid={bvid}
-                ownerMid={ownerMid}
-                selfMid={selfMid}
-                depth={depth + 1}
-                onChanged={onChanged}
-                onDeleted={(rpid) => {
-                  setMoreReplies((prev) =>
-                    prev.filter((nested) => nested.rpid !== rpid),
-                  );
-                  onDeleted(rpid);
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function VideoCommentSection({
   aid,
-  bvid,
   ownerMid,
   replyCount = 0,
   scrollRootRef,
@@ -433,8 +65,38 @@ export function VideoCommentSection({
   const [error, setError] = useState("");
 
   commentsRef.current = comments;
-  // 预热表情面板，供 `[doge]` 等转义渲染
   useReplyEmotes();
+
+  const handlers = useMemo(
+    () => ({
+      like: (item: CommentItem, next: boolean) =>
+        window.biliDesk.bili.likeComment(aid, item.rpid, next),
+      hate: (item: CommentItem, next: boolean) =>
+        window.biliDesk.bili.hateComment(
+          String(aid),
+          1,
+          commentRpid(item),
+          next,
+        ),
+      delete: (item: CommentItem) =>
+        window.biliDesk.bili.deleteComment(String(aid), 1, commentRpid(item)),
+      report: (item: CommentItem, reason: number) =>
+        window.biliDesk.bili.reportComment(
+          String(aid),
+          1,
+          commentRpid(item),
+          reason,
+        ),
+      reply: (item: CommentItem, text: string) => {
+        const root = item.root > 0 ? item.root : item.rpid;
+        return window.biliDesk.bili.addComment(aid, text, root, item.rpid);
+      },
+      loadMoreReplies: (item: CommentItem, pageNo: number) =>
+        window.biliDesk.bili.getCommentReplies(aid, item.rpid, pageNo),
+    }),
+    [aid],
+  );
+
   const loadComments = useCallback(
     async (
       nextPage: number,
@@ -664,12 +326,11 @@ export function VideoCommentSection({
           onEndReached={handleLoadMore}
           renderItem={(item) => (
             <div className="pb-5">
-              <CommentRow
+              <CommentThread
                 item={item}
-                aid={aid}
-                bvid={bvid}
                 ownerMid={ownerMid}
                 selfMid={selfMid}
+                handlers={handlers}
                 onChanged={() => void loadComments(1, sort, true)}
                 onDeleted={handleDeleted}
               />

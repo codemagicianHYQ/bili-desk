@@ -2745,6 +2745,7 @@ class BiliApiService {
           (member.level_info as { current_level?: number } | undefined)
             ?.current_level,
         ),
+        isSeniorMember: Number(member.is_senior_member) === 1,
         sex: String(member.sex || ""),
       },
       replies: nested
