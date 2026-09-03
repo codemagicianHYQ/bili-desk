@@ -5,6 +5,7 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { LinkifiedText } from "@/components/ui/linkified-text";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
+import { parseBiliAppPath } from "@shared/utils/bili-app-link";
 import {
   ExternalLink,
   MessageCircle,
@@ -196,6 +197,14 @@ function LiveDynamicBody({ item }: { item: SpaceDynamicItem }) {
       </Link>
     );
   }
+  const appPath = external ? parseBiliAppPath(external) : null;
+  if (appPath) {
+    return (
+      <Link to={appPath} onClick={(e) => e.stopPropagation()}>
+        {content}
+      </Link>
+    );
+  }
   if (!external) return content;
   return (
     <a
@@ -293,6 +302,15 @@ function openDynamicTarget(
   }
   if (item.liveRoomId) {
     navigate(`/live/${item.liveRoomId}`);
+    return;
+  }
+  if (
+    item.kind === "article" &&
+    item.commentType === 12 &&
+    item.commentId &&
+    /^\d+$/.test(item.commentId)
+  ) {
+    navigate(`/article/${item.commentId}`);
     return;
   }
   if (

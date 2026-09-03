@@ -14,6 +14,7 @@ import { FollowTagDialog } from "./FollowTagDialog";
 import { FollowingUpCard } from "./FollowingUpCard";
 import { UnfollowConfirmDialog } from "./UnfollowConfirmDialog";
 import { CreateFollowTagControl } from "@/components/following/CreateFollowTagControl";
+import { upRelationCache, upSpaceCache } from "@/lib/session-data-cache";
 
 function isSpecialFollowTag(
   tagId: number | null,
@@ -398,7 +399,9 @@ export function FollowingPage() {
         setFollowings((prev) => {
           const next = prev.filter((item) => item.mid !== up.mid);
           if (selectedTagId != null) {
-            const cached = useFollowingStore.getState().getTagList(selectedTagId);
+            const cached = useFollowingStore
+              .getState()
+              .getTagList(selectedTagId);
             if (cached) {
               useFollowingStore.getState().putTagList(selectedTagId, {
                 ...cached,
@@ -418,6 +421,16 @@ export function FollowingPage() {
 
       patchFollowing(up.mid, { special });
       patchSpecialFollowCount(special ? 1 : -1);
+      const relationKey = String(up.mid);
+      const prevRelation = upRelationCache.get(relationKey);
+      const nextRelation = prevRelation
+        ? { ...prevRelation, special, isFollowing: true }
+        : { isFollowing: true, attribute: 2, special };
+      upRelationCache.set(relationKey, nextRelation);
+      const space = upSpaceCache.get(relationKey);
+      if (space) {
+        upSpaceCache.set(relationKey, { ...space, relation: nextRelation });
+      }
       setActionMessage(
         special
           ? `已将「${up.uname}」加入特别关注`

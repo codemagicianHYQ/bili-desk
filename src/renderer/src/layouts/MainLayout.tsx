@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { HomePage } from "@/features/home/HomePage";
@@ -16,6 +16,7 @@ import { useNavigationStore } from "@/stores/navigation-store";
 import { useHomeSearchStore } from "@/stores/home-search-store";
 import { useHomeTabStore } from "@/stores/home-tab-store";
 import { cn } from "@/lib/utils";
+import { useAppShortcuts } from "@/hooks/use-app-shortcuts";
 
 const titles: Record<string, { title: string; subtitle?: string }> = {
   "/": { title: "推荐", subtitle: "为你精选的内容" },
@@ -32,6 +33,8 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
 
 export function MainLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  useAppShortcuts();
   const prevPathRef = useRef(location.pathname);
   const syncKeepAlive = useNavigationStore((state) => state.syncKeepAlive);
   const followingKeepAlive = useNavigationStore(
@@ -60,6 +63,16 @@ export function MainLayout() {
   );
   const searchQuery = useHomeSearchStore((state) => state.query);
   const homeTab = useHomeTabStore((state) => state.tab);
+  const locationRef = useRef(location);
+  locationRef.current = location;
+
+  useEffect(() => {
+    if (typeof window.biliDesk.app.onNavigate !== "function") return;
+    return window.biliDesk.app.onNavigate((path) => {
+      const current = locationRef.current.pathname + locationRef.current.search;
+      if (path && path !== current) navigate(path);
+    });
+  }, [navigate]);
 
   useLayoutEffect(() => {
     const path = location.pathname;
@@ -85,15 +98,17 @@ export function MainLayout() {
     ? { title: "UP 主主页", subtitle: "投稿与关注" }
     : path.startsWith("/dynamic/")
       ? { title: "动态详情", subtitle: "内容与评论" }
-      : path.startsWith("/video/")
-        ? { title: "视频", subtitle: "正在播放" }
-        : path.startsWith("/live/")
-          ? { title: "直播", subtitle: "应用内观看" }
-          : path === "/" && searchQuery
-            ? { title: `搜索「${searchQuery}」`, subtitle: "已过滤无关结果" }
-            : path === "/" && homeTab === "live"
-              ? { title: "直播", subtitle: "推荐直播与关注开播" }
-              : (titles[path] ?? { title: "BiliDesk" });
+      : path.startsWith("/article/")
+        ? { title: "专栏", subtitle: "应用内阅读" }
+        : path.startsWith("/video/")
+          ? { title: "视频", subtitle: "正在播放" }
+          : path.startsWith("/live/")
+            ? { title: "直播", subtitle: "应用内观看" }
+            : path === "/" && searchQuery
+              ? { title: `搜索「${searchQuery}」`, subtitle: "已过滤无关结果" }
+              : path === "/" && homeTab === "live"
+                ? { title: "直播", subtitle: "推荐直播与关注开播" }
+                : (titles[path] ?? { title: "BiliDesk" });
 
   if (path === "/login") {
     return <Outlet />;
@@ -109,10 +124,12 @@ export function MainLayout() {
   const isMe = path === "/me";
   const isUpSpace = path.startsWith("/up/");
   const isDynamicDetail = path.startsWith("/dynamic/");
+  const isArticleDetail = path.startsWith("/article/");
   const isVideo = path.startsWith("/video/");
   const isLive = path.startsWith("/live/");
   const isSettings = path === "/settings";
-  const showOutlet = isUpSpace || isSettings || isDynamicDetail;
+  const showOutlet =
+    isUpSpace || isSettings || isDynamicDetail || isArticleDetail;
   const showVideo = isVideo && effectiveVideoBvid != null;
   const showLive = isLive && effectiveLiveRoomId != null;
 

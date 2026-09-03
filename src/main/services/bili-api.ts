@@ -76,6 +76,7 @@ import type {
   SearchArticleItem,
   SearchArticlesPage,
   SearchArticleOrder,
+  ArticleDetail,
   ToViewItem,
   ToViewList,
   SpaceDynamicItem,
@@ -4446,10 +4447,16 @@ class BiliApiService {
       return { isFollowing: false, attribute: 0 };
     }
 
-    const attribute = (res.data?.data?.attribute as number) ?? 0;
+    const data = (res.data?.data as Record<string, unknown>) ?? {};
+    const attribute = Number(data.attribute) || 0;
+    const tags = data.tag;
+    const specialFromTag =
+      Array.isArray(tags) &&
+      tags.some((id) => Number(id) === BILI_SPECIAL_FOLLOW_TAG_ID);
     return {
       isFollowing: attribute === 1 || attribute === 2 || attribute === 6,
       attribute,
+      special: Number(data.special) === 1 || specialFromTag,
     };
   }
 
@@ -5051,6 +5058,112 @@ class BiliApiService {
       pubTime: Number(item.pub_time ?? 0) || 0,
       categoryName: String(item.category_name ?? "") || undefined,
       url: `https://www.bilibili.com/read/cv${id}`,
+    };
+  }
+
+  async getArticle(id: number): Promise<ArticleDetail> {
+    await this.ensureBuvid3();
+    const cvid = Number(id);
+    if (!Number.isFinite(cvid) || cvid <= 0) throw new Error("专栏 ID 无效");
+
+    const referer = `https://www.bilibili.com/read/cv${cvid}`;
+    const baseParams: Record<string, string | number> = {
+      id: cvid,
+      gaia_source: "main_web",
+      web_location: "333.976",
+    };
+
+    let lastError = "专栏加载失败";
+    for (const mode of ["wbi", "plain"] as const) {
+      const params = mode === "wbi" ? await signParams(baseParams) : baseParams;
+      const res = await this.client.get("/x/article/view", {
+        params,
+        headers: { Referer: referer },
+        validateStatus: () => true,
+      });
+
+      if (res.status === 412 || res.data?.code === -412) {
+        throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+      }
+      if (res.data?.code === 0 && res.data?.data) {
+        return this.normalizeArticleDetail(
+          res.data.data as Record<string, unknown>,
+          cvid,
+        );
+      }
+      lastError = formatBiliApiError(res.data, "专栏加载失败");
+    }
+
+    throw new Error(lastError);
+  }
+
+  async likeArticle(id: number, like: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再点赞");
+    const cvid = Number(id);
+    if (!Number.isFinite(cvid) || cvid <= 0) throw new Error("专栏 ID 无效");
+
+    const body = new URLSearchParams({
+      id: String(cvid),
+      type: like ? "1" : "2",
+      csrf,
+    });
+
+    const res = await this.client.post("/x/article/like", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: `https://www.bilibili.com/read/cv${cvid}`,
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "点赞失败"));
+    }
+  }
+
+  private normalizeArticleDetail(
+    data: Record<string, unknown>,
+    fallbackId: number,
+  ): ArticleDetail {
+    const id = Number(data.id) || fallbackId;
+    const author = (data.author as Record<string, unknown>) ?? {};
+    const stats = (data.stats as Record<string, unknown>) ?? {};
+    const category = (data.category as Record<string, unknown>) ?? {};
+    const rawContent = data.content;
+    const content = typeof rawContent === "string" ? rawContent : "";
+    const dynId = String(data.dyn_id_str ?? data.dyn_id ?? "").trim();
+    const images = Array.isArray(data.origin_image_urls)
+      ? (data.origin_image_urls as unknown[])
+          .map((url) => this.normalizeBfsUrl(String(url ?? "")))
+          .filter(Boolean)
+      : [];
+    const likedRaw = data.is_like ?? data.like;
+
+    return {
+      id,
+      title: String(data.title ?? "未命名专栏").trim() || "未命名专栏",
+      summary: String(data.summary ?? "").trim(),
+      content,
+      banner: this.normalizeBfsUrl(String(data.banner_url ?? "")),
+      images,
+      mid: Number(author.mid) || 0,
+      author: String(author.name ?? "").trim(),
+      authorFace: this.normalizeBfsUrl(String(author.face ?? "")),
+      view: Number(stats.view) || 0,
+      like: Number(stats.like) || 0,
+      reply: Number(stats.reply) || 0,
+      coin: Number(stats.coin) || 0,
+      favorite: Number(stats.favorite) || 0,
+      share: Number(stats.share) || 0,
+      words: Number(data.words) || 0,
+      pubTime: Number(data.publish_time ?? data.ctime) || 0,
+      liked: likedRaw === true || Number(likedRaw) === 1,
+      dynId: dynId || undefined,
+      categoryName: String(category.name ?? "") || undefined,
     };
   }
 
@@ -7961,6 +8074,8 @@ class BiliApiService {
           articleImages[0] ||
           ((article.cover as string) ?? "").replace(/^http:/, "https:"),
         images: articleImages,
+        commentId: String(article.id || commentId),
+        commentType: 12,
         stats: { like: likeCount, reply: replyCount, forward: forwardCount },
       };
     }

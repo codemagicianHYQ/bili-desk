@@ -27,20 +27,23 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
     const cachedRelation = upRelationCache.get(String(mid));
     if (cachedProfile) setProfile(cachedProfile);
     if (cachedRelation) setRelation(cachedRelation);
-    if (cachedProfile && cachedRelation) return;
+    const relationStale =
+      !cachedRelation || cachedRelation.special === undefined;
+    if (cachedProfile && !relationStale) return;
 
     Promise.all([
       cachedProfile
         ? Promise.resolve(cachedProfile)
         : window.biliDesk.bili.getUpProfile(mid),
-      cachedRelation
-        ? Promise.resolve(cachedRelation)
-        : window.biliDesk.bili.getUpRelation(mid),
+      relationStale
+        ? window.biliDesk.bili.getUpRelation(mid)
+        : Promise.resolve(cachedRelation),
     ])
       .then(([upProfile, upRelation]) => {
         setProfile(upProfile);
-        setRelation(upRelation);
         upProfileCache.set(String(mid), upProfile);
+        if (!upRelation) return;
+        setRelation(upRelation);
         upRelationCache.set(String(mid), upRelation);
       })
       .catch((e: Error) => setError(e.message));
@@ -95,13 +98,29 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
               uname={displayName}
               face={displayFace}
               isFollowing={relation?.isFollowing ?? false}
+              isSpecial={Boolean(relation?.special)}
               disabled={!relation}
               onFollowingChange={(following) => {
-                setRelation((prev) =>
-                  prev
-                    ? { ...prev, isFollowing: following }
-                    : { isFollowing: following, attribute: 0 },
-                );
+                setRelation((prev) => {
+                  const next = prev
+                    ? {
+                        ...prev,
+                        isFollowing: following,
+                        special: following ? prev.special : false,
+                      }
+                    : { isFollowing: following, attribute: 0, special: false };
+                  upRelationCache.set(String(mid), next);
+                  return next;
+                });
+              }}
+              onSpecialChange={(special) => {
+                setRelation((prev) => {
+                  const next = prev
+                    ? { ...prev, special }
+                    : { isFollowing: true, attribute: 2, special };
+                  upRelationCache.set(String(mid), next);
+                  return next;
+                });
               }}
               onError={setError}
             />

@@ -55,7 +55,9 @@ export function Sidebar() {
     followingKeepAlive &&
     (path === "/following" ||
       path.startsWith("/up/") ||
-      ((path.startsWith("/video/") || path.startsWith("/live/")) &&
+      ((path.startsWith("/video/") ||
+        path.startsWith("/live/") ||
+        path.startsWith("/article/")) &&
         !favoritesKeepAlive &&
         !watchLaterKeepAlive &&
         !dynamicsKeepAlive &&
@@ -66,17 +68,20 @@ export function Sidebar() {
     (path === "/favorites" ||
       path.startsWith("/video/") ||
       path.startsWith("/live/") ||
+      path.startsWith("/article/") ||
       path.startsWith("/up/"));
   const inWatchLaterFlow =
     watchLaterKeepAlive &&
     (path === "/watch-later" ||
       path.startsWith("/video/") ||
       path.startsWith("/live/") ||
+      path.startsWith("/article/") ||
       path.startsWith("/up/"));
   const inDynamicsFlow =
     dynamicsKeepAlive &&
     (path === "/dynamics" ||
       path.startsWith("/dynamic/") ||
+      path.startsWith("/article/") ||
       path.startsWith("/video/") ||
       path.startsWith("/live/") ||
       path.startsWith("/up/"));
@@ -85,12 +90,14 @@ export function Sidebar() {
     (path === "/history" ||
       path.startsWith("/video/") ||
       path.startsWith("/live/") ||
+      path.startsWith("/article/") ||
       path.startsWith("/up/"));
   const inPopularFlow =
     popularKeepAlive &&
     (path === "/popular" ||
       path.startsWith("/video/") ||
       path.startsWith("/live/") ||
+      path.startsWith("/article/") ||
       path.startsWith("/up/"));
 
   return (

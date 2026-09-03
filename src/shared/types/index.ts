@@ -357,6 +357,8 @@ export interface UpProfile {
 export interface UpRelation {
   isFollowing: boolean;
   attribute: number;
+  /** 是否特别关注（系统分组 tagid=-10） */
+  special?: boolean;
 }
 
 export interface UpVideosPage {
@@ -583,6 +585,30 @@ export interface SearchArticleItem {
   pubTime: number;
   categoryName?: string;
   url: string;
+}
+
+export interface ArticleDetail {
+  id: number;
+  title: string;
+  summary: string;
+  content: string;
+  banner: string;
+  images: string[];
+  mid: number;
+  author: string;
+  authorFace: string;
+  view: number;
+  like: number;
+  reply: number;
+  coin: number;
+  favorite: number;
+  share: number;
+  words: number;
+  pubTime: number;
+  liked: boolean;
+  /** 已迁到图文动态时的 dyn/opus id */
+  dynId?: string;
+  categoryName?: string;
 }
 
 export interface SearchArticlesPage {
@@ -1131,6 +1157,8 @@ export interface BiliDeskApi {
     ) => Promise<SpaceDynamicPage>;
     getDynamicDetail: (id: string) => Promise<SpaceDynamicItem>;
     likeDynamic: (id: string, like: boolean) => Promise<void>;
+    getArticle: (id: number) => Promise<ArticleDetail>;
+    likeArticle: (id: number, like: boolean) => Promise<void>;
     getTargetComments: (
       oid: string,
       type: number,
@@ -1234,6 +1262,7 @@ export interface BiliDeskApi {
     setFullscreen: (on: boolean) => Promise<boolean>;
     isFullscreen: () => Promise<boolean>;
     onFullscreenChange: (callback: (on: boolean) => void) => () => void;
+    onNavigate: (callback: (path: string) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
     resolveBiliUrl: (url: string) => Promise<string>;
     probeShortcut: (

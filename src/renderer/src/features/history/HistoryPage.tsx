@@ -21,6 +21,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { savePlaybackProgress } from "@/lib/playback-progress";
 import { cn } from "@/lib/utils";
+import { parseBiliAppPath } from "@shared/utils/bili-app-link";
 import { useAppStore } from "@/stores/app-store";
 import {
   Check,
@@ -250,6 +251,15 @@ function resolveExternalUrl(item: HistoryItem): string {
   return "";
 }
 
+function resolveHistoryAppPath(item: HistoryItem): string | null {
+  if (item.uri) {
+    const fromUri = parseBiliAppPath(item.uri);
+    if (fromUri) return fromUri;
+  }
+  const external = resolveExternalUrl(item);
+  return external ? parseBiliAppPath(external) : null;
+}
+
 /** 历史续播链接：带上进度与分 P cid */
 function resolveVideoResumePath(item: HistoryItem): string | null {
   if (!item.bvid) return null;
@@ -304,6 +314,7 @@ function HistoryCard({
   const isLive = item.business === "live";
   const isArticle =
     item.business === "article" || item.business === "article-list";
+  const appPath = resolveHistoryAppPath(item);
   const external = resolveExternalUrl(item);
   const cover = item.cover || item.covers?.[0] || "";
   const progressText = coverProgressLabel(item);
@@ -463,6 +474,9 @@ function HistoryCard({
   }
   if (isLive && item.oid) {
     return <Link to={`/live/${item.oid}`}>{body}</Link>;
+  }
+  if (appPath) {
+    return <Link to={appPath}>{body}</Link>;
   }
   if (external) {
     return (

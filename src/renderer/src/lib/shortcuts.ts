@@ -10,7 +10,9 @@ export type ShortcutAction =
   | "volumeUp"
   | "volumeDown"
   | "mute"
-  | "fullscreen";
+  | "fullscreen"
+  | "goBack"
+  | "goForward";
 
 export interface ShortcutConfig {
   seekStep: number;
@@ -27,6 +29,8 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig = {
     volumeDown: "ArrowDown",
     mute: "KeyM",
     fullscreen: "KeyF",
+    goBack: "Alt+ArrowLeft",
+    goForward: "Alt+ArrowRight",
   },
 };
 
@@ -38,6 +42,8 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   volumeDown: "音量减",
   mute: "静音",
   fullscreen: "全屏",
+  goBack: "返回",
+  goForward: "前进",
 };
 
 const KEY_DISPLAY: Record<string, string> = {

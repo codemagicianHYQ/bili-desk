@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem, UpProfile } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { LinkifiedText } from "@/components/ui/linkified-text";
@@ -96,9 +96,18 @@ function DynamicCard({
   fallbackName: string;
   fallbackFace: string;
 }) {
+  const navigate = useNavigate();
   const authorName = item.authorName || fallbackName;
   const authorFace = item.authorFace || fallbackFace;
   const meta = [item.pubTimeLabel, item.pubAction].filter(Boolean).join(" · ");
+  const canOpenDetail =
+    Boolean(item.id) &&
+    item.id !== "0" &&
+    (item.kind === "opus" ||
+      item.kind === "text" ||
+      item.kind === "draw" ||
+      item.kind === "forward" ||
+      item.kind === "article");
 
   return (
     <article className="overflow-hidden rounded-xl bg-[#232527] shadow-sm ring-1 ring-white/5">
@@ -120,7 +129,25 @@ function DynamicCard({
         </div>
       </div>
 
-      <div className="space-y-3 px-5 py-3">
+      <div
+        className={cn("space-y-3 px-5 py-3", canOpenDetail && "cursor-pointer")}
+        onClick={
+          canOpenDetail
+            ? () => {
+                if (
+                  item.kind === "article" &&
+                  item.commentType === 12 &&
+                  item.commentId &&
+                  /^\d+$/.test(item.commentId)
+                ) {
+                  navigate(`/article/${item.commentId}`);
+                  return;
+                }
+                navigate(`/dynamic/${item.id}`);
+              }
+            : undefined
+        }
+      >
         {item.kind === "video" ? (
           <>
             {item.text && (

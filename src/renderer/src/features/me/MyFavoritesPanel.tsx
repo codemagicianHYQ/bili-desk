@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { FavMediaItem, OpusFavItem } from "@shared/types";
+import { OpusAppLink } from "@/components/opus/OpusAppLink";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { cn, formatCount } from "@/lib/utils";
@@ -181,11 +182,9 @@ export function MyFavoritesPanel() {
                 </Link>
               ))
             : opusItems.map((item) => (
-                <a
+                <OpusAppLink
                   key={item.id}
-                  href={item.url}
-                  target="_blank"
-                  rel="noreferrer"
+                  item={item}
                   className="flex gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-secondary/50"
                 >
                   {item.cover ? (
@@ -214,7 +213,7 @@ export function MyFavoritesPanel() {
                       </p>
                     )}
                   </div>
-                </a>
+                </OpusAppLink>
               ))}
 
           <div

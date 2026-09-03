@@ -123,6 +123,7 @@ export function ImageLightbox({
           <BiliImage
             src={src}
             alt="评论图片预览"
+            loading="eager"
             className="max-h-[90vh] max-w-[92vw] object-contain"
           />
         </div>

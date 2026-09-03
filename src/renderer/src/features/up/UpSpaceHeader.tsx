@@ -13,6 +13,7 @@ export function UpSpaceHeader({
   currentMid,
   onOpenRelation,
   onRelationChange,
+  onSpecialChange,
   onError,
 }: {
   profile: UpProfile;
@@ -20,6 +21,7 @@ export function UpSpaceHeader({
   currentMid: number;
   onOpenRelation: (type: UserRelationListType) => void;
   onRelationChange: (following: boolean) => void;
+  onSpecialChange: (special: boolean) => void;
   onError: (message: string) => void;
 }) {
   return (
@@ -81,10 +83,12 @@ export function UpSpaceHeader({
                 uname={profile.name}
                 face={profile.face}
                 isFollowing={relation?.isFollowing ?? false}
+                isSpecial={Boolean(relation?.special)}
                 disabled={!relation}
                 size="default"
                 className="self-start sm:self-end"
                 onFollowingChange={onRelationChange}
+                onSpecialChange={onSpecialChange}
                 onError={onError}
               />
             )}

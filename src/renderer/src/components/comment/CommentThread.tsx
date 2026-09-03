@@ -294,6 +294,7 @@ export function CommentThread({
                 <BiliImage
                   src={picture.src}
                   alt="评论图片"
+                  loading="eager"
                   className="h-full w-full object-cover"
                 />
               </button>

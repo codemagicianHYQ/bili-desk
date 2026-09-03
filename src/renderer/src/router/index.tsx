@@ -3,6 +3,7 @@ import { MainLayout } from "@/layouts/MainLayout";
 import { LoginPage } from "@/features/login/LoginPage";
 import { UpSpacePage } from "@/features/up/UpSpacePage";
 import { DynamicDetailPage } from "@/features/dynamics/DynamicDetailPage";
+import { ArticleDetailPage } from "@/features/article/ArticleDetailPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 
 export const router = createHashRouter([
@@ -16,6 +17,7 @@ export const router = createHashRouter([
       { path: "following", element: null },
       { path: "dynamics", element: null },
       { path: "dynamic/:id", element: <DynamicDetailPage /> },
+      { path: "article/:id", element: <ArticleDetailPage /> },
       { path: "history", element: null },
       { path: "watch-later", element: null },
       { path: "me", element: null },

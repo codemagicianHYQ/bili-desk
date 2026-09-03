@@ -2,6 +2,11 @@ import { BrowserWindow, shell, app, nativeImage } from "electron";
 import { existsSync } from "fs";
 import { join } from "path";
 import { IPC } from "@shared/ipc-channels";
+import {
+  isBiliUrl,
+  isInternalAppUrl,
+  resolveInAppPathFromUrl,
+} from "@shared/utils/bili-app-link";
 
 function resolveAppIcon(): Electron.NativeImage | undefined {
   const candidates = app.isPackaged
@@ -58,8 +63,29 @@ export function createMainWindow(): BrowserWindow {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    const inApp = resolveInAppPathFromUrl(url);
+    if (inApp) {
+      win.webContents.send(IPC.APP_NAVIGATE, inApp);
+      return { action: "deny" };
+    }
+    // 本应用自己的页面（含 vite hash）绝不能再丢给系统浏览器
+    if (isInternalAppUrl(url)) {
+      return { action: "deny" };
+    }
+    void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  win.webContents.on("will-navigate", (event, url) => {
+    if (isInternalAppUrl(url)) return;
+    event.preventDefault();
+    const inApp = resolveInAppPathFromUrl(url);
+    if (inApp) {
+      win.webContents.send(IPC.APP_NAVIGATE, inApp);
+      return;
+    }
+    if (isBiliUrl(url)) return;
+    void shell.openExternal(url);
   });
 
   win.webContents.on("render-process-gone", (_event, details) => {

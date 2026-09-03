@@ -981,3 +981,112 @@ html.bili-os-fullscreen .bili-player-stage video {
 .bili-cmt-lv[data-lv="6"] {
   color: #ff4141;
 }
+
+.article-body {
+  font-size: 16px;
+  line-height: 1.85;
+  word-break: break-word;
+}
+
+.article-body p,
+.article-body div {
+  margin: 0.85em 0;
+}
+
+.article-body h1,
+.article-body h2,
+.article-body h3,
+.article-body h4 {
+  margin: 1.4em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.article-body h1 {
+  font-size: 1.4em;
+}
+
+.article-body h2 {
+  font-size: 1.25em;
+}
+
+.article-body h3 {
+  font-size: 1.1em;
+}
+
+.article-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1em auto;
+  border-radius: 0.5rem;
+}
+
+.article-body figure {
+  margin: 1.2em 0;
+}
+
+.article-body figcaption,
+.article-body .caption {
+  margin-top: 0.4em;
+  text-align: center;
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.article-body a {
+  color: #00aeec;
+  text-underline-offset: 2px;
+}
+
+.article-body a:hover {
+  text-decoration: underline;
+}
+
+.article-body blockquote {
+  margin: 1em 0;
+  border-left: 3px solid hsl(var(--primary));
+  padding-left: 1em;
+  color: hsl(var(--muted-foreground));
+}
+
+.article-body ul,
+.article-body ol {
+  margin: 0.8em 0 0.8em 1.4em;
+}
+
+.article-body li {
+  margin: 0.25em 0;
+}
+
+.article-body hr,
+.article-body .cut-off {
+  border: 0;
+  border-top: 1px dashed hsl(var(--border));
+  margin: 1.5em 0;
+}
+
+.article-body pre,
+.article-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.article-body pre {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  background: hsl(var(--secondary));
+  padding: 0.9em 1em;
+}
+
+.article-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.article-body th,
+.article-body td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.4em 0.6em;
+}

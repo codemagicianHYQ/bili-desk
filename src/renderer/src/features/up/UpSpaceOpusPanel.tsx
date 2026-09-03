@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OpusFavItem } from "@shared/types";
+import { OpusAppLink } from "@/components/opus/OpusAppLink";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { formatUserSpaceError } from "@/lib/ipc-error";
@@ -28,7 +29,9 @@ export function UpSpaceOpusPanel({ mid }: { mid: number }) {
         );
         offsetRef.current = result.offset;
         setHasMore(result.hasMore);
-        setItems((prev) => (append ? [...prev, ...result.items] : result.items));
+        setItems((prev) =>
+          append ? [...prev, ...result.items] : result.items,
+        );
       } catch (err) {
         setError(formatUserSpaceError(err));
       } finally {
@@ -85,11 +88,9 @@ export function UpSpaceOpusPanel({ mid }: { mid: number }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {items.map((item) => (
-        <a
+        <OpusAppLink
           key={item.id}
-          href={item.url}
-          target="_blank"
-          rel="noreferrer"
+          item={item}
           className="flex gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-secondary/50"
         >
           {item.cover ? (
@@ -111,7 +112,7 @@ export function UpSpaceOpusPanel({ mid }: { mid: number }) {
               </p>
             )}
           </div>
-        </a>
+        </OpusAppLink>
       ))}
       <div
         ref={sentinelRef}

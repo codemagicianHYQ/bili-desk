@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import type { SearchArticleItem, SearchArticleOrder } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
@@ -152,11 +153,9 @@ export function SearchArticlePanel({
             )}
           >
             {articles.map((article) => (
-              <a
+              <Link
                 key={article.id}
-                href={article.url}
-                target="_blank"
-                rel="noreferrer"
+                to={`/article/${article.id}`}
                 className="group flex gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-secondary/40"
               >
                 {article.cover ? (
@@ -199,7 +198,7 @@ export function SearchArticlePanel({
                     </span>
                   </div>
                 </div>
-              </a>
+              </Link>
             ))}
           </div>
           <PaginationBar

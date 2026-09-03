@@ -48,9 +48,10 @@ function firstPathSegment(pathname: string, index = 0): string {
 }
 
 export function parseBiliAppPath(href: string): string | null {
+  const raw = href.startsWith("//") ? `https:${href}` : href;
   let url: URL;
   try {
-    url = new URL(/^www\./i.test(href) ? `https://${href}` : href);
+    url = new URL(/^www\./i.test(raw) ? `https://${raw}` : raw);
   } catch {
     return null;
   }
@@ -92,6 +93,18 @@ export function parseBiliAppPath(href: string): string | null {
     return `/video/${bvidQuery}${keepVideoQuery(url.searchParams)}`;
   }
 
+  const cvId = path.match(/\/read\/cv(\d+)/i)?.[1];
+  if (cvId) return `/article/${cvId}`;
+
+  const readId = url.searchParams.get("id");
+  if (
+    /\/read\//i.test(path) &&
+    readId &&
+    /^\d+$/.test(readId)
+  ) {
+    return `/article/${readId}`;
+  }
+
   const opusId = path.match(/\/opus\/(\d+)/)?.[1];
   if (opusId) return `/dynamic/${opusId}`;
 
@@ -102,4 +115,47 @@ export function parseBiliAppPath(href: string): string | null {
   if (spaceMid) return `/up/${spaceMid}`;
 
   return null;
+}
+
+/** 图文 / opus：优先解析 jump_url，否则用 opus id 进应用内动态详情 */
+export function resolveOpusAppPath(item: {
+  id: string;
+  url?: string;
+}): string {
+  if (item.url) {
+    const parsed = parseBiliAppPath(item.url);
+    if (parsed) return parsed;
+  }
+  return `/dynamic/${item.id}`;
+}
+
+export function isInternalAppUrl(url: string): boolean {
+  const trimmed = String(url ?? "").trim();
+  if (!trimmed || trimmed === "about:blank") return true;
+  if (trimmed.startsWith("#")) return true;
+  try {
+    const parsed = new URL(
+      trimmed.startsWith("//") ? `https:${trimmed}` : trimmed,
+    );
+    if (parsed.protocol === "file:" || parsed.protocol === "app:") return true;
+    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
+  } catch {
+    return true;
+  }
+}
+
+export function extractAppHashPath(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const hash = decodeURIComponent(parsed.hash.replace(/^#/, ""));
+    if (hash.startsWith("/")) return hash;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** 把新窗口 / 外链解析成应用内 hash 路由，解析不了返回 null */
+export function resolveInAppPathFromUrl(url: string): string | null {
+  return extractAppHashPath(url) ?? parseBiliAppPath(url);
 }

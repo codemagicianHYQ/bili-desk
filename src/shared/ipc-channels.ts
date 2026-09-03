@@ -75,6 +75,8 @@ export const IPC = {
   BILI_FOLLOW_DYNAMICS: "bili:follow-dynamics",
   BILI_DYNAMIC_DETAIL: "bili:dynamic-detail",
   BILI_DYNAMIC_LIKE: "bili:dynamic-like",
+  BILI_ARTICLE_VIEW: "bili:article-view",
+  BILI_ARTICLE_LIKE: "bili:article-like",
   BILI_TARGET_COMMENT_LIST: "bili:target-comment-list",
   BILI_TARGET_COMMENT_REPLIES: "bili:target-comment-replies",
   BILI_TARGET_COMMENT_ADD: "bili:target-comment-add",
@@ -127,6 +129,7 @@ export const IPC = {
   APP_OPEN_EXTERNAL: "app:open-external",
   APP_RESOLVE_BILI_URL: "app:resolve-bili-url",
   APP_PROBE_SHORTCUT: "app:probe-shortcut",
+  APP_NAVIGATE: "app:navigate",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

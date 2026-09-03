@@ -3,6 +3,7 @@ import { IPC } from "@shared/ipc-channels";
 import { appStore } from "../store/app-store";
 import type { Theme } from "@shared/types";
 import { sanitizeExternalUrl } from "@shared/utils/external-url";
+import { resolveInAppPathFromUrl } from "@shared/utils/bili-app-link";
 import { resolveBiliUrl } from "../services/bili-link";
 
 function windowFromEvent(
@@ -28,9 +29,14 @@ export function registerAppIpc(): void {
     if (!win || win.isDestroyed()) return false;
     return win.isFullScreen();
   });
-  ipcMain.handle(IPC.APP_OPEN_EXTERNAL, async (_event, raw: string) => {
+  ipcMain.handle(IPC.APP_OPEN_EXTERNAL, async (event, raw: string) => {
     const url = sanitizeExternalUrl(raw);
     if (!url) throw new Error("不支持的链接");
+    const inApp = resolveInAppPathFromUrl(url);
+    if (inApp) {
+      event.sender.send(IPC.APP_NAVIGATE, inApp);
+      return;
+    }
     await shell.openExternal(url);
   });
   ipcMain.handle(IPC.APP_RESOLVE_BILI_URL, (_event, raw: string) =>

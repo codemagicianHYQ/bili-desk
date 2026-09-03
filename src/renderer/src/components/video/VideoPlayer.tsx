@@ -11,6 +11,11 @@ import {
   createOsFullscreenControl,
   setOsFullscreenLayout,
 } from "@/components/video/os-fullscreen-control";
+import {
+  flushDanmakuPref,
+  readDanmakuPref,
+  writeDanmakuPref,
+} from "@/components/video/danmaku-pref";
 import { createQualityControl } from "@/components/video/quality-setting";
 import {
   attachPlayerHotkeys,
@@ -411,6 +416,7 @@ export function VideoPlayer({
       settings: [createSeekStepSetting()],
       plugins: [
         artplayerPluginDanmuku({
+          ...readDanmakuPref(),
           danmuku: async () => {
             // 先让视频抢带宽开播，弹幕稍后再拉
             await new Promise((resolve) => window.setTimeout(resolve, 1200));
@@ -421,16 +427,6 @@ export function VideoPlayer({
               return [];
             }
           },
-          speed: 5,
-          opacity: 1,
-          fontSize: 22,
-          color: "#FFFFFF",
-          mode: 0,
-          modes: [0, 1, 2],
-          margin: [10, "25%"],
-          antiOverlap: true,
-          synchronousPlayback: true,
-          visible: true,
           emitter: true,
           maxLength: 100,
           theme: "dark",
@@ -552,6 +548,9 @@ export function VideoPlayer({
     });
 
     artRef.current = art;
+    art.on("artplayerPluginDanmuku:config", (option) => {
+      writeDanmakuPref(option);
+    });
     const unbindResize = bindPlayerResize(art, container);
     const unbindHotkeys = attachPlayerHotkeys(art, () => activeRef.current);
     if (playInfo.qualityNotice) {
@@ -571,6 +570,7 @@ export function VideoPlayer({
         reportHeartbeat(2);
       }
       artRef.current = null;
+      flushDanmakuPref();
       const media = art.video as HTMLVideoElement | undefined;
       try {
         art.pause();

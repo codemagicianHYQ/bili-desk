@@ -97,7 +97,7 @@ export function attachPlayerHotkeys(
     const action = (
       Object.entries(config.keys) as Array<[ShortcutAction, string]>
     ).find(([, bound]) => bound === chord)?.[0];
-    if (!action) return;
+    if (!action || action === "goBack" || action === "goForward") return;
     if (event.repeat && action !== "seekBackward" && action !== "seekForward") {
       return;
     }

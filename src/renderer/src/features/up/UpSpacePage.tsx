@@ -225,6 +225,20 @@ export function UpSpacePage() {
           }
         })
         .catch(() => undefined);
+      if (cached.relation?.special === undefined) {
+        void window.biliDesk.bili
+          .getUpRelation(mid)
+          .then((upRelation) => {
+            if (cancelled) return;
+            setRelation(upRelation);
+            upRelationCache.set(String(mid), upRelation);
+            const space = upSpaceCache.get(String(mid));
+            if (space) {
+              upSpaceCache.set(String(mid), { ...space, relation: upRelation });
+            }
+          })
+          .catch(() => undefined);
+      }
       return () => {
         cancelled = true;
       };
@@ -253,13 +267,14 @@ export function UpSpacePage() {
           1,
           "pubdate",
         );
-        const relationPromise = cached?.relation
-          ? Promise.resolve(cached.relation)
-          : window.biliDesk.bili
-              .getUpRelation(mid)
-              .catch(
-                () => ({ isFollowing: false, attribute: 0 }) as UpRelation,
-              );
+        const relationPromise =
+          cached?.relation && cached.relation.special !== undefined
+            ? Promise.resolve(cached.relation)
+            : window.biliDesk.bili
+                .getUpRelation(mid)
+                .catch(
+                  () => ({ isFollowing: false, attribute: 0 }) as UpRelation,
+                );
 
         const upProfile = await profilePromise;
         if (cancelled) return;
@@ -539,8 +554,28 @@ export function UpSpacePage() {
           onRelationChange={(following) => {
             setRelation((prev) => {
               const next = prev
-                ? { ...prev, isFollowing: following }
-                : { isFollowing: following, attribute: 0 };
+                ? {
+                    ...prev,
+                    isFollowing: following,
+                    special: following ? prev.special : false,
+                  }
+                : { isFollowing: following, attribute: 0, special: false };
+              upRelationCache.set(String(mid), next);
+              const space = upSpaceCache.get(String(mid));
+              if (space) {
+                upSpaceCache.set(String(mid), {
+                  ...space,
+                  relation: next,
+                });
+              }
+              return next;
+            });
+          }}
+          onSpecialChange={(special) => {
+            setRelation((prev) => {
+              const next = prev
+                ? { ...prev, special }
+                : { isFollowing: true, attribute: 2, special };
               upRelationCache.set(String(mid), next);
               const space = upSpaceCache.get(String(mid));
               if (space) {

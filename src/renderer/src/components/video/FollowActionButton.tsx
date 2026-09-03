@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { List } from "lucide-react";
+import { List, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
@@ -9,16 +9,19 @@ import { FollowButton } from "@/components/video/FollowButton";
 import { FollowTagDialog } from "@/features/following/FollowTagDialog";
 import { cn } from "@/lib/utils";
 import { useFollowingStore } from "@/stores/following-store";
+import { BILI_SPECIAL_FOLLOW_TAG_ID } from "@shared/types";
 
 interface FollowActionButtonProps {
   mid: number;
   uname: string;
   face?: string;
   isFollowing: boolean;
+  isSpecial?: boolean;
   disabled?: boolean;
   size?: "default" | "sm";
   className?: string;
   onFollowingChange: (following: boolean) => void;
+  onSpecialChange?: (special: boolean) => void;
   onError?: (message: string) => void;
 }
 
@@ -27,10 +30,12 @@ export function FollowActionButton({
   uname,
   face = "",
   isFollowing,
+  isSpecial = false,
   disabled = false,
   size = "sm",
   className,
   onFollowingChange,
+  onSpecialChange,
   onError,
 }: FollowActionButtonProps) {
   const [loading, setLoading] = useState(false);
@@ -48,9 +53,16 @@ export function FollowActionButton({
   const patchFollowTagCount = useFollowingStore(
     (state) => state.patchFollowTagCount,
   );
+  const patchSpecialFollowCount = useFollowingStore(
+    (state) => state.patchSpecialFollowCount,
+  );
   const invalidateFollowings = useFollowingStore(
     (state) => state.invalidateFollowings,
   );
+  const storeEntry = useFollowingStore((state) =>
+    state.allFollowings?.find((up) => up.mid === mid),
+  );
+  const showSpecial = Boolean(isSpecial) || Boolean(storeEntry?.special);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -101,6 +113,7 @@ export function FollowActionButton({
     try {
       await window.biliDesk.bili.modifyFollow(mid, false);
       onFollowingChange(false);
+      onSpecialChange?.(false);
       patchFollowing(mid, null);
       invalidateFollowings();
       setUnfollowOpen(false);
@@ -144,12 +157,17 @@ export function FollowActionButton({
           disabled={disabled || loading}
           className={cn(
             "gap-1.5 border border-border bg-muted text-muted-foreground shadow-none hover:bg-muted/80",
+            showSpecial && "text-primary",
             menuOpen && "bg-muted/80",
           )}
           onClick={() => setMenuOpen((open) => !open)}
         >
-          <List className="h-3.5 w-3.5" />
-          {loading ? "处理中..." : "已关注"}
+          {showSpecial ? (
+            <Star className="h-3.5 w-3.5 fill-current" />
+          ) : (
+            <List className="h-3.5 w-3.5" />
+          )}
+          {loading ? "处理中..." : showSpecial ? "特别关注" : "已关注"}
         </Button>
       </div>
 
@@ -187,13 +205,20 @@ export function FollowActionButton({
         tags={followTags}
         onClose={() => setTagDialogOpen(false)}
         onSaved={(change) => {
-          const prev = new Set(change.prevTagIds);
-          const next = new Set(change.nextTagIds);
+          const prev = new Set(change.prevTagIds.filter((id) => id !== 0));
+          const next = new Set(change.nextTagIds.filter((id) => id !== 0));
           for (const tagId of next) {
             if (!prev.has(tagId)) patchFollowTagCount(tagId, 1);
           }
           for (const tagId of prev) {
             if (!next.has(tagId)) patchFollowTagCount(tagId, -1);
+          }
+          const wasSpecial = prev.has(BILI_SPECIAL_FOLLOW_TAG_ID);
+          const nowSpecial = next.has(BILI_SPECIAL_FOLLOW_TAG_ID);
+          if (wasSpecial !== nowSpecial) {
+            patchFollowing(mid, { special: nowSpecial });
+            patchSpecialFollowCount(nowSpecial ? 1 : -1);
+            onSpecialChange?.(nowSpecial);
           }
         }}
       />

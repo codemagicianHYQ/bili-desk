@@ -1,4 +1,5 @@
 import type { OpusFavItem, UserCollectionItem, VideoItem } from "@shared/types";
+import { OpusAppLink } from "@/components/opus/OpusAppLink";
 import { BiliImage } from "@/components/ui/bili-image";
 import { VideoCard } from "@/components/video/VideoCard";
 import { cn } from "@/lib/utils";
@@ -94,11 +95,9 @@ export function UpSpaceHome({
           />
           <div className="grid gap-3 sm:grid-cols-3">
             {opus.slice(0, 3).map((item) => (
-              <a
+              <OpusAppLink
                 key={item.id}
-                href={item.url}
-                target="_blank"
-                rel="noreferrer"
+                item={item}
                 className="overflow-hidden rounded-xl border border-border bg-card transition-colors hover:bg-secondary/40"
               >
                 {item.cover ? (
@@ -113,7 +112,7 @@ export function UpSpaceHome({
                   </div>
                 )}
                 <p className="line-clamp-2 p-2.5 text-sm">{item.title}</p>
-              </a>
+              </OpusAppLink>
             ))}
           </div>
         </section>

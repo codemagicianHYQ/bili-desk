@@ -34,6 +34,10 @@ function isDynamicDetailPath(path: string): boolean {
   return path.startsWith("/dynamic/");
 }
 
+function isArticlePath(path: string): boolean {
+  return path.startsWith("/article/");
+}
+
 function isVideoPath(path: string): boolean {
   return path.startsWith("/video/");
 }
@@ -155,9 +159,11 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       (isVideoPath(path) ||
         isLivePath(path) ||
         isDynamicDetailPath(path) ||
+        isArticlePath(path) ||
         isUpPath(path)) &&
       (prevPath === "/dynamics" ||
         isDynamicDetailPath(prevPath) ||
+        isArticlePath(prevPath) ||
         isVideoPath(prevPath) ||
         isLivePath(prevPath) ||
         isUpPath(prevPath) ||
@@ -166,6 +172,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       if (
         prevPath === "/dynamics" ||
         isDynamicDetailPath(prevPath) ||
+        isArticlePath(prevPath) ||
         dynamicsKeepAlive
       ) {
         dynamicsKeepAlive = true;
@@ -177,10 +184,11 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
     if (path === "/history") {
       historyKeepAlive = true;
     } else if (
-      (isVideoPath(path) || isLivePath(path)) &&
+      (isVideoPath(path) || isLivePath(path) || isArticlePath(path)) &&
       (prevPath === "/history" ||
         isVideoPath(prevPath) ||
         isLivePath(prevPath) ||
+        isArticlePath(prevPath) ||
         isUpPath(prevPath))
     ) {
       if (prevPath === "/history" || historyKeepAlive) {

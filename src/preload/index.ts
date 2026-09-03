@@ -22,6 +22,8 @@ import type {
 
 const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
 let fullscreenIpcBound = false;
+const navigateCallbacks = new Set<(path: string) => void>();
+let navigateIpcBound = false;
 
 function subscribeFullscreenChange(callback: (on: boolean) => void) {
   if (!fullscreenIpcBound) {
@@ -36,6 +38,23 @@ function subscribeFullscreenChange(callback: (on: boolean) => void) {
   fullscreenChangeCallbacks.add(callback);
   return () => {
     fullscreenChangeCallbacks.delete(callback);
+  };
+}
+
+function subscribeNavigate(callback: (path: string) => void) {
+  if (!navigateIpcBound) {
+    navigateIpcBound = true;
+    ipcRenderer.on(IPC.APP_NAVIGATE, (_event, path: string) => {
+      const next = String(path ?? "").trim();
+      if (!next.startsWith("/")) return;
+      for (const cb of navigateCallbacks) {
+        cb(next);
+      }
+    });
+  }
+  navigateCallbacks.add(callback);
+  return () => {
+    navigateCallbacks.delete(callback);
   };
 }
 
@@ -305,6 +324,9 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_DETAIL, id),
     likeDynamic: (id: string, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_LIKE, id, like),
+    getArticle: (id: number) => ipcRenderer.invoke(IPC.BILI_ARTICLE_VIEW, id),
+    likeArticle: (id: number, like: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_ARTICLE_LIKE, id, like),
     getTargetComments: (
       oid: string,
       type: number,
@@ -446,6 +468,8 @@ const api = {
     isFullscreen: () => ipcRenderer.invoke(IPC.APP_GET_FULLSCREEN),
     onFullscreenChange: (callback: (on: boolean) => void) =>
       subscribeFullscreenChange(callback),
+    onNavigate: (callback: (path: string) => void) =>
+      subscribeNavigate(callback),
     openExternal: (url: string) =>
       ipcRenderer.invoke(IPC.APP_OPEN_EXTERNAL, url),
     resolveBiliUrl: (url: string) =>

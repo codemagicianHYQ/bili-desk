@@ -145,6 +145,14 @@ export function ShortcutsPanel() {
                 <p className="text-xs text-muted-foreground">
                   每次 {config.seekStep} 秒
                 </p>
+              ) : action === "goBack" ? (
+                <p className="text-xs text-muted-foreground">
+                  与浏览器相同，返回上一页
+                </p>
+              ) : action === "goForward" ? (
+                <p className="text-xs text-muted-foreground">
+                  与浏览器相同，前进到下一页
+                </p>
               ) : null}
             </div>
             <div className="flex items-center gap-2">
