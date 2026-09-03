@@ -82,6 +82,7 @@ export function createOsFullscreenControl(): ComponentOption {
   let onKeyDown: ((event: KeyboardEvent) => void) | null = null;
   let onDblClick: (() => void) | null = null;
   let onWebFullscreen: ((value: boolean) => void) | null = null;
+  let onToggleFullscreen: (() => void) | null = null;
 
   const syncIcon = () => {
     if (controlEl) paint(controlEl, osOn);
@@ -148,6 +149,12 @@ export function createOsFullscreenControl(): ComponentOption {
       };
       document.addEventListener("keydown", onKeyDown);
 
+      onToggleFullscreen = () => {
+        const current = artRef;
+        if (current) void apply(current, !osOn);
+      };
+      this.on("bili-toggle-fullscreen", onToggleFullscreen);
+
       unsubscribe = window.biliDesk.app.onFullscreenChange((on) => {
         const art = artRef;
         if (!art) return;
@@ -172,9 +179,13 @@ export function createOsFullscreenControl(): ComponentOption {
       const art = artRef;
       if (onDblClick) art?.off("dblclick", onDblClick);
       if (onWebFullscreen) art?.off("fullscreenWeb", onWebFullscreen);
+      if (onToggleFullscreen) {
+        art?.off("bili-toggle-fullscreen", onToggleFullscreen);
+      }
       if (onKeyDown) document.removeEventListener("keydown", onKeyDown);
       onDblClick = null;
       onWebFullscreen = null;
+      onToggleFullscreen = null;
       onKeyDown = null;
       unsubscribe?.();
       unsubscribe = null;

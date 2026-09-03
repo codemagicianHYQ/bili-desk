@@ -12,12 +12,14 @@ import {
   EyeOff,
   Github,
   Info,
+  Keyboard,
   LogOut,
   Palette,
   Sparkles,
   UserRound,
 } from "lucide-react";
 import { BlacklistPanel } from "./BlacklistPanel";
+import { ShortcutsPanel } from "./ShortcutsPanel";
 
 const GITHUB_REPO = {
   name: "bili-desk",
@@ -35,6 +37,7 @@ const GITHUB_AUTHOR = {
 type SettingsSection =
   | "account"
   | "appearance"
+  | "shortcuts"
   | "privacy"
   | "blacklist"
   | "ai"
@@ -47,6 +50,7 @@ const NAV_ITEMS: Array<{
 }> = [
   { id: "account", label: "账号", icon: UserRound },
   { id: "appearance", label: "外观", icon: Palette },
+  { id: "shortcuts", label: "快捷键", icon: Keyboard },
   { id: "privacy", label: "观看隐私", icon: EyeOff },
   { id: "blacklist", label: "黑名单", icon: Ban },
   { id: "ai", label: "AI 配置", icon: Sparkles },
@@ -252,6 +256,8 @@ export function SettingsPage() {
               </div>
             </section>
           )}
+
+          {section === "shortcuts" && <ShortcutsPanel />}
 
           {section === "privacy" && (
             <section className="rounded-xl border border-border bg-card/60 px-5">

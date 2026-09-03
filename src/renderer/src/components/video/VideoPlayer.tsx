@@ -12,6 +12,10 @@ import {
   setOsFullscreenLayout,
 } from "@/components/video/os-fullscreen-control";
 import { createQualityControl } from "@/components/video/quality-setting";
+import {
+  attachPlayerHotkeys,
+  createSeekStepSetting,
+} from "@/components/video/player-hotkeys";
 import { BILI_AUTO_QN } from "@shared/utils/bilibili-quality";
 import {
   clearPlaybackProgress,
@@ -113,6 +117,8 @@ export function VideoPlayer({
   const userLoggedIn = useAppStore((state) => Boolean(state.user?.isLogin));
   const incognitoRef = useRef(incognitoMode);
   const loggedInRef = useRef(userLoggedIn);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [resumeTipAt, setResumeTipAt] = useState<number | null>(null);
 
   onQualityChangeRef.current = onQualityChange;
@@ -283,6 +289,7 @@ export function VideoPlayer({
       fullscreenWeb: false,
       pip: true,
       mutex: true,
+      hotkey: false,
       controls: [
         createQualityControl(playInfo, selectedQn, (qn) => {
           saveCurrentProgress();
@@ -401,7 +408,7 @@ export function VideoPlayer({
           });
         },
       },
-      settings: [],
+      settings: [createSeekStepSetting()],
       plugins: [
         artplayerPluginDanmuku({
           danmuku: async () => {
@@ -546,11 +553,13 @@ export function VideoPlayer({
 
     artRef.current = art;
     const unbindResize = bindPlayerResize(art, container);
+    const unbindHotkeys = attachPlayerHotkeys(art, () => activeRef.current);
     if (playInfo.qualityNotice) {
       art.notice.show = playInfo.qualityNotice;
     }
 
     return () => {
+      unbindHotkeys();
       unbindResize();
       window.clearTimeout(stallTimer);
       window.clearTimeout(nearEndWaitTimer);

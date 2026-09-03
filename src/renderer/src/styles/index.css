@@ -662,6 +662,51 @@
   display: block;
 }
 
+.art-video-player .bili-seek-hint {
+  position: absolute;
+  top: 50%;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fb7299;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 10px rgba(251, 114, 153, 0.4);
+  opacity: 0;
+  transform: translateY(-50%) scale(0.92);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.art-video-player .bili-seek-hint.is-back {
+  left: 8%;
+}
+
+.art-video-player .bili-seek-hint.is-forward {
+  right: 8%;
+}
+
+.art-video-player .bili-seek-hint.is-show {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+.art-video-player .bili-seek-hint-sec,
+.art-video-player .bili-seek-hint-icon {
+  line-height: 1;
+}
+
+.art-video-player .bili-seek-hint-icon {
+  font-size: 20px;
+}
+
 html.bili-os-fullscreen,
 html.bili-os-fullscreen body,
 html.bili-os-fullscreen #root {

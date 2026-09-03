@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, shell } from "electron";
+import { BrowserWindow, globalShortcut, ipcMain, shell } from "electron";
 import { IPC } from "@shared/ipc-channels";
 import { appStore } from "../store/app-store";
 import type { Theme } from "@shared/types";
@@ -36,4 +36,20 @@ export function registerAppIpc(): void {
   ipcMain.handle(IPC.APP_RESOLVE_BILI_URL, (_event, raw: string) =>
     resolveBiliUrl(raw),
   );
+  ipcMain.handle(IPC.APP_PROBE_SHORTCUT, (_event, accelerator: string) => {
+    const combo = String(accelerator ?? "").trim();
+    if (!combo) return { taken: false };
+    let registered = false;
+    try {
+      registered = globalShortcut.register(combo, () => undefined);
+      if (!registered) {
+        return { taken: true, reason: "已被系统或其他软件占用" };
+      }
+      return { taken: false };
+    } catch {
+      return { taken: true, reason: "系统不允许注册该快捷键" };
+    } finally {
+      if (registered) globalShortcut.unregister(combo);
+    }
+  });
 }

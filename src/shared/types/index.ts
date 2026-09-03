@@ -1234,6 +1234,9 @@ export interface BiliDeskApi {
     onFullscreenChange: (callback: (on: boolean) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
     resolveBiliUrl: (url: string) => Promise<string>;
+    probeShortcut: (
+      accelerator: string,
+    ) => Promise<{ taken: boolean; reason?: string }>;
   };
 }
 
