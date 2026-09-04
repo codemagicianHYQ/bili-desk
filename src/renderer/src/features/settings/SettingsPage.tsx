@@ -216,7 +216,7 @@ export function SettingsPage() {
                 <div className="mb-3 space-y-1">
                   <p className="text-sm font-medium">主题配色</p>
                   <p className="text-xs text-muted-foreground">
-                    选择一套强调色，影响按钮、选中态和高亮。
+                    选择一套强调色或材质。液态玻璃会透出背后色晕，不是实心底。
                   </p>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">

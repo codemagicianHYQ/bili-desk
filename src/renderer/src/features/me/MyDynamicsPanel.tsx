@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem, UpProfile } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
-import { LinkifiedText } from "@/components/ui/linkified-text";
+import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import {
   ExclusiveTag,
   UpowerExclusiveCard,
+  DynamicMetaLine,
 } from "@/components/dynamic/DynamicFeedCard";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
@@ -134,6 +135,16 @@ function DynamicCard({
             {!item.exclusiveTag && item.pubAction && (
               <span>· {item.pubAction}</span>
             )}
+            {item.ipLocation ? <span>· IP属地：{item.ipLocation}</span> : null}
+            {item.cvId ? (
+              <Link
+                to={`/article/${item.cvId}`}
+                onClick={(event) => event.stopPropagation()}
+                className="hover:text-[#00AEEC] hover:underline"
+              >
+                · cv{item.cvId}
+              </Link>
+            ) : null}
             {item.exclusiveTag && <ExclusiveTag text={item.exclusiveTag} />}
           </p>
         </div>
@@ -162,10 +173,15 @@ function DynamicCard({
           <>
             {item.text && (
               <p className="text-sm text-[#9499a0]">
-                <LinkifiedText text={item.text} />
+                <BiliEmoteText
+                  text={item.text}
+                  mentions={item.mentions}
+                  emotes={item.emotes}
+                />
               </p>
             )}
             <VideoDynamicBody item={item} />
+            <DynamicMetaLine item={item} />
           </>
         ) : item.kind === "upower" ? (
           <UpowerExclusiveCard item={item} />
@@ -178,7 +194,11 @@ function DynamicCard({
             )}
             {item.text && (
               <p className="text-sm leading-relaxed text-[#e3e5e7]">
-                <LinkifiedText text={item.text} />
+                <BiliEmoteText
+                  text={item.text}
+                  mentions={item.mentions}
+                  emotes={item.emotes}
+                />
               </p>
             )}
             {item.cover && (
@@ -188,6 +208,7 @@ function DynamicCard({
                 className="max-h-80 w-full rounded-lg object-cover"
               />
             )}
+            <DynamicMetaLine item={item} />
           </>
         )}
       </div>

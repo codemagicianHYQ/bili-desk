@@ -10,7 +10,7 @@ import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
 import { VideoTagList } from "@/components/video/VideoTagList";
-import { LinkifiedText } from "@/components/ui/linkified-text";
+import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { videoDetailCache } from "@/lib/session-data-cache";
 import {
@@ -427,7 +427,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              {video.desc ? <LinkifiedText text={video.desc} /> : "暂无简介"}
+              {video.desc ? <BiliEmoteText text={video.desc} /> : "暂无简介"}
             </p>
             <VideoTagList tags={video.tags} />
             {playError && playInfo && (

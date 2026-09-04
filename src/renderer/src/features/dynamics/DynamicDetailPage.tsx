@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
-import { ForwardedOrigEmbed, ExclusiveTag, UpowerExclusiveCard } from "@/components/dynamic/DynamicFeedCard";
+import {
+  ForwardedOrigEmbed,
+  ExclusiveTag,
+  UpowerExclusiveCard,
+  DynamicMetaLine,
+} from "@/components/dynamic/DynamicFeedCard";
 import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection";
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
-import { LinkifiedText } from "@/components/ui/linkified-text";
+import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { cn, formatCount } from "@/lib/utils";
 import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
 
@@ -118,20 +123,6 @@ export function DynamicDetailPage() {
         ) : (
           <div className="mx-auto flex max-w-3xl gap-6 px-6 py-6">
             <div className="min-w-0 flex-1 space-y-5">
-              {images[0] && (
-                <button
-                  type="button"
-                  className="block w-full overflow-hidden rounded-xl bg-secondary/30"
-                  onClick={() => setPreviewIndex(0)}
-                >
-                  <BiliImage
-                    src={images[0]}
-                    alt={item.title || ""}
-                    className="max-h-[520px] w-full object-contain"
-                  />
-                </button>
-              )}
-
               {item.title && (
                 <h1 className="text-2xl font-semibold leading-snug">
                   {item.title}
@@ -168,6 +159,20 @@ export function DynamicDetailPage() {
                         ? ` · ${item.pubAction}`
                         : ""}
                     </span>
+                    {item.ipLocation ? (
+                      <span> · IP属地：{item.ipLocation}</span>
+                    ) : null}
+                    {item.cvId ? (
+                      <>
+                        <span> · </span>
+                        <Link
+                          to={`/article/${item.cvId}`}
+                          className="hover:text-[#00AEEC] hover:underline"
+                        >
+                          cv{item.cvId}
+                        </Link>
+                      </>
+                    ) : null}
                     {item.exclusiveTag && (
                       <ExclusiveTag text={item.exclusiveTag} />
                     )}
@@ -180,7 +185,11 @@ export function DynamicDetailPage() {
               ) : (
                 item.text && (
                   <p className="text-[15px] leading-relaxed">
-                    <LinkifiedText text={item.text} />
+                    <BiliEmoteText
+                      text={item.text}
+                      mentions={item.mentions}
+                      emotes={item.emotes}
+                    />
                   </p>
                 )
               )}
@@ -192,24 +201,41 @@ export function DynamicDetailPage() {
                 <p className="text-sm text-muted-foreground">源动态已删除</p>
               )}
 
-              {images.length > 1 && (
-                <div className="grid grid-cols-3 gap-2">
-                  {images.slice(1).map((src, index) => (
-                    <button
-                      key={`${src}-${index}`}
-                      type="button"
-                      onClick={() => setPreviewIndex(index + 1)}
-                      className="overflow-hidden rounded-lg"
-                    >
-                      <BiliImage
-                        src={src}
-                        alt=""
-                        className="aspect-square w-full object-cover"
-                      />
-                    </button>
-                  ))}
+              {images.length > 0 && (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    className="block w-full overflow-hidden rounded-xl bg-secondary/30"
+                    onClick={() => setPreviewIndex(0)}
+                  >
+                    <BiliImage
+                      src={images[0]}
+                      alt={item.title || ""}
+                      className="max-h-[520px] w-full object-contain"
+                    />
+                  </button>
+                  {images.length > 1 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {images.slice(1).map((src, index) => (
+                        <button
+                          key={`${src}-${index}`}
+                          type="button"
+                          onClick={() => setPreviewIndex(index + 1)}
+                          className="overflow-hidden rounded-lg"
+                        >
+                          <BiliImage
+                            src={src}
+                            alt=""
+                            className="aspect-[4/3] w-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
+
+              <DynamicMetaLine item={item} />
 
               <div className="border-t border-border pt-5">
                 <DynamicCommentSection

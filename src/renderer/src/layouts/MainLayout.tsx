@@ -134,11 +134,11 @@ export function MainLayout() {
   const showLive = isLive && effectiveLiveRoomId != null;
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div data-app-shell className="flex h-full overflow-hidden">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div data-app-column className="flex min-w-0 flex-1 flex-col">
         <TopBar title={meta.title} subtitle={meta.subtitle} />
-        <main className="flex-1 overflow-hidden">
+        <main data-app-main className="flex-1 overflow-hidden">
           <div
             className={cn("h-full", !isHome && "hidden")}
             aria-hidden={!isHome}

@@ -2,7 +2,13 @@ import { create } from "zustand";
 import type { Theme, UserInfo } from "@shared/types";
 
 export type HomeGridColumns = 2 | 3 | 4 | 5;
-export type ThemePreset = "rose" | "violet" | "ocean" | "emerald" | "amber";
+export type ThemePreset =
+  | "rose"
+  | "glass"
+  | "violet"
+  | "ocean"
+  | "emerald"
+  | "amber";
 
 export const THEME_PRESETS: Array<{
   id: ThemePreset;
@@ -15,6 +21,12 @@ export const THEME_PRESETS: Array<{
     label: "玫瑰",
     description: "B 站感粉调",
     swatches: ["#fb7299", "#ff9fba", "#2a1119"],
+  },
+  {
+    id: "glass",
+    label: "液态玻璃",
+    description: "macOS Clear 磨砂，透出背后",
+    swatches: ["#c5dbff", "#7eb6ff", "#161822"],
   },
   {
     id: "violet",

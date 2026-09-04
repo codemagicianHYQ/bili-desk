@@ -1,37 +1,64 @@
-import { useEffect, useRef, useState } from 'react'
-import { Check, LayoutGrid } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
-import { useAppStore, type HomeGridColumns } from '@/stores/app-store'
+import { useEffect, useRef, useState } from "react";
+import { Check, LayoutGrid } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  APP_OVERLAY_ZCLASS,
+  OverlayPortal,
+} from "@/components/ui/overlay-portal";
+import { cn } from "@/lib/utils";
+import { useAppStore, type HomeGridColumns } from "@/stores/app-store";
 
 const COLUMN_OPTIONS: Array<{ value: HomeGridColumns; label: string }> = [
-  { value: 2, label: '2 列' },
-  { value: 3, label: '3 列' },
-  { value: 4, label: '4 列' },
-  { value: 5, label: '5 列' }
-]
+  { value: 2, label: "2 列" },
+  { value: 3, label: "3 列" },
+  { value: 4, label: "4 列" },
+  { value: 5, label: "5 列" },
+];
 
 export function HomeGridLayoutPicker() {
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
-  const homeGridColumns = useAppStore((state) => state.homeGridColumns)
-  const setHomeGridColumns = useAppStore((state) => state.setHomeGridColumns)
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const homeGridColumns = useAppStore((state) => state.homeGridColumns);
+  const setHomeGridColumns = useAppStore((state) => state.setHomeGridColumns);
 
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
+
+    const updatePos = () => {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPos({
+        top: rect.bottom + 6,
+        right: Math.max(8, window.innerWidth - rect.right),
+      });
+    };
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setOpen(false)
+      const target = event.target as Node;
+      if (
+        wrapRef.current?.contains(target) ||
+        panelRef.current?.contains(target)
+      ) {
+        return;
       }
-    }
+      setOpen(false);
+    };
 
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [open])
+    updatePos();
+    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("resize", updatePos);
+    window.addEventListener("scroll", updatePos, true);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("resize", updatePos);
+      window.removeEventListener("scroll", updatePos, true);
+    };
+  }, [open]);
 
   return (
-    <div ref={menuRef} className="relative">
+    <div ref={wrapRef} className="relative">
       <Button
         variant="ghost"
         size="icon"
@@ -43,30 +70,41 @@ export function HomeGridLayoutPicker() {
       </Button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg">
-          <p className="px-3 py-1.5 text-xs text-muted-foreground">每行显示</p>
-          {COLUMN_OPTIONS.map((option) => {
-            const active = homeGridColumns === option.value
-            return (
-              <button
-                key={option.value}
-                type="button"
-                className={cn(
-                  'flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-secondary',
-                  active && 'text-primary'
-                )}
-                onClick={() => {
-                  setHomeGridColumns(option.value)
-                  setOpen(false)
-                }}
-              >
-                <span>{option.label}</span>
-                {active && <Check className="h-4 w-4" />}
-              </button>
-            )
-          })}
-        </div>
+        <OverlayPortal>
+          <div
+            ref={panelRef}
+            className={cn(
+              "fixed w-36 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg",
+              APP_OVERLAY_ZCLASS,
+            )}
+            style={{ top: pos.top, right: pos.right }}
+          >
+            <p className="px-3 py-1.5 text-xs text-muted-foreground">
+              每行显示
+            </p>
+            {COLUMN_OPTIONS.map((option) => {
+              const active = homeGridColumns === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-secondary",
+                    active && "text-primary",
+                  )}
+                  onClick={() => {
+                    setHomeGridColumns(option.value);
+                    setOpen(false);
+                  }}
+                >
+                  <span>{option.label}</span>
+                  {active && <Check className="h-4 w-4" />}
+                </button>
+              );
+            })}
+          </div>
+        </OverlayPortal>
       )}
     </div>
-  )
+  );
 }

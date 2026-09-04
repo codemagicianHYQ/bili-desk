@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
-import { LinkifiedText } from "@/components/ui/linkified-text";
+import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 import { parseBiliAppPath } from "@shared/utils/bili-app-link";
 import {
@@ -186,7 +186,11 @@ function LiveDynamicBody({ item }: { item: SpaceDynamicItem }) {
         <p className="line-clamp-2 text-sm font-medium">{item.title}</p>
         {item.text && (
           <p className="text-xs text-muted-foreground">
-            <LinkifiedText text={item.text} />
+            <BiliEmoteText
+              text={item.text}
+              mentions={item.mentions}
+              emotes={item.emotes}
+            />
           </p>
         )}
       </div>
@@ -228,6 +232,28 @@ export function ExclusiveTag({ text }: { text: string }) {
       <Zap className="h-3 w-3 fill-current" />
       {text}
     </span>
+  );
+}
+
+export function DynamicMetaLine({ item }: { item: SpaceDynamicItem }) {
+  const location = item.ipLocation?.trim();
+  const cvId = item.cvId;
+  if (!location && !cvId) return null;
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {location ? <span>IP属地：{location}</span> : null}
+      {location && cvId ? <span> · </span> : null}
+      {cvId ? (
+        <Link
+          to={`/article/${cvId}`}
+          onClick={(event) => event.stopPropagation()}
+          className="hover:text-[#00AEEC] hover:underline"
+        >
+          cv{cvId}
+        </Link>
+      ) : null}
+    </p>
   );
 }
 
@@ -285,9 +311,64 @@ export function UpowerExclusiveCard({ item }: { item: SpaceDynamicItem }) {
   );
 }
 
-function ImageGrid({ images }: { images: string[] }) {
+function ImageGrid({
+  images,
+  layout = "grid",
+}: {
+  images: string[];
+  layout?: "grid" | "stack";
+}) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   if (images.length === 0) return null;
+
+  const open = (index: number, event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setLightboxIndex(index);
+  };
+
+  if (layout === "stack" && images.length > 1) {
+    return (
+      <>
+        <div className="space-y-2">
+          <button
+            type="button"
+            className="block w-full overflow-hidden rounded-lg text-left"
+            onClick={(event) => open(0, event)}
+          >
+            <BiliImage
+              src={images[0]}
+              alt=""
+              className="max-h-[480px] w-full object-contain"
+            />
+          </button>
+          <div className="grid grid-cols-3 gap-1.5">
+            {images.slice(1).map((src, index) => (
+              <button
+                key={`${src}-${index + 1}`}
+                type="button"
+                className="overflow-hidden rounded-md"
+                onClick={(event) => open(index + 1, event)}
+              >
+                <BiliImage
+                  src={src}
+                  alt=""
+                  className="aspect-[4/3] w-full object-cover transition-opacity hover:opacity-90"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+        <ImageLightbox
+          images={images}
+          index={lightboxIndex ?? 0}
+          open={lightboxIndex != null}
+          onClose={() => setLightboxIndex(null)}
+          onIndexChange={setLightboxIndex}
+        />
+      </>
+    );
+  }
 
   if (images.length === 1) {
     return (
@@ -413,10 +494,15 @@ function DynamicCardBody({
       <>
         {item.text && (
           <p className="text-sm text-muted-foreground">
-            <LinkifiedText text={item.text} />
+            <BiliEmoteText
+              text={item.text}
+              mentions={item.mentions}
+              emotes={item.emotes}
+            />
           </p>
         )}
         <VideoDynamicBody item={item} />
+        <DynamicMetaLine item={item} />
       </>
     );
   }
@@ -438,13 +524,23 @@ function DynamicCardBody({
       )}
       {item.text && (
         <p className="text-sm leading-relaxed">
-          <LinkifiedText text={item.text} />
+          <BiliEmoteText
+            text={item.text}
+            mentions={item.mentions}
+            emotes={item.emotes}
+          />
         </p>
       )}
       {(item.kind === "draw" ||
         item.kind === "opus" ||
         item.kind === "text" ||
-        item.kind === "article") && <ImageGrid images={images} />}
+        item.kind === "article") && (
+        <ImageGrid
+          images={images}
+          layout={item.kind === "draw" ? "grid" : "stack"}
+        />
+      )}
+      <DynamicMetaLine item={item} />
       {item.kind === "forward" && item.orig && depth < 2 && (
         <ForwardedOrigEmbed item={item.orig} depth={depth + 1} />
       )}
@@ -577,6 +673,16 @@ export function DynamicFeedCard({
           {!item.exclusiveTag && item.pubAction && (
             <span>· {item.pubAction}</span>
           )}
+          {item.ipLocation ? <span>· IP属地：{item.ipLocation}</span> : null}
+          {item.cvId ? (
+            <Link
+              to={`/article/${item.cvId}`}
+              onClick={(event) => event.stopPropagation()}
+              className="hover:text-[#00AEEC] hover:underline"
+            >
+              · cv{item.cvId}
+            </Link>
+          ) : null}
           {item.exclusiveTag && <ExclusiveTag text={item.exclusiveTag} />}
         </p>
       </div>

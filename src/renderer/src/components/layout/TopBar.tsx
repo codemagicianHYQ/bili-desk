@@ -135,7 +135,8 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   return (
     <header
       data-app-chrome
-      className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-6"
+      data-app-topbar
+      className="bili-glass flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-6"
     >
       <div className="flex min-w-0 items-center gap-3">
         {showBack && (

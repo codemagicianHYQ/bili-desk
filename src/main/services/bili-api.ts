@@ -65,6 +65,7 @@ import type {
   CommentItem,
   CommentMember,
   CommentPage,
+  ReplyEmotePanel,
   UpVideosPage,
   UpVideosOrder,
   SearchOrder,
@@ -2485,11 +2486,19 @@ class BiliApiService {
     };
     if (isFirst) params.next = 0;
 
-    const res = await this.client.get("/x/v2/reply/main", {
-      params,
-      headers: { Referer: "https://www.bilibili.com/" },
+    const headers = { Referer: "https://www.bilibili.com/" };
+    let res = await this.client.get("/x/v2/reply/wbi/main", {
+      params: await signParams(params),
+      headers,
       validateStatus: () => true,
     });
+    if (res.data?.code !== 0) {
+      res = await this.client.get("/x/v2/reply/main", {
+        params,
+        headers,
+        validateStatus: () => true,
+      });
+    }
 
     if (res.status === 412 || res.data?.code === -412) {
       throw new Error("请求被 B 站安全策略拦截，请稍后重试");
@@ -2724,21 +2733,16 @@ class BiliApiService {
     pageSize: number,
     options?: { includeTop?: boolean },
   ): CommentPage {
-    const rawReplies = data?.replies;
-    const replies = (Array.isArray(rawReplies) ? rawReplies : []) as Record<
-      string,
-      unknown
-    >[];
-    const rawTop = options?.includeTop ? data?.top_replies : undefined;
-    const tops = (Array.isArray(rawTop) ? rawTop : []) as Record<
-      string,
-      unknown
-    >[];
+    const replies = this.asReplyRecords(data?.replies);
+    const tops = options?.includeTop ? this.collectPinnedReplies(data) : [];
 
     const seen = new Set<number>();
     const comments: CommentItem[] = [];
-    for (const item of [...tops, ...replies]) {
-      const normalized = this.normalizeCommentItem(item);
+    for (const entry of [
+      ...tops,
+      ...replies.map((item) => ({ item, pinKind: undefined })),
+    ]) {
+      const normalized = this.normalizeCommentItem(entry.item, entry.pinKind);
       if (!normalized || seen.has(normalized.rpid)) continue;
       seen.add(normalized.rpid);
       comments.push(normalized);
@@ -2775,8 +2779,54 @@ class BiliApiService {
     };
   }
 
+  private asReplyRecords(raw: unknown): Record<string, unknown>[] {
+    if (Array.isArray(raw)) {
+      return raw.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object",
+      );
+    }
+    if (raw && typeof raw === "object") {
+      return [raw as Record<string, unknown>];
+    }
+    return [];
+  }
+
+  private collectPinnedReplies(
+    data: Record<string, unknown> | undefined,
+  ): Array<{ item: Record<string, unknown>; pinKind: CommentItem["pinKind"] }> {
+    if (!data) return [];
+    const top = (data.top ?? {}) as Record<string, unknown>;
+    const upper = (data.upper ?? {}) as Record<string, unknown>;
+    const slots: Array<[unknown, CommentItem["pinKind"]]> = [
+      [top.upper, "upper"],
+      [top.admin, "admin"],
+      [top.vote, "vote"],
+      [upper.top, "upper"],
+    ];
+    const collected: Array<{
+      item: Record<string, unknown>;
+      pinKind: CommentItem["pinKind"];
+    }> = [];
+    const seen = new Set<number>();
+
+    const push = (raw: unknown, pinKind: CommentItem["pinKind"]) => {
+      for (const item of this.asReplyRecords(raw)) {
+        const rpid = Number(item.rpid_str ?? item.rpid);
+        if (!Number.isFinite(rpid) || rpid <= 0 || seen.has(rpid)) continue;
+        seen.add(rpid);
+        collected.push({ item, pinKind });
+      }
+    };
+
+    for (const [raw, kind] of slots) push(raw, kind);
+    push(data.top_replies, "upper");
+    return collected;
+  }
+
   private normalizeCommentItem(
     item: Record<string, unknown>,
+    pinKind?: CommentItem["pinKind"],
   ): CommentItem | null {
     const rpid = Number(item.rpid_str ?? item.rpid);
     if (!Number.isFinite(rpid) || rpid <= 0) return null;
@@ -2792,6 +2842,7 @@ class BiliApiService {
     const location = locationRaw.replace(/^IP属地[:：]?\s*/i, "").trim();
 
     const pictures = this.extractCommentPictures(content.pictures);
+    const detectedPin = pinKind ?? this.detectCommentPinKind(item);
 
     return {
       rpid,
@@ -2802,7 +2853,10 @@ class BiliApiService {
       parent: Number(item.parent) || 0,
       content: String(content.message ?? ""),
       mentions: this.extractCommentMentions(content),
-      emotes: this.extractCommentEmotes(content.emote),
+      emotes: this.mergeEmoteMaps(
+        this.extractCommentEmotes(content.emote),
+        this.extractRichNodeEmotes(content),
+      ),
       pictures,
       location: location || undefined,
       like: Number(item.like) || 0,
@@ -2823,7 +2877,29 @@ class BiliApiService {
       replies: nested
         .map((reply) => this.normalizeCommentItem(reply))
         .filter((reply): reply is CommentItem => reply != null),
+      pinned: Boolean(detectedPin),
+      pinKind: detectedPin,
     };
+  }
+
+  private detectCommentPinKind(
+    item: Record<string, unknown>,
+  ): CommentItem["pinKind"] {
+    const labels = item.card_label;
+    if (Array.isArray(labels)) {
+      const text = labels
+        .map((entry) =>
+          String(
+            (entry as { text_content?: string; text?: string } | undefined)
+              ?.text_content ??
+              (entry as { text?: string } | undefined)?.text ??
+              "",
+          ),
+        )
+        .join(" ");
+      if (text.includes("置顶")) return "upper";
+    }
+    return undefined;
   }
 
   private extractCommentPictures(
@@ -2855,18 +2931,119 @@ class BiliApiService {
     for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
       if (!key.startsWith("[")) continue;
       if (typeof value === "string" && value) {
-        result[key] = value.replace(/^http:/, "https:");
+        result[key] = this.normalizeHttps(value);
         continue;
       }
       if (value && typeof value === "object") {
-        const url = String((value as { url?: string }).url ?? "").replace(
-          /^http:/,
-          "https:",
+        const rec = value as Record<string, unknown>;
+        const url = this.normalizeHttps(
+          String(rec.url ?? rec.icon_url ?? rec.gif_url ?? ""),
         );
         if (url) result[key] = url;
       }
     }
     return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  private stripAtDisplayName(nameRaw: unknown): string {
+    return String(nameRaw ?? "")
+      .replace(/^[@＠]+/, "")
+      .trim();
+  }
+
+  private isAtRichNodeType(typeRaw: unknown): boolean {
+    const type = String(typeRaw ?? "").toUpperCase();
+    return (
+      type === "AT" ||
+      type === "USER" ||
+      type === "RICH_TEXT_NODE_TYPE_AT" ||
+      type === "RICH_TEXT_NODE_TYPE_USER" ||
+      type.endsWith("_TYPE_AT") ||
+      type.endsWith("_TYPE_USER")
+    );
+  }
+
+  private collectAtRichNodes(
+    value: unknown,
+    add: (midRaw: unknown, nameRaw: unknown, faceRaw?: unknown) => void,
+    depth = 0,
+    visited: WeakSet<object> = new WeakSet(),
+  ): void {
+    if (depth > 8 || value == null) return;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        this.collectAtRichNodes(entry, add, depth + 1, visited);
+      }
+      return;
+    }
+    if (typeof value !== "object") return;
+    if (visited.has(value)) return;
+    visited.add(value);
+
+    const obj = value as Record<string, unknown>;
+    if (this.isAtRichNodeType(obj.type ?? obj.node_type)) {
+      add(
+        obj.rid ?? obj.biz_id ?? obj.uid ?? obj.mid ?? obj.oid,
+        obj.orig_text ?? obj.text ?? obj.name ?? obj.uname,
+        obj.face ?? obj.avatar,
+      );
+    }
+
+    this.collectAtRichNodes(obj.rich_text_nodes, add, depth + 1, visited);
+    this.collectAtRichNodes(obj.rich_text, add, depth + 1, visited);
+    this.collectAtRichNodes(obj.nodes, add, depth + 1, visited);
+    this.collectAtRichNodes(obj.paragraphs, add, depth + 1, visited);
+    this.collectAtRichNodes(obj.desc, add, depth + 1, visited);
+    if (obj.text && typeof obj.text === "object") {
+      this.collectAtRichNodes(obj.text, add, depth + 1, visited);
+    }
+    if (obj.summary && typeof obj.summary === "object") {
+      this.collectAtRichNodes(obj.summary, add, depth + 1, visited);
+    }
+  }
+
+  private collectCtrlMentions(
+    ctrlRaw: unknown,
+    message: string,
+    add: (midRaw: unknown, nameRaw: unknown, faceRaw?: unknown) => void,
+  ): void {
+    let list: unknown[] = [];
+    if (typeof ctrlRaw === "string" && ctrlRaw.trim()) {
+      try {
+        const parsed = JSON.parse(ctrlRaw) as unknown;
+        if (Array.isArray(parsed)) list = parsed;
+      } catch {
+        return;
+      }
+    } else if (Array.isArray(ctrlRaw)) {
+      list = ctrlRaw;
+    }
+    for (const entry of list) {
+      if (!entry || typeof entry !== "object") continue;
+      const item = entry as Record<string, unknown>;
+      const type = item.type;
+      const isAt =
+        type === 1 || type === "1" || String(type ?? "").toUpperCase() === "AT";
+      if (!isAt) continue;
+      let name = this.stripAtDisplayName(
+        item.uname ?? item.name ?? item.text ?? item.orig_text,
+      );
+      if (!name && message) {
+        const location = Number(item.location);
+        const length = Number(item.length);
+        if (
+          Number.isFinite(location) &&
+          Number.isFinite(length) &&
+          location >= 0 &&
+          length > 0
+        ) {
+          name = this.stripAtDisplayName(
+            message.slice(location, location + length),
+          );
+        }
+      }
+      add(item.data ?? item.mid ?? item.rid ?? item.uid, name);
+    }
   }
 
   private extractCommentMentions(
@@ -2877,7 +3054,7 @@ class BiliApiService {
 
     const add = (midRaw: unknown, nameRaw: unknown, faceRaw?: unknown) => {
       const mid = Number(midRaw);
-      const name = String(nameRaw ?? "").trim();
+      const name = this.stripAtDisplayName(nameRaw);
       if (!Number.isFinite(mid) || mid <= 0 || !name) return;
       const key = `${mid}\0${name}`;
       if (seen.has(key)) return;
@@ -2889,17 +3066,27 @@ class BiliApiService {
       });
     };
 
+    this.collectAtRichNodes(content, add);
+    this.collectCtrlMentions(
+      content.ctrl ?? content.at_control,
+      String(content.message ?? content.text ?? ""),
+      add,
+    );
+
     const members = content.members;
-    if (Array.isArray(members)) {
-      for (const entry of members) {
-        if (!entry || typeof entry !== "object") continue;
-        const member = entry as Record<string, unknown>;
-        add(
-          member.mid,
-          member.uname ?? member.name,
-          member.avatar ?? member.face,
-        );
-      }
+    const memberList = Array.isArray(members)
+      ? members
+      : members && typeof members === "object"
+        ? Object.values(members)
+        : [];
+    for (const entry of memberList) {
+      if (!entry || typeof entry !== "object") continue;
+      const member = entry as Record<string, unknown>;
+      add(
+        member.mid,
+        member.uname ?? member.name,
+        member.avatar ?? member.face,
+      );
     }
 
     const atMap = content.at_name_to_mid;
@@ -2921,14 +3108,162 @@ class BiliApiService {
         const url = String(entry.pc_url ?? entry.url ?? key);
         const match = url.match(/space\.bilibili\.com\/(\d+)/);
         if (!match) continue;
-        add(match[1], String(entry.title ?? key).replace(/^@/, ""));
+        add(match[1], entry.title ?? entry.name ?? key);
       }
     }
 
     return mentions.length > 0 ? mentions : undefined;
   }
 
-  async getReplyEmotes(): Promise<Record<string, string>> {
+  private asPlainRecord(value: unknown): Record<string, unknown> | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    return value as Record<string, unknown>;
+  }
+
+  private mergeMentionLists(
+    ...lists: Array<CommentMember[] | undefined>
+  ): CommentMember[] | undefined {
+    const mentions: CommentMember[] = [];
+    const seen = new Set<string>();
+    for (const list of lists) {
+      if (!list?.length) continue;
+      for (const item of list) {
+        const key = `${item.mid}\0${item.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        mentions.push(item);
+      }
+    }
+    return mentions.length > 0 ? mentions : undefined;
+  }
+
+  private extractDynamicMentions(
+    moduleDynamic: Record<string, unknown> | undefined,
+    major: Record<string, unknown> | undefined,
+  ): CommentMember[] | undefined {
+    const from = (value: unknown) => {
+      const rec = this.asPlainRecord(value);
+      return rec ? this.extractCommentMentions(rec) : undefined;
+    };
+    const opus = this.asPlainRecord(major?.opus);
+    return this.mergeMentionLists(
+      from(moduleDynamic?.desc),
+      from(opus),
+      from(opus?.summary),
+      from(major?.draw),
+    );
+  }
+
+  private isEmojiRichNodeType(typeRaw: unknown): boolean {
+    const type = String(typeRaw ?? "").toUpperCase();
+    return (
+      type === "EMOJI" ||
+      type === "EMOTE" ||
+      type === "RICH_TEXT_NODE_TYPE_EMOJI" ||
+      type === "RICH_TEXT_NODE_TYPE_EMOTE" ||
+      type.endsWith("_TYPE_EMOJI") ||
+      type.endsWith("_TYPE_EMOTE")
+    );
+  }
+
+  private normalizeEmoteToken(raw: unknown): string {
+    const text = String(raw ?? "").trim();
+    if (!text) return "";
+    if (text.startsWith("[") && text.endsWith("]")) return text;
+    return `[${text}]`;
+  }
+
+  private addEmoteUrl(
+    out: Record<string, string>,
+    tokenRaw: unknown,
+    urlRaw: unknown,
+  ): void {
+    const token = this.normalizeEmoteToken(tokenRaw);
+    const url = this.normalizeHttps(String(urlRaw ?? ""));
+    if (!token.startsWith("[") || !url.startsWith("http")) return;
+    out[token] = url;
+  }
+
+  private collectEmojiUrls(
+    value: unknown,
+    out: Record<string, string>,
+    depth = 0,
+    visited: WeakSet<object> = new WeakSet(),
+  ): void {
+    if (depth > 8 || value == null) return;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        this.collectEmojiUrls(entry, out, depth + 1, visited);
+      }
+      return;
+    }
+    if (typeof value !== "object") return;
+    if (visited.has(value)) return;
+    visited.add(value);
+
+    const obj = value as Record<string, unknown>;
+    if (this.isEmojiRichNodeType(obj.type ?? obj.node_type)) {
+      const emoji = this.asPlainRecord(obj.emoji) ?? obj;
+      this.addEmoteUrl(
+        out,
+        obj.orig_text ?? obj.text ?? emoji.text,
+        emoji.url ?? emoji.icon_url ?? emoji.gif_url ?? obj.url ?? obj.icon_url,
+      );
+    }
+
+    const fromField = this.extractCommentEmotes(obj.emote ?? obj.emotes);
+    if (fromField) Object.assign(out, fromField);
+
+    this.collectEmojiUrls(obj.rich_text_nodes, out, depth + 1, visited);
+    this.collectEmojiUrls(obj.rich_text, out, depth + 1, visited);
+    this.collectEmojiUrls(obj.nodes, out, depth + 1, visited);
+    this.collectEmojiUrls(obj.paragraphs, out, depth + 1, visited);
+    this.collectEmojiUrls(obj.desc, out, depth + 1, visited);
+    if (obj.text && typeof obj.text === "object") {
+      this.collectEmojiUrls(obj.text, out, depth + 1, visited);
+    }
+    if (obj.summary && typeof obj.summary === "object") {
+      this.collectEmojiUrls(obj.summary, out, depth + 1, visited);
+    }
+  }
+
+  private extractRichNodeEmotes(
+    value: unknown,
+  ): Record<string, string> | undefined {
+    const out: Record<string, string> = {};
+    this.collectEmojiUrls(value, out);
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  private mergeEmoteMaps(
+    ...maps: Array<Record<string, string> | undefined>
+  ): Record<string, string> | undefined {
+    const result: Record<string, string> = {};
+    for (const map of maps) {
+      if (!map) continue;
+      for (const [key, url] of Object.entries(map)) {
+        if (key.startsWith("[") && url) result[key] = url;
+      }
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  private extractDynamicEmotes(
+    moduleDynamic: Record<string, unknown> | undefined,
+    major: Record<string, unknown> | undefined,
+  ): Record<string, string> | undefined {
+    const opus = this.asPlainRecord(major?.opus);
+    return this.mergeEmoteMaps(
+      this.extractRichNodeEmotes(moduleDynamic?.desc),
+      this.extractRichNodeEmotes(opus),
+      this.extractRichNodeEmotes(opus?.summary),
+      this.extractRichNodeEmotes(major?.draw),
+    );
+  }
+
+  async getReplyEmotes(): Promise<ReplyEmotePanel> {
     await this.ensureBuvid3();
     const res = await this.client.get("/x/emote/user/panel/web", {
       params: { business: "reply" },
@@ -2937,23 +3272,48 @@ class BiliApiService {
     });
 
     if (res.data?.code !== 0) {
-      return {};
+      return { packages: [], map: {} };
     }
 
-    const packages =
+    const packagesRaw =
       ((res.data?.data as Record<string, unknown> | undefined)?.packages as
         | Record<string, unknown>[]
         | undefined) ?? [];
     const map: Record<string, string> = {};
-    for (const pkg of packages) {
-      const emotes = (pkg.emote as Record<string, unknown>[] | undefined) ?? [];
-      for (const emote of emotes) {
-        const text = String(emote.text ?? "");
-        const url = String(emote.url ?? "").replace(/^http:/, "https:");
-        if (text.startsWith("[") && url) map[text] = url;
+    const packages: ReplyEmotePanel["packages"] = [];
+
+    for (const pkg of packagesRaw) {
+      const id = Number(pkg.id) || 0;
+      const name = String(pkg.text ?? "").trim();
+      const icon = String(pkg.url ?? "").replace(/^http:/, "https:");
+      const type = Number(pkg.type) || 1;
+      const pkgSize = Number((pkg.meta as { size?: number } | undefined)?.size);
+      const emotesRaw =
+        (pkg.emote as Record<string, unknown>[] | undefined) ?? [];
+      const emotes: ReplyEmotePanel["packages"][number]["emotes"] = [];
+
+      for (const emote of emotesRaw) {
+        const text = String(emote.text ?? "").trim();
+        if (!text) continue;
+        const emoteType = Number(emote.type) || type;
+        const size: 1 | 2 =
+          Number((emote.meta as { size?: number } | undefined)?.size) === 2 ||
+          pkgSize === 2
+            ? 2
+            : 1;
+        const rawUrl = String(emote.url ?? "").trim();
+        const url = rawUrl.replace(/^http:/, "https:");
+        emotes.push({ text, url, type: emoteType, size });
+        if (text.startsWith("[") && url.startsWith("http")) {
+          map[text] = url;
+        }
       }
+
+      if (emotes.length === 0) continue;
+      packages.push({ id, name: name || `表情包 ${id}`, icon, type, emotes });
     }
-    return map;
+
+    return { packages, map };
   }
 
   private buildPlayInfoFromDurl(
@@ -6156,14 +6516,15 @@ class BiliApiService {
   async getSpaceDynamics(mid: number, offset = ""): Promise<SpaceDynamicPage> {
     await this.ensureBuvid3();
 
-    const params: Record<string, string | number> = {
+    const params = await signParams({
       host_mid: mid,
       timezone_offset: -480,
       platform: "web",
+      web_location: "333.999",
       features:
-        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,forwardListHidden,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard",
-    };
-    if (offset) params.offset = offset;
+        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,forwardListHidden,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard,htmlOpusStyle",
+      ...(offset ? { offset } : {}),
+    });
 
     const res = await this.client.get("/x/polymer/web-dynamic/v1/feed/space", {
       params,
@@ -6253,7 +6614,7 @@ class BiliApiService {
       platform: "web",
       web_location: "333.1365",
       features:
-        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,onlyfansAssetsV2,forwardListHidden,ugcDelete,onlyfansQaCard",
+        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,onlyfansAssetsV2,forwardListHidden,ugcDelete,onlyfansQaCard,htmlOpusStyle",
       ...(offset ? { offset } : {}),
     });
 
@@ -6291,30 +6652,180 @@ class BiliApiService {
     const dynamicId = String(id || "").trim();
     if (!dynamicId) throw new Error("动态 ID 无效");
 
-    const res = await this.client.get("/x/polymer/web-dynamic/v1/detail", {
-      params: {
-        id: dynamicId,
-        timezone_offset: -480,
-        platform: "web",
-        features:
-          "itemOpusStyle,opusBigCover,onlyfansVote,endFooterHidden,decorationCard,onlyfansAssetsV2,ugcDelete,onlyfansQaCard,commentsNewVersion",
-      },
-      headers: { Referer: `https://www.bilibili.com/opus/${dynamicId}` },
-      validateStatus: () => true,
-    });
+    const referer = `https://www.bilibili.com/opus/${dynamicId}`;
+    const deviceJson = JSON.stringify({ platform: "web", device: "pc" });
+    const webJson = JSON.stringify({ spm_id: "333.1368" });
+    const features =
+      "itemOpusStyle,opusBigCover,onlyfansVote,endFooterHidden,decorationCard,onlyfansAssetsV2,ugcDelete,onlyfansQaCard,commentsNewVersion,htmlOpusStyle";
+    const common: Record<string, string | number> = {
+      id: dynamicId,
+      timezone_offset: -480,
+      platform: "web",
+      gaia_source: "main_web",
+      web_location: "333.1368",
+      features,
+      "x-bili-device-req-json": deviceJson,
+      "x-bili-web-req-json": webJson,
+    };
 
-    if (res.status === 412 || res.data?.code === -412) {
-      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
-    }
-    if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "动态详情获取失败");
-    }
+    const rawItem =
+      (await this.fetchPolymerDynamicItem(
+        "/x/polymer/web-dynamic/v1/detail",
+        common,
+        referer,
+      )) ??
+      (await this.fetchPolymerDynamicItem(
+        "/x/polymer/web-dynamic/desktop/v1/detail",
+        common,
+        referer,
+      ));
+    if (!rawItem) throw new Error("动态不存在或已失效");
 
-    const item = this.normalizeSpaceDynamicItem(
-      (res.data?.data?.item ?? {}) as Record<string, unknown>,
-    );
+    let item = this.normalizeSpaceDynamicItem(rawItem);
     if (!item) throw new Error("动态不存在或已失效");
-    return item;
+    item = this.mergeDynamicMeta(item, rawItem);
+
+    if (!item.ipLocation || !item.cvId) {
+      const opusItem = await this.fetchPolymerDynamicItem(
+        "/x/polymer/web-dynamic/v1/opus/detail",
+        {
+          id: dynamicId,
+          timezone_offset: -480,
+          features:
+            "onlyfansVote,onlyfansAssetsV2,decorationCard,htmlNewStyle,ugcDelete,htmlOpusStyle,commentsNewVersion,avatarTypeOpus",
+        },
+        referer,
+      );
+      if (opusItem) {
+        const parsed = this.normalizeSpaceDynamicItem(opusItem);
+        item = this.mergeDynamicMeta(
+          {
+            ...item,
+            title: item.title || parsed?.title,
+            text: item.text || parsed?.text || item.text,
+            images: item.images?.length ? item.images : parsed?.images,
+            cover: item.cover || parsed?.cover,
+            cvId: item.cvId || parsed?.cvId,
+            ipLocation: item.ipLocation || parsed?.ipLocation,
+          },
+          opusItem,
+        );
+      }
+    }
+
+    return this.enrichDynamicDetail(item);
+  }
+
+  private async fetchPolymerDynamicItem(
+    path: string,
+    params: Record<string, string | number>,
+    referer: string,
+  ): Promise<Record<string, unknown> | null> {
+    let blocked = false;
+    for (const mode of ["wbi", "plain"] as const) {
+      const signed = mode === "wbi" ? await signParams(params) : params;
+      const res = await this.client.get(path, {
+        params: signed,
+        headers: { Referer: referer },
+        validateStatus: () => true,
+      });
+      if (res.status === 412 || res.data?.code === -412) {
+        blocked = true;
+        continue;
+      }
+      if (res.data?.code === 0) {
+        const item = res.data?.data?.item;
+        if (item && typeof item === "object") {
+          return item as Record<string, unknown>;
+        }
+      }
+    }
+    if (blocked) throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    return null;
+  }
+
+  private mergeDynamicMeta(
+    item: SpaceDynamicItem,
+    raw: Record<string, unknown>,
+  ): SpaceDynamicItem {
+    return {
+      ...item,
+      ipLocation: item.ipLocation || this.extractPubLocationFromUnknown(raw),
+      cvId: item.cvId || this.extractCvFromUnknown(raw),
+    };
+  }
+
+  private uniqueImageUrls(urls: Array<string | undefined | null>): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const raw of urls) {
+      const url = this.absHttpUrl(String(raw ?? ""));
+      if (!this.isLikelyDynamicImageUrl(url) || seen.has(url)) continue;
+      seen.add(url);
+      result.push(url);
+    }
+    return result;
+  }
+
+  private absHttpUrl(raw: string): string {
+    const text = raw.trim();
+    if (!text) return "";
+    if (text.startsWith("//")) return `https:${text}`;
+    return this.normalizeHttps(text);
+  }
+
+  private isLikelyDynamicImageUrl(url: string): boolean {
+    if (!url.startsWith("http")) return false;
+    if (
+      /space\.bilibili\.com|t\.bilibili\.com|\/video\/|\/read\/cv|\/opus\/|live\.bilibili\.com/i.test(
+        url,
+      )
+    ) {
+      return false;
+    }
+    if (/\/bfs\/emote\//i.test(url)) return false;
+    if (/\/bfs\//i.test(url)) return true;
+    return /\.(avif|bmp|gif|jpe?g|png|webp)(\?|#|$)/i.test(url);
+  }
+
+  private extractImagesFromHtml(html: string): string[] {
+    if (!html) return [];
+    const urls: string[] = [];
+    const re = /<img\b[^>]*\b(?:src|data-src)=["']([^"']+)["']/gi;
+    let match: RegExpExecArray | null = re.exec(html);
+    while (match) {
+      const url = this.absHttpUrl(match[1] ?? "");
+      if (this.isLikelyDynamicImageUrl(url)) urls.push(url);
+      match = re.exec(html);
+    }
+    return this.uniqueImageUrls(urls);
+  }
+
+  private async enrichDynamicDetail(
+    item: SpaceDynamicItem,
+  ): Promise<SpaceDynamicItem> {
+    const text = this.stripPicPlaceholders(item.text);
+    if (!item.cvId) return { ...item, text };
+
+    try {
+      const article = await this.getArticle(item.cvId);
+      const images = this.uniqueImageUrls([
+        ...(item.images ?? []),
+        item.cover,
+        article.banner,
+        ...article.images,
+        ...this.extractImagesFromHtml(article.content),
+      ]);
+      return {
+        ...item,
+        text,
+        images,
+        cover: item.cover || images[0],
+        title: item.title || article.title,
+      };
+    } catch {
+      return { ...item, text };
+    }
   }
 
   async likeDynamic(id: string, like: boolean): Promise<void> {
@@ -7927,15 +8438,15 @@ class BiliApiService {
 
   private extractRichText(value: unknown): string {
     if (value == null) return "";
-    if (typeof value === "string") return value;
+    if (typeof value === "string") return this.stripPicPlaceholders(value);
     if (typeof value !== "object") return "";
 
     const obj = value as Record<string, unknown>;
-
-    if (typeof obj.text === "string" && obj.text.trim()) return obj.text;
-    if (obj.text && typeof obj.text === "object") {
-      const nested = this.extractRichText(obj.text);
-      if (nested) return nested;
+    const nodes = obj.rich_text_nodes as unknown[] | undefined;
+    if (nodes?.length) {
+      return this.stripPicPlaceholders(
+        nodes.map((node) => this.extractRichTextNode(node)).join(""),
+      );
     }
 
     const paragraphs = obj.paragraphs as unknown[] | undefined;
@@ -7944,15 +8455,291 @@ class BiliApiService {
         .map((paragraph) => this.extractRichText(paragraph))
         .filter(Boolean)
         .join("\n");
-      if (joined) return joined;
+      if (joined) return this.stripPicPlaceholders(joined);
     }
 
-    const nodes = obj.rich_text_nodes as unknown[] | undefined;
-    if (nodes?.length) {
-      return nodes.map((node) => this.extractRichText(node)).join("");
+    if (typeof obj.text === "string" && obj.text.trim()) {
+      return this.stripPicPlaceholders(obj.text);
+    }
+    if (obj.text && typeof obj.text === "object") {
+      const nested = this.extractRichText(obj.text);
+      if (nested) return nested;
     }
 
     return "";
+  }
+
+  private extractRichTextNode(node: unknown): string {
+    if (node == null) return "";
+    if (typeof node === "string") {
+      return this.isPicPlaceholder(node) ? "" : node;
+    }
+    if (typeof node !== "object") return "";
+
+    const obj = node as Record<string, unknown>;
+    const type = String(obj.type ?? obj.node_type ?? "").toUpperCase();
+    const paraType = Number(obj.para_type);
+    if (
+      paraType === 2 ||
+      type.includes("PIC") ||
+      type.includes("IMG") ||
+      type.includes("IMAGE")
+    ) {
+      return "";
+    }
+    const raw = String(obj.orig_text ?? obj.text ?? "");
+    if (this.isPicPlaceholder(raw)) return "";
+    if (typeof obj.text === "string") return obj.text;
+    if (obj.text && typeof obj.text === "object") {
+      return this.extractRichText(obj.text);
+    }
+    return "";
+  }
+
+  private isPicPlaceholder(text: string): boolean {
+    return /^[\[［]图片[\]］]$/.test(text.trim());
+  }
+
+  private stripPicPlaceholders(text: string): string {
+    return text
+      .replace(/[\[［]图片[\]］]/g, "")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  private collectDynamicImages(
+    moduleDynamic: Record<string, unknown> | undefined,
+    major: Record<string, unknown> | undefined,
+  ): string[] {
+    const urls: string[] = [];
+    const seen = new Set<string>();
+    const add = (raw: unknown) => {
+      const url = this.absHttpUrl(String(raw ?? ""));
+      if (!this.isLikelyDynamicImageUrl(url) || seen.has(url)) return;
+      seen.add(url);
+      urls.push(url);
+    };
+    this.collectRichImageUrls(moduleDynamic?.desc, add);
+    this.collectRichImageUrls(major?.opus, add);
+    this.collectRichImageUrls(major?.draw, add);
+    this.collectRichImageUrls(major?.article, add);
+    return urls;
+  }
+
+  private collectRichImageUrls(
+    value: unknown,
+    add: (raw: unknown) => void,
+    depth = 0,
+    visited: WeakSet<object> = new WeakSet(),
+  ): void {
+    if (depth > 10 || value == null) return;
+    if (typeof value === "string") {
+      add(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        this.collectRichImageUrls(entry, add, depth + 1, visited);
+      }
+      return;
+    }
+    if (typeof value !== "object") return;
+    if (visited.has(value)) return;
+    visited.add(value);
+
+    const obj = value as Record<string, unknown>;
+    add(obj.url ?? obj.src ?? obj.img_src ?? obj.cover);
+    const covers = obj.covers;
+    if (Array.isArray(covers)) {
+      for (const cover of covers) add(cover);
+    }
+
+    const nestKeys = [
+      "pics",
+      "pic",
+      "pictures",
+      "items",
+      "rich_text_nodes",
+      "nodes",
+      "paragraphs",
+      "summary",
+      "desc",
+      "images",
+      "content",
+    ] as const;
+    for (const key of nestKeys) {
+      if (obj[key] != null)
+        this.collectRichImageUrls(obj[key], add, depth + 1, visited);
+    }
+    if (obj.text && typeof obj.text === "object") {
+      this.collectRichImageUrls(obj.text, add, depth + 1, visited);
+    }
+  }
+
+  private pickDynamicModule(
+    modules: unknown,
+    key:
+      | "module_author"
+      | "module_dynamic"
+      | "module_stat"
+      | "module_tag"
+      | "module_extend",
+  ): Record<string, unknown> | undefined {
+    if (!modules) return undefined;
+    const suffix = key.replace(/^module_/, "").toUpperCase();
+    const matchType = `MODULE_TYPE_${suffix}`;
+
+    if (Array.isArray(modules)) {
+      for (const entry of modules) {
+        if (!entry || typeof entry !== "object") continue;
+        const rec = entry as Record<string, unknown>;
+        const type = String(rec.module_type ?? "").toUpperCase();
+        if (type === matchType || type.endsWith(`_${suffix}`)) {
+          const nested = rec[key];
+          if (nested && typeof nested === "object") {
+            return nested as Record<string, unknown>;
+          }
+          return rec;
+        }
+        if (rec[key] && typeof rec[key] === "object") {
+          return rec[key] as Record<string, unknown>;
+        }
+      }
+      return undefined;
+    }
+
+    if (typeof modules === "object") {
+      const rec = modules as Record<string, unknown>;
+      const nested = rec[key];
+      if (nested && typeof nested === "object") {
+        return nested as Record<string, unknown>;
+      }
+    }
+    return undefined;
+  }
+
+  private extractPubLocation(
+    moduleAuthor: Record<string, unknown> | undefined,
+  ): string | undefined {
+    if (!moduleAuthor) return undefined;
+    const pubInfo = this.asPlainRecord(moduleAuthor.pub_info);
+    const candidates = [
+      moduleAuthor.pub_location_text,
+      moduleAuthor.pub_location,
+      moduleAuthor.ptime_location_text,
+      moduleAuthor.ip_location,
+      moduleAuthor.location,
+      pubInfo?.pub_location_text,
+      pubInfo?.pub_location,
+      pubInfo?.ptime_location_text,
+      pubInfo?.location,
+    ];
+    for (const value of candidates) {
+      const location = this.normalizeLocationText(value);
+      if (location) return location;
+    }
+    return undefined;
+  }
+
+  private normalizeLocationText(value: unknown): string | undefined {
+    const raw = String(value ?? "").trim();
+    if (!raw) return undefined;
+    const location = raw.replace(/^IP属地[:：]?\s*/i, "").trim();
+    if (!location || location === "未知") return undefined;
+    return location;
+  }
+
+  private extractPubLocationFromUnknown(
+    node: unknown,
+    depth = 0,
+  ): string | undefined {
+    if (depth > 12 || node == null) return undefined;
+    if (typeof node === "string") {
+      return /IP属地/.test(node) ? this.normalizeLocationText(node) : undefined;
+    }
+    if (Array.isArray(node)) {
+      for (const entry of node) {
+        const found = this.extractPubLocationFromUnknown(entry, depth + 1);
+        if (found) return found;
+      }
+      return undefined;
+    }
+    if (typeof node !== "object") return undefined;
+    const rec = node as Record<string, unknown>;
+    for (const key of [
+      "pub_location_text",
+      "ptime_location_text",
+      "pub_location",
+      "ip_location",
+    ]) {
+      const location = this.normalizeLocationText(rec[key]);
+      if (location) return location;
+    }
+    for (const value of Object.values(rec)) {
+      const found = this.extractPubLocationFromUnknown(value, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  private asCvId(raw: unknown): number | undefined {
+    const text = String(raw ?? "").trim();
+    if (!text) return undefined;
+    const matched = text.match(/cv(\d+)/i)?.[1];
+    const digits = matched ?? (/^\d+$/.test(text) ? text : "");
+    if (!digits || digits.length < 4 || digits.length > 12) return undefined;
+    const id = Number(digits);
+    return Number.isFinite(id) && id > 0 ? id : undefined;
+  }
+
+  private extractDynamicCvId(args: {
+    basic?: Record<string, unknown>;
+    moduleAuthor?: Record<string, unknown>;
+    major?: Record<string, unknown>;
+    fallback?: Record<string, unknown>;
+    commentId?: string;
+    commentType?: number;
+  }): number | undefined {
+    const opus = this.asPlainRecord(args.major?.opus);
+    const article = this.asPlainRecord(args.major?.article);
+    const fallbackType = Number(args.fallback?.type);
+    return (
+      this.asCvId(opus?.jump_url) ||
+      this.asCvId(article?.jump_url) ||
+      this.asCvId(article?.id) ||
+      this.asCvId(args.moduleAuthor?.jump_url) ||
+      (fallbackType === 2 ? this.asCvId(args.fallback?.id) : undefined) ||
+      (args.commentType === 12 ? this.asCvId(args.commentId) : undefined) ||
+      (args.commentType === 12 ? this.asCvId(args.basic?.rid_str) : undefined)
+    );
+  }
+
+  private extractCvFromUnknown(node: unknown, depth = 0): number | undefined {
+    if (depth > 12 || node == null) return undefined;
+    if (typeof node === "string" || typeof node === "number") {
+      const text = String(node);
+      const matched =
+        text.match(/\/read\/cv(\d{4,12})/i)?.[1] ??
+        text.match(/(?:^|[^\w])cv(\d{4,12})(?:[^\d]|$)/i)?.[1];
+      if (!matched) return undefined;
+      const id = Number(matched);
+      return Number.isFinite(id) && id > 0 ? id : undefined;
+    }
+    if (Array.isArray(node)) {
+      for (const entry of node) {
+        const found = this.extractCvFromUnknown(entry, depth + 1);
+        if (found) return found;
+      }
+      return undefined;
+    }
+    if (typeof node !== "object") return undefined;
+    const rec = node as Record<string, unknown>;
+    for (const value of Object.values(rec)) {
+      const found = this.extractCvFromUnknown(value, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
   }
 
   private parseUgcSeasonPubAction(pubAction: string): {
@@ -8002,10 +8789,8 @@ class BiliApiService {
         : id;
     const commentType = Number(basic?.comment_type ?? 0) || undefined;
 
-    const modules = item.modules as Record<string, unknown> | undefined;
-    const moduleAuthor = modules?.module_author as
-      | Record<string, unknown>
-      | undefined;
+    const modules = item.modules;
+    const moduleAuthor = this.pickDynamicModule(modules, "module_author");
     const authorType = String(moduleAuthor?.type ?? "");
     const pubTime = (moduleAuthor?.pub_ts as number) ?? 0;
     const pubTimeLabel =
@@ -8048,13 +8833,9 @@ class BiliApiService {
       authorMid = 0;
     }
 
-    const moduleDynamic = modules?.module_dynamic as
-      | Record<string, unknown>
-      | undefined;
+    const moduleDynamic = this.pickDynamicModule(modules, "module_dynamic");
     const major = moduleDynamic?.major as Record<string, unknown> | undefined;
-    const moduleStat = modules?.module_stat as
-      | Record<string, unknown>
-      | undefined;
+    const moduleStat = this.pickDynamicModule(modules, "module_stat");
     const likeStat = (moduleStat?.like ?? {}) as Record<string, unknown>;
     const forwardStat = (moduleStat?.forward ?? {}) as Record<string, unknown>;
     const likeCount = Number(likeStat.count) || 0;
@@ -8071,6 +8852,18 @@ class BiliApiService {
 
     const exclusiveTag = this.extractExclusiveTag(modules, major);
     const upowerPreview = this.extractUpowerPreview(major, moduleDynamic);
+    const mentions = this.extractDynamicMentions(moduleDynamic, major);
+    const emotes = this.extractDynamicEmotes(moduleDynamic, major);
+    const ipLocation = this.extractPubLocation(moduleAuthor);
+    const cvId = this.extractDynamicCvId({
+      basic,
+      moduleAuthor,
+      major,
+      fallback: this.asPlainRecord(item.fallback),
+      commentId,
+      commentType,
+    });
+    const collectedImages = this.collectDynamicImages(moduleDynamic, major);
 
     const base = {
       id,
@@ -8085,6 +8878,10 @@ class BiliApiService {
       commentType,
       liked,
       exclusiveTag,
+      mentions,
+      emotes,
+      ipLocation,
+      cvId,
     };
 
     if (type.includes("FORWARD") || Boolean(major?.forward)) {
@@ -8110,7 +8907,7 @@ class BiliApiService {
       return {
         ...base,
         kind: "video",
-        text: "",
+        text: this.extractRichText(moduleDynamic?.desc),
         title: (archive.title as string) ?? "",
         bvid: archive.bvid as string | undefined,
         cover: ((archive.cover as string) ?? "").replace(/^http:/, "https:"),
@@ -8165,20 +8962,21 @@ class BiliApiService {
       const covers = (
         Array.isArray(article.covers) ? article.covers : []
       ) as unknown[];
-      const articleImages = covers
-        .map((cover) => String(cover ?? "").replace(/^http:/, "https:"))
-        .filter(Boolean);
+      const articleImages = this.uniqueImageUrls([
+        ...collectedImages,
+        ...covers.map((cover) => String(cover ?? "")),
+        String(article.cover ?? ""),
+      ]);
       const articleTitle = String(article.title ?? "").trim();
-      const articleText = String(article.desc ?? "").trim();
+      const articleText = this.stripPicPlaceholders(String(article.desc ?? ""));
       return {
         ...base,
         kind: "article",
         text: articleText,
         title: articleTitle || "专栏文章",
-        cover:
-          articleImages[0] ||
-          ((article.cover as string) ?? "").replace(/^http:/, "https:"),
+        cover: articleImages[0],
         images: articleImages,
+        cvId: base.cvId || this.asCvId(article.id),
         commentId: String(article.id || commentId),
         commentType: 12,
         stats: { like: likeCount, reply: replyCount, forward: forwardCount },
@@ -8222,21 +9020,20 @@ class BiliApiService {
       const summary = this.extractRichText(opus.summary);
       const opusTitle = String(opus.title ?? "").trim();
       const pics = (opus.pics as Record<string, unknown>[] | undefined) ?? [];
-      const images = pics
-        .map((pic) =>
-          String(pic.url ?? pic.src ?? "").replace(/^http:/, "https:"),
-        )
-        .filter(Boolean);
+      const images = this.uniqueImageUrls([
+        ...collectedImages,
+        ...pics.map((pic) => String(pic.url ?? pic.src ?? "")),
+        String(opus.cover ?? ""),
+      ]);
       return {
         ...base,
         kind: "opus",
         text: summary,
         // 仅保留真实标题，不要用正文截断冒充标题
         title: opusTitle || undefined,
-        cover:
-          images[0] ||
-          ((opus.cover as string) ?? "").replace(/^http:/, "https:"),
+        cover: images[0],
         images,
+        cvId: base.cvId || this.asCvId(opus.jump_url),
         stats: { like: likeCount, reply: replyCount, forward: forwardCount },
       };
     }
@@ -8251,11 +9048,10 @@ class BiliApiService {
     const drawItems = coverMajor?.items as
       | Record<string, unknown>[]
       | undefined;
-    const images = (drawItems ?? [])
-      .map((entry) =>
-        String(entry.src ?? entry.url ?? "").replace(/^http:/, "https:"),
-      )
-      .filter(Boolean);
+    const images = this.uniqueImageUrls([
+      ...collectedImages,
+      ...(drawItems ?? []).map((entry) => String(entry.src ?? entry.url ?? "")),
+    ]);
 
     if (exclusiveTag && images.length === 0 && (!text || text === "动态")) {
       return {
@@ -8300,10 +9096,10 @@ class BiliApiService {
   }
 
   private extractExclusiveTag(
-    modules: Record<string, unknown> | undefined,
+    modules: unknown,
     major: Record<string, unknown> | undefined,
   ): string | undefined {
-    const tag = modules?.module_tag as Record<string, unknown> | undefined;
+    const tag = this.pickDynamicModule(modules, "module_tag");
     const tagText = this.pickDynText(tag?.text);
     if (/充电|专属/.test(tagText)) return tagText;
 

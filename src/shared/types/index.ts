@@ -135,6 +135,9 @@ export interface CommentItem {
   rcount: number;
   member: CommentMember;
   replies: CommentItem[];
+  /** UP / 管理置顶，出现在评论区最上方 */
+  pinned?: boolean;
+  pinKind?: "upper" | "admin" | "vote";
 }
 
 export interface CommentPage {
@@ -146,6 +149,30 @@ export interface CommentPage {
   hasMore: boolean;
   /** wbi/main 翻页游标，下一页要原样回传 */
   nextOffset?: string;
+}
+
+/** 评论表情面板（官网按 pack 分组） */
+export interface ReplyEmoteItem {
+  text: string;
+  url: string;
+  /** 4 = 颜文字 */
+  type: number;
+  /** 1 小黄脸 / 2 大贴纸 */
+  size: 1 | 2;
+}
+
+export interface ReplyEmotePackage {
+  id: number;
+  name: string;
+  icon: string;
+  /** 4 = 颜文字 */
+  type: number;
+  emotes: ReplyEmoteItem[];
+}
+
+export interface ReplyEmotePanel {
+  packages: ReplyEmotePackage[];
+  map: Record<string, string>;
 }
 
 export interface VideoPagePart {
@@ -670,6 +697,10 @@ export interface SpaceDynamicItem {
     | "article"
     | "upower";
   text: string;
+  /** 正文里真实存在的 @用户，有 mid 才可点进主页 */
+  mentions?: CommentMember[];
+  /** 正文里的表情：`[打call]` → 图片 URL */
+  emotes?: Record<string, string>;
   pubTime: number;
   pubTimeLabel?: string;
   pubAction?: string;
@@ -679,6 +710,10 @@ export interface SpaceDynamicItem {
   cover?: string;
   /** 图文多图 */
   images?: string[];
+  /** 发布 IP 属地，如「辽宁」 */
+  ipLocation?: string;
+  /** 专栏 cv 号，投稿文章动态会有 */
+  cvId?: number;
   bvid?: string;
   title?: string;
   duration?: number;
@@ -1089,7 +1124,7 @@ export interface BiliDeskApi {
       rpid: number | string,
       reason: number,
     ) => Promise<void>;
-    getReplyEmotes: () => Promise<Record<string, string>>;
+    getReplyEmotes: () => Promise<ReplyEmotePanel>;
     getFavFolders: () => Promise<FavFolder[]>;
     createFavFolder: (payload: CreateFavFolderPayload) => Promise<FavFolder>;
     getFavFolderInfo: (mediaId: number) => Promise<FavFolder>;
