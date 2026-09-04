@@ -32,24 +32,35 @@ export function ImageLightbox({
     if (!open) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
       if (event.key === "ArrowLeft" && images.length > 1) {
+        event.preventDefault();
+        event.stopPropagation();
         const next = (current - 1 + images.length) % images.length;
         setCurrent(next);
         onIndexChange?.(next);
+        return;
       }
       if (event.key === "ArrowRight" && images.length > 1) {
+        event.preventDefault();
+        event.stopPropagation();
         const next = (current + 1) % images.length;
         setCurrent(next);
         onIndexChange?.(next);
       }
     };
 
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       document.body.style.overflow = prevOverflow;
     };
   }, [open, current, images.length, onClose, onIndexChange]);

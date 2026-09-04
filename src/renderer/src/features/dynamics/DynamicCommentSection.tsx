@@ -18,6 +18,16 @@ interface DynamicCommentSectionProps {
   ownerMid?: number;
 }
 
+function closestScrollRoot(start: HTMLElement | null): Element | null {
+  let node: HTMLElement | null = start?.parentElement ?? null;
+  while (node && node !== document.documentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (/(auto|scroll|overlay)/.test(overflowY)) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 export function DynamicCommentSection({
   oid,
   type,
@@ -43,6 +53,14 @@ export function DynamicCommentSection({
 
   commentsRef.current = comments;
   useReplyEmotes();
+
+  const hasMoreRef = useRef(hasMore);
+  const pageRef = useRef(page);
+  const sortRef = useRef(sort);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  hasMoreRef.current = hasMore;
+  pageRef.current = page;
+  sortRef.current = sort;
 
   const handlers = useMemo(
     () => ({
@@ -160,6 +178,25 @@ export function DynamicCommentSection({
     nextOffsetRef.current = "";
     void loadComments(1, sort, true);
   }, [oid, type, sort, reloadToken, loadComments]);
+
+  const handleLoadMore = useCallback(() => {
+    if (loading || loadingMoreRef.current || !hasMoreRef.current) return;
+    void loadComments(pageRef.current + 1, sortRef.current, false);
+  }, [loading, loadComments]);
+
+  useEffect(() => {
+    const target = sentinelRef.current;
+    if (!target || loading || !hasMore) return;
+    const root = closestScrollRoot(target);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) handleLoadMore();
+      },
+      { root, rootMargin: "400px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMore, loading, comments.length, handleLoadMore]);
 
   const handleDeleted = useCallback((rpid: number) => {
     if (pendingRef.current?.rpid === rpid) pendingRef.current = null;
@@ -280,26 +317,21 @@ export function DynamicCommentSection({
               onDeleted={handleDeleted}
             />
           ))}
-        </div>
-      )}
-
-      {hasMore && (
-        <div className="flex justify-center pb-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={loadingMore}
-            onClick={() => void loadComments(page + 1, sort, false)}
+          <div
+            ref={sentinelRef}
+            className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground"
           >
             {loadingMore ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                加载中
+                <Loader2 className="h-4 w-4 animate-spin" />
+                加载更多评论...
               </>
+            ) : hasMore ? (
+              "继续下滑加载更多"
             ) : (
-              "加载更多评论"
+              "已经到底啦"
             )}
-          </Button>
+          </div>
         </div>
       )}
     </section>

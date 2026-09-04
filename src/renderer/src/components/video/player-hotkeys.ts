@@ -3,6 +3,7 @@ import type { Setting } from "artplayer/types/setting";
 import {
   SEEK_STEP_OPTIONS,
   eventToChord,
+  isModalOpen,
   isShortcutCapturing,
   isTypingTarget,
   readShortcutConfig,
@@ -89,6 +90,7 @@ export function attachPlayerHotkeys(
     if (!isEnabled()) return;
     if (isShortcutCapturing()) return;
     if (isTypingTarget(event.target)) return;
+    if (isModalOpen()) return;
     if (art.setting?.show) return;
     const chord = eventToChord(event);
     if (!chord) return;

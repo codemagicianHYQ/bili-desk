@@ -5,12 +5,8 @@ import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection
 import { BiliImage } from "@/components/ui/bili-image";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { sanitizeArticleHtml } from "@/lib/sanitize-article-html";
+import { openBiliHref } from "@/lib/open-bili-href";
 import { cn, formatCount, formatPubdate } from "@/lib/utils";
-import {
-  isBiliShortUrl,
-  isBiliUrl,
-  parseBiliAppPath,
-} from "@shared/utils/bili-app-link";
 import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
 
 const ARTICLE_COMMENT_TYPE = 12;
@@ -119,30 +115,7 @@ export function ArticleDetailPage() {
     if (!href) return;
     event.preventDefault();
     event.stopPropagation();
-
-    const direct = parseBiliAppPath(href);
-    if (direct) {
-      navigate(direct);
-      return;
-    }
-    if (isBiliShortUrl(href)) {
-      try {
-        const resolved = await window.biliDesk.app.resolveBiliUrl(href);
-        const appPath = parseBiliAppPath(resolved);
-        if (appPath) {
-          navigate(appPath);
-          return;
-        }
-      } catch {
-        showTip("链接解析失败");
-        return;
-      }
-    }
-    if (isBiliUrl(href) || isBiliShortUrl(href)) {
-      showTip("应用内暂不支持该页面");
-      return;
-    }
-    void window.biliDesk.app.openExternal(href);
+    await openBiliHref(href, navigate);
   };
 
   return (

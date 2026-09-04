@@ -8,11 +8,14 @@ import { cn, formatCount, formatDuration } from "@/lib/utils";
 import { parseBiliAppPath } from "@shared/utils/bili-app-link";
 import {
   ExternalLink,
+  Lock,
   MessageCircle,
   Radio,
   Share2,
   ThumbsUp,
+  Zap,
 } from "lucide-react";
+import { openBiliHref } from "@/lib/open-bili-href";
 
 function DynamicActionBar({
   item,
@@ -219,6 +222,69 @@ function LiveDynamicBody({ item }: { item: SpaceDynamicItem }) {
   );
 }
 
+export function ExclusiveTag({ text }: { text: string }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 rounded border border-[#fb7299]/45 bg-[#fb7299]/10 px-1 py-px text-[11px] leading-4 text-[#fb7299]">
+      <Zap className="h-3 w-3 fill-current" />
+      {text}
+    </span>
+  );
+}
+
+export function UpowerExclusiveCard({ item }: { item: SpaceDynamicItem }) {
+  const navigate = useNavigate();
+  const title = item.title?.trim() || "充电专属动态";
+  const hint =
+    item.text?.trim() && item.text !== "动态"
+      ? item.text
+      : "加入当前 UP 主的充电即可解锁观看";
+  const button = item.chargeButton?.trim() || "去充电";
+
+  const openCharge = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (item.chargeUrl) {
+      void openBiliHref(item.chargeUrl, navigate);
+      return;
+    }
+    if (item.authorMid) navigate(`/up/${item.authorMid}`);
+  };
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-[#fb7299]/35 bg-gradient-to-r from-[#fb7299]/12 via-[#fb7299]/5 to-transparent px-3 py-3">
+      <div className="relative h-11 w-11 shrink-0">
+        {item.cover ? (
+          <BiliImage
+            src={item.cover}
+            alt=""
+            className="h-11 w-11 rounded-full object-cover"
+          />
+        ) : (
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#fb7299] text-white">
+            <Zap className="h-5 w-5 fill-current" />
+          </div>
+        )}
+        <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[#fb7299] shadow-sm ring-1 ring-[#fb7299]/30">
+          <Lock className="h-2.5 w-2.5" />
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">{title}</p>
+        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+          {hint}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={openCharge}
+        className="shrink-0 rounded-lg bg-[#fb7299] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+      >
+        {button}
+      </button>
+    </div>
+  );
+}
+
 function ImageGrid({ images }: { images: string[] }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   if (images.length === 0) return null;
@@ -320,7 +386,8 @@ function openDynamicTarget(
       item.kind === "text" ||
       item.kind === "draw" ||
       item.kind === "forward" ||
-      item.kind === "article")
+      item.kind === "article" ||
+      item.kind === "upower")
   ) {
     navigate(`/dynamic/${item.id}`);
   }
@@ -356,6 +423,10 @@ function DynamicCardBody({
 
   if (item.kind === "live") {
     return <LiveDynamicBody item={item} />;
+  }
+
+  if (item.kind === "upower") {
+    return <UpowerExclusiveCard item={item} />;
   }
 
   return (
@@ -453,21 +524,44 @@ export function DynamicFeedCard({
   const navigate = useNavigate();
   const authorName = item.authorName || fallbackName;
   const authorFace = item.authorFace || fallbackFace;
-  const meta = [item.pubTimeLabel, item.pubAction].filter(Boolean).join(" · ");
   const canOpenDetail =
     item.kind === "opus" ||
     item.kind === "text" ||
     item.kind === "draw" ||
     item.kind === "forward" ||
-    item.kind === "article";
+    item.kind === "article" ||
+    item.kind === "upower";
 
   const openDetail = () => {
     openDynamicTarget(item, navigate);
   };
 
+  const authorLink = item.authorMid ? (
+    <Link
+      to={`/up/${item.authorMid}`}
+      className="truncate text-[15px] font-medium text-sky-400 hover:underline"
+    >
+      {authorName}
+    </Link>
+  ) : (
+    <p className="truncate text-[15px] font-medium">{authorName}</p>
+  );
+
   const authorBlock = (
     <div className="flex items-start gap-3 px-5 pb-1 pt-5">
-      {authorFace ? (
+      {item.authorMid ? (
+        <Link to={`/up/${item.authorMid}`} className="shrink-0">
+          {authorFace ? (
+            <BiliImage
+              src={authorFace}
+              alt={authorName}
+              className="h-11 w-11 rounded-full object-cover ring-1 ring-border"
+            />
+          ) : (
+            <div className="h-11 w-11 rounded-full bg-secondary" />
+          )}
+        </Link>
+      ) : authorFace ? (
         <BiliImage
           src={authorFace}
           alt={authorName}
@@ -477,10 +571,14 @@ export function DynamicFeedCard({
         <div className="h-11 w-11 shrink-0 rounded-full bg-secondary" />
       )}
       <div className="min-w-0 flex-1 pt-0.5">
-        <p className="truncate text-[15px] font-medium text-sky-400">
-          {authorName}
+        {authorLink}
+        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          {item.pubTimeLabel && <span>{item.pubTimeLabel}</span>}
+          {!item.exclusiveTag && item.pubAction && (
+            <span>· {item.pubAction}</span>
+          )}
+          {item.exclusiveTag && <ExclusiveTag text={item.exclusiveTag} />}
         </p>
-        {meta && <p className="mt-0.5 text-xs text-muted-foreground">{meta}</p>}
       </div>
       {item.kind === "live" && !item.liveRoomId && item.liveUrl && (
         <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -490,11 +588,7 @@ export function DynamicFeedCard({
 
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      {item.authorMid ? (
-        <Link to={`/up/${item.authorMid}`}>{authorBlock}</Link>
-      ) : (
-        authorBlock
-      )}
+      {authorBlock}
 
       <div
         className={cn("space-y-3 px-5 py-3", canOpenDetail && "cursor-pointer")}

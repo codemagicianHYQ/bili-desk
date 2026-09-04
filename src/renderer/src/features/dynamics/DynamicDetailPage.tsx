@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
-import { ForwardedOrigEmbed } from "@/components/dynamic/DynamicFeedCard";
+import { ForwardedOrigEmbed, ExclusiveTag, UpowerExclusiveCard } from "@/components/dynamic/DynamicFeedCard";
 import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection";
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -161,17 +161,28 @@ export function DynamicDetailPage() {
                       {item.authorName || "用户"}
                     </p>
                   )}
-                  <p className="text-xs text-muted-foreground">
-                    {formatPubTime(item.pubTime, item.pubTimeLabel)}
-                    {item.pubAction ? ` · ${item.pubAction}` : ""}
+                  <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    <span>
+                      {formatPubTime(item.pubTime, item.pubTimeLabel)}
+                      {!item.exclusiveTag && item.pubAction
+                        ? ` · ${item.pubAction}`
+                        : ""}
+                    </span>
+                    {item.exclusiveTag && (
+                      <ExclusiveTag text={item.exclusiveTag} />
+                    )}
                   </p>
                 </div>
               </div>
 
-              {item.text && (
-                <p className="text-[15px] leading-relaxed">
-                  <LinkifiedText text={item.text} />
-                </p>
+              {item.kind === "upower" ? (
+                <UpowerExclusiveCard item={item} />
+              ) : (
+                item.text && (
+                  <p className="text-[15px] leading-relaxed">
+                    <LinkifiedText text={item.text} />
+                  </p>
+                )
               )}
 
               {item.kind === "forward" && item.orig && (

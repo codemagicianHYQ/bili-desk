@@ -1,24 +1,9 @@
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { type MouseEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import {
-  isBiliShortUrl,
-  isBiliUrl,
-  parseBiliAppPath,
-} from "@shared/utils/bili-app-link";
+import { openBiliHref } from "@/lib/open-bili-href";
+import { isBiliShortUrl, isBiliUrl } from "@shared/utils/bili-app-link";
 import { splitLinkifiedText } from "@shared/utils/external-url";
-
-async function resolveAppPath(href: string): Promise<string | null> {
-  const direct = parseBiliAppPath(href);
-  if (direct) return direct;
-  if (!isBiliShortUrl(href)) return null;
-  try {
-    const resolved = await window.biliDesk.app.resolveBiliUrl(href);
-    return parseBiliAppPath(resolved);
-  } catch {
-    return null;
-  }
-}
 
 export function ExternalTextLink({
   href,
@@ -30,53 +15,28 @@ export function ExternalTextLink({
   className?: string;
 }) {
   const navigate = useNavigate();
-  const [tip, setTip] = useState("");
   const biliLink = isBiliUrl(href) || isBiliShortUrl(href);
 
-  const showTip = (message: string) => {
-    setTip(message);
-    window.setTimeout(() => setTip(""), 1800);
-  };
-
-  const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     event.stopPropagation();
-
-    const appPath = await resolveAppPath(href);
-    if (appPath) {
-      navigate(appPath);
-      return;
-    }
-
-    if (biliLink) {
-      showTip("应用内暂不支持该页面");
-      return;
-    }
-
-    void window.biliDesk.app.openExternal(href);
+    void openBiliHref(href, navigate);
   };
 
   return (
-    <span className="relative">
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer noopener"
-        className={cn(
-          "break-all underline-offset-2 hover:underline",
-          biliLink ? "text-[#00AEEC]" : "text-primary",
-          className,
-        )}
-        onClick={(event) => void handleClick(event)}
-      >
-        {children}
-      </a>
-      {tip && (
-        <span className="pointer-events-none absolute -top-7 left-0 z-10 whitespace-nowrap rounded-full bg-black/80 px-2 py-1 text-[11px] text-white">
-          {tip}
-        </span>
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={cn(
+        "break-all underline-offset-2 hover:underline",
+        biliLink ? "text-[#00AEEC]" : "text-primary",
+        className,
       )}
-    </span>
+      onClick={handleClick}
+    >
+      {children}
+    </a>
   );
 }
 

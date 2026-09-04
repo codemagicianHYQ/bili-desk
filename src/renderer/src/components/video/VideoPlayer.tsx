@@ -9,7 +9,8 @@ import { createPlaybackRateControl } from "@/components/video/playback-rate-sett
 import {
   bindPlayerResize,
   createOsFullscreenControl,
-  setOsFullscreenLayout,
+  createWebFullscreenControl,
+  exitPlayerFill,
 } from "@/components/video/os-fullscreen-control";
 import {
   flushDanmakuPref,
@@ -301,6 +302,7 @@ export function VideoPlayer({
           onQualityChangeRef.current(qn);
         }),
         createPlaybackRateControl(),
+        createWebFullscreenControl(),
         createOsFullscreenControl(),
       ],
       theme: playerThemeColor(),
@@ -604,8 +606,7 @@ export function VideoPlayer({
     if (!active) {
       savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
       resumeOnActiveRef.current = !art.paused;
-      void window.biliDesk.app.setFullscreen(false);
-      setOsFullscreenLayout(false);
+      exitPlayerFill(art);
       if (art.fullscreenWeb) art.fullscreenWeb = false;
       try {
         art.pause();

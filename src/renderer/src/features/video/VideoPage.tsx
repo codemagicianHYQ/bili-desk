@@ -9,6 +9,7 @@ import { UpOwnerCard } from "@/components/video/UpOwnerCard";
 import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
+import { VideoTagList } from "@/components/video/VideoTagList";
 import { LinkifiedText } from "@/components/ui/linkified-text";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { videoDetailCache } from "@/lib/session-data-cache";
@@ -334,7 +335,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
         >
           <div className="bili-watch-column mx-auto flex h-full w-full shrink-0 flex-col px-4 pt-3 lg:px-6">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
-              <div className="relative min-h-0 flex-1 bg-black">
+              <div className="relative z-0 min-h-0 flex-1 bg-black">
                 {playInfo && selectedCid ? (
                   <VideoPlayer
                     className="h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-contain"
@@ -370,7 +371,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                 )}
               </div>
 
-              <div className="shrink-0 space-y-2 border-t border-border px-4 py-2">
+              <div className="relative z-20 shrink-0 space-y-2 border-t border-border px-4 py-2">
                 <div className="flex min-w-0 items-start gap-3">
                   <h1 className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words line-clamp-2 lg:text-base">
                     {video.title}
@@ -428,6 +429,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
             <p className="text-sm leading-relaxed text-muted-foreground">
               {video.desc ? <LinkifiedText text={video.desc} /> : "暂无简介"}
             </p>
+            <VideoTagList tags={video.tags} />
             {playError && playInfo && (
               <div className="space-y-1 text-sm text-red-400">
                 <div className="flex flex-wrap items-center gap-2">

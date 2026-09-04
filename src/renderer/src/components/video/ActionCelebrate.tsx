@@ -1,5 +1,9 @@
-import { useEffect } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import {
+  APP_OVERLAY_ZCLASS,
+  OverlayPortal,
+} from "@/components/ui/overlay-portal";
 
 export type CelebrateKind = "like" | "coin" | "triple";
 
@@ -11,53 +15,95 @@ interface ActionCelebrateProps {
 
 /** 点赞 / 投币成功时的小电视弹出动画（参考官方互动反馈，非官方素材复刻） */
 export function ActionCelebrate({ kind, open, onDone }: ActionCelebrateProps) {
-  useEffect(() => {
-    if (!open) return;
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+
+    const sync = () => {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPos({
+        left: rect.left,
+        bottom: window.innerHeight - rect.top + 4,
+      });
+    };
+
+    sync();
+    window.addEventListener("resize", sync);
+    window.addEventListener("scroll", sync, true);
     const timer = window.setTimeout(onDone, 1400);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("scroll", sync, true);
+    };
   }, [open, onDone]);
 
-  if (!open) return null;
+  return (
+    <>
+      <span
+        ref={anchorRef}
+        className="pointer-events-none absolute left-1/2 top-0 h-0 w-0"
+        aria-hidden
+      />
+      {open && pos ? (
+        <OverlayPortal>
+          <div
+            className={cn(
+              "pointer-events-none fixed -translate-x-1/2",
+              APP_OVERLAY_ZCLASS,
+            )}
+            style={{ left: pos.left, bottom: pos.bottom }}
+            aria-hidden
+          >
+            <CelebrateBurst kind={kind} />
+          </div>
+        </OverlayPortal>
+      ) : null}
+    </>
+  );
+}
 
+function CelebrateBurst({ kind }: { kind: CelebrateKind }) {
   return (
     <div
-      className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1 -translate-x-1/2"
-      aria-hidden
+      className={cn(
+        "relative flex h-24 w-28 items-end justify-center",
+        "animate-[bili-celebrate-pop_1.35s_cubic-bezier(0.22,1.2,0.36,1)_both]",
+      )}
     >
-      <div
-        className={cn(
-          "relative flex h-24 w-28 items-end justify-center",
-          "animate-[bili-celebrate-pop_1.35s_cubic-bezier(0.22,1.2,0.36,1)_both]",
-        )}
-      >
-        <span className="absolute left-2 top-2 h-2 w-2 animate-[bili-star-twinkle_1s_ease-in-out_infinite] text-amber-300">
-          ★
-        </span>
-        <span className="absolute right-3 top-1 h-2.5 w-2.5 animate-[bili-star-twinkle_1.1s_ease-in-out_0.15s_infinite] text-yellow-300">
-          ★
-        </span>
-        <span className="absolute left-8 top-0 animate-[bili-star-twinkle_0.9s_ease-in-out_0.3s_infinite] text-[10px] text-amber-200">
-          ★
-        </span>
-        <span className="absolute right-6 top-5 animate-[bili-star-twinkle_1.2s_ease-in-out_0.45s_infinite] text-xs text-yellow-200">
-          ★
-        </span>
-        {kind === "triple" && (
-          <>
-            <span className="absolute -left-1 top-6 animate-[bili-star-twinkle_0.8s_ease-in-out_0.1s_infinite] text-sm text-pink-300">
-              ♥
-            </span>
-            <span className="absolute -right-2 top-8 animate-[bili-star-twinkle_0.85s_ease-in-out_0.25s_infinite] text-xs text-sky-300">
-              ★
-            </span>
-            <span className="absolute left-10 -top-1 text-[10px] font-black tracking-widest text-white drop-shadow animate-[bili-celebrate-pop_1.35s_cubic-bezier(0.22,1.2,0.36,1)_both]">
-              三连!
-            </span>
-          </>
-        )}
+      <span className="absolute left-2 top-2 h-2 w-2 animate-[bili-star-twinkle_1s_ease-in-out_infinite] text-amber-300">
+        ★
+      </span>
+      <span className="absolute right-3 top-1 h-2.5 w-2.5 animate-[bili-star-twinkle_1.1s_ease-in-out_0.15s_infinite] text-yellow-300">
+        ★
+      </span>
+      <span className="absolute left-8 top-0 animate-[bili-star-twinkle_0.9s_ease-in-out_0.3s_infinite] text-[10px] text-amber-200">
+        ★
+      </span>
+      <span className="absolute right-6 top-5 animate-[bili-star-twinkle_1.2s_ease-in-out_0.45s_infinite] text-xs text-yellow-200">
+        ★
+      </span>
+      {kind === "triple" && (
+        <>
+          <span className="absolute -left-1 top-6 animate-[bili-star-twinkle_0.8s_ease-in-out_0.1s_infinite] text-sm text-pink-300">
+            ♥
+          </span>
+          <span className="absolute -right-2 top-8 animate-[bili-star-twinkle_0.85s_ease-in-out_0.25s_infinite] text-xs text-sky-300">
+            ★
+          </span>
+          <span className="absolute left-10 -top-1 text-[10px] font-black tracking-widest text-white drop-shadow animate-[bili-celebrate-pop_1.35s_cubic-bezier(0.22,1.2,0.36,1)_both]">
+            三连!
+          </span>
+        </>
+      )}
 
-        <TvMascot kind={kind} />
-      </div>
+      <TvMascot kind={kind} />
     </div>
   );
 }
@@ -183,8 +229,22 @@ function TvMascot({ kind }: { kind: CelebrateKind }) {
           </g>
           <g transform="translate(46,70)">
             <circle cx="12" cy="12" r="13" fill="#FFE8A3" />
-            <circle cx="12" cy="12" r="9" fill="#FFC94A" stroke="#E8A317" strokeWidth="1.6" />
-            <text x="12" y="16" textAnchor="middle" fontSize="9" fontWeight="700" fill="#8A5A00">
+            <circle
+              cx="12"
+              cy="12"
+              r="9"
+              fill="#FFC94A"
+              stroke="#E8A317"
+              strokeWidth="1.6"
+            />
+            <text
+              x="12"
+              y="16"
+              textAnchor="middle"
+              fontSize="9"
+              fontWeight="700"
+              fill="#8A5A00"
+            >
               币
             </text>
           </g>

@@ -48,6 +48,7 @@ import type {
   UserInfo,
   VideoDetail,
   VideoItem,
+  VideoTag,
   PopularVideoItem,
   PopularFeedPage,
   WeeklySeriesMeta,
@@ -1707,6 +1708,9 @@ class BiliApiService {
     const view = viewRes.data?.data;
     if (!view?.bvid) throw new Error("Video not found");
 
+    const firstCid = Number(view.pages?.[0]?.cid) || undefined;
+    const tags = await this.getVideoTags(view.bvid, view.aid, firstCid);
+
     return {
       bvid: view.bvid,
       aid: view.aid,
@@ -1728,6 +1732,7 @@ class BiliApiService {
         part: (part.part as string) || `P${part.page}`,
         duration: (part.duration as number) ?? 0,
       })),
+      tags,
       stat: {
         view: view.stat?.view ?? 0,
         danmaku: view.stat?.danmaku ?? 0,
@@ -1738,6 +1743,72 @@ class BiliApiService {
         like: view.stat?.like ?? 0,
       },
     };
+  }
+
+  /** 官网简介下方标签：先新接口，失败再走旧 archive/tags */
+  private async getVideoTags(
+    bvid: string,
+    aid: number,
+    cid?: number,
+  ): Promise<VideoTag[]> {
+    const fromDetail = await this.fetchVideoTagList(
+      "/x/web-interface/view/detail/tag",
+      { bvid, aid, ...(cid ? { cid } : {}) },
+    );
+    if (fromDetail.length > 0) return fromDetail;
+    return this.fetchVideoTagList("/x/tag/archive/tags", { bvid, aid });
+  }
+
+  private async fetchVideoTagList(
+    path: string,
+    params: Record<string, string | number>,
+  ): Promise<VideoTag[]> {
+    try {
+      const res = await this.client.get(path, {
+        params,
+        validateStatus: () => true,
+      });
+      if (res.status === 412 || res.data?.code === -412) return [];
+      if (res.data?.code !== 0) return [];
+      const list = res.data?.data;
+      return Array.isArray(list) ? this.normalizeVideoTags(list) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private normalizeVideoTags(list: unknown[]): VideoTag[] {
+    const tags: VideoTag[] = [];
+    const seen = new Set<string>();
+    for (const raw of list) {
+      if (!raw || typeof raw !== "object") continue;
+      const item = raw as Record<string, unknown>;
+      const name = String(item.tag_name ?? item.name ?? "").trim();
+      if (!name) continue;
+      const id = Number(item.tag_id ?? item.id) || 0;
+      const key = id > 0 ? `id:${id}` : `name:${name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const typeName = String(item.tag_type ?? "").toLowerCase();
+      let kind: VideoTag["kind"] = "normal";
+      if (typeName === "topic") kind = "topic";
+      else if (typeName === "bgm") kind = "bgm";
+      else if (typeName === "old_channel" || typeName === "new_channel") {
+        kind = "channel";
+      }
+
+      const jump = String(item.jump_url ?? "").trim();
+      const cover = String(item.cover ?? "").trim();
+      tags.push({
+        id,
+        name,
+        kind,
+        jumpUrl: jump || undefined,
+        cover: cover || undefined,
+      });
+    }
+    return tags;
   }
 
   async getVideoRelation(bvid: string, aid: number): Promise<VideoRelation> {
@@ -7902,6 +7973,18 @@ class BiliApiService {
     return match?.[0];
   }
 
+  private extractSpaceMid(...urls: unknown[]): number {
+    for (const raw of urls) {
+      const url = String(raw ?? "");
+      if (!url) continue;
+      const match = url.match(/space\.bilibili\.com\/(\d+)/i);
+      if (!match) continue;
+      const mid = Number(match[1]);
+      if (mid > 0) return mid;
+    }
+    return 0;
+  }
+
   private normalizeSpaceDynamicItem(
     item: Record<string, unknown>,
     depth = 0,
@@ -7952,9 +8035,15 @@ class BiliApiService {
       const parsed = this.parseUgcSeasonPubAction(pubAction);
       authorName = parsed.name || "UP主";
       pubAction = parsed.action;
-      authorMid = 0;
-      // face 常是稿件封面，不当作用户头像
-      authorFace = "";
+      // module_author.mid 是 avid/seasonId，真实 UP mid 在空间 jump_url
+      authorMid = this.extractSpaceMid(
+        moduleAuthor?.jump_url,
+        (moduleAuthor?.avatar as Record<string, unknown> | undefined)?.jump_url,
+      );
+      const face = String(moduleAuthor?.face ?? "");
+      authorFace = /\/bfs\/face\//i.test(face)
+        ? face.replace(/^http:/, "https:")
+        : "";
     } else if (isPgcAuthor) {
       authorMid = 0;
     }
@@ -7980,6 +8069,9 @@ class BiliApiService {
         ? major.forward
         : undefined);
 
+    const exclusiveTag = this.extractExclusiveTag(modules, major);
+    const upowerPreview = this.extractUpowerPreview(major, moduleDynamic);
+
     const base = {
       id,
       type,
@@ -7992,6 +8084,7 @@ class BiliApiService {
       commentId,
       commentType,
       liked,
+      exclusiveTag,
     };
 
     if (type.includes("FORWARD") || Boolean(major?.forward)) {
@@ -8011,6 +8104,9 @@ class BiliApiService {
       const archive = major.archive as Record<string, unknown>;
       const stat = archive.stat as Record<string, unknown> | undefined;
       const durationRaw = archive.duration ?? archive.duration_text;
+      const badgeText = this.pickDynText(
+        (archive.badge as Record<string, unknown> | undefined)?.text,
+      );
       return {
         ...base,
         kind: "video",
@@ -8019,6 +8115,8 @@ class BiliApiService {
         bvid: archive.bvid as string | undefined,
         cover: ((archive.cover as string) ?? "").replace(/^http:/, "https:"),
         duration: this.parseDynamicDuration(durationRaw),
+        exclusiveTag:
+          exclusiveTag || (/充电|专属/.test(badgeText) ? badgeText : undefined),
         stats: {
           view: Number(stat?.play) || 0,
           danmaku: Number(stat?.danmaku) || 0,
@@ -8035,6 +8133,12 @@ class BiliApiService {
       const jumpUrl = String(season.jump_url ?? moduleAuthor?.jump_url ?? "");
       const bvid =
         (season.bvid as string | undefined) || this.extractBvidFromUrl(jumpUrl);
+      const owner = season.owner as Record<string, unknown> | undefined;
+      const seasonMid =
+        this.extractSpaceMid(jumpUrl, moduleAuthor?.jump_url) ||
+        Number(owner?.mid ?? 0) ||
+        Number(season.up_id ?? season.up_mid ?? 0) ||
+        0;
       return {
         ...base,
         kind: "video",
@@ -8045,6 +8149,7 @@ class BiliApiService {
         duration: this.parseDynamicDuration(
           season.duration_text ?? season.duration,
         ),
+        authorMid: base.authorMid || (seasonMid > 0 ? seasonMid : undefined),
         stats: {
           view: Number(stat?.play) || 0,
           danmaku: Number(stat?.danmaku) || 0,
@@ -8095,6 +8200,23 @@ class BiliApiService {
       };
     }
 
+    if (upowerPreview) {
+      return {
+        ...base,
+        kind: "upower",
+        text: upowerPreview.text,
+        title: upowerPreview.title,
+        cover: upowerPreview.icon,
+        chargeButton: upowerPreview.button,
+        chargeUrl: this.normalizeChargeJumpUrl(
+          upowerPreview.url,
+          authorMid || Number(upowerPreview.upMid) || 0,
+        ),
+        exclusiveTag: exclusiveTag || "充电专属",
+        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+      };
+    }
+
     if (major?.opus) {
       const opus = major.opus as Record<string, unknown>;
       const summary = this.extractRichText(opus.summary);
@@ -8135,6 +8257,19 @@ class BiliApiService {
       )
       .filter(Boolean);
 
+    if (exclusiveTag && images.length === 0 && (!text || text === "动态")) {
+      return {
+        ...base,
+        kind: "upower",
+        text: "加入当前 UP 主的充电即可解锁观看",
+        title: "充电专属动态",
+        chargeButton: "去充电",
+        chargeUrl: this.normalizeChargeJumpUrl("", authorMid),
+        exclusiveTag,
+        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+      };
+    }
+
     return {
       ...base,
       kind: images.length > 0 ? "draw" : "text",
@@ -8144,6 +8279,143 @@ class BiliApiService {
       images,
       stats: { like: likeCount, reply: replyCount, forward: forwardCount },
     };
+  }
+
+  private pickDynText(...values: unknown[]): string {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (!value || typeof value !== "object") continue;
+      const obj = value as Record<string, unknown>;
+      const nested = this.pickDynText(
+        obj.text,
+        obj.src,
+        obj.img_src,
+        obj.light_src,
+        obj.dark_src,
+        obj.url,
+      );
+      if (nested) return nested;
+    }
+    return "";
+  }
+
+  private extractExclusiveTag(
+    modules: Record<string, unknown> | undefined,
+    major: Record<string, unknown> | undefined,
+  ): string | undefined {
+    const tag = modules?.module_tag as Record<string, unknown> | undefined;
+    const tagText = this.pickDynText(tag?.text);
+    if (/充电|专属/.test(tagText)) return tagText;
+
+    const majorType = String(major?.type ?? "");
+    if (majorType.includes("UPOWER")) return "充电专属";
+    const blocked = major?.blocked as Record<string, unknown> | undefined;
+    if (Number(blocked?.blocked_type) === 3) return "充电专属";
+    return undefined;
+  }
+
+  private extractUpowerPreview(
+    major: Record<string, unknown> | undefined,
+    moduleDynamic: Record<string, unknown> | undefined,
+  ): {
+    title: string;
+    text: string;
+    button: string;
+    url: string;
+    icon?: string;
+    upMid?: number;
+  } | null {
+    if (!major) return null;
+
+    const blocked = major.blocked as Record<string, unknown> | undefined;
+    if (blocked && typeof blocked === "object") {
+      const blockedType = Number(blocked.blocked_type);
+      const blob = `${blocked.title ?? ""} ${blocked.hint_message ?? ""} ${blocked.desc ?? ""}`;
+      if (blockedType === 3 || /充电|专属/.test(blob)) {
+        const button = (blocked.button ?? {}) as Record<string, unknown>;
+        return {
+          title: this.pickDynText(blocked.title) || "充电专属动态",
+          text:
+            this.pickDynText(blocked.hint_message, blocked.desc) ||
+            this.extractRichText(moduleDynamic?.desc) ||
+            "加入当前 UP 主的充电即可解锁观看",
+          button: this.pickDynText(button.text) || "去充电",
+          url: this.pickDynText(button.jump_url, blocked.jump_url),
+          icon: this.pickDynText(blocked.icon),
+        };
+      }
+    }
+
+    const upower = (major.upower_common ?? major.upower) as
+      | Record<string, unknown>
+      | undefined;
+    if (upower && typeof upower === "object") {
+      const button = (upower.button ?? {}) as Record<string, unknown>;
+      const jumpStyle = (button.jump_style ?? {}) as Record<string, unknown>;
+      return {
+        title:
+          this.pickDynText(upower.title) ||
+          this.pickDynText(upower.title_prefix) ||
+          "充电专属动态",
+        text:
+          this.pickDynText(
+            upower.desc,
+            upower.sub_title,
+            upower.subtitle,
+            upower.hint,
+            upower.hint_message,
+          ) ||
+          this.extractRichText(moduleDynamic?.desc) ||
+          "加入当前 UP 主的充电即可解锁观看",
+        button: this.pickDynText(jumpStyle.text, button.text) || "去充电",
+        url: this.pickDynText(button.jump_url, upower.jump_url),
+        icon: this.pickDynText(upower.icon),
+        upMid: Number(upower.up_mid) || undefined,
+      };
+    }
+
+    const common = major.common as Record<string, unknown> | undefined;
+    if (common && typeof common === "object") {
+      const badge = this.pickDynText(
+        (common.badge as Record<string, unknown> | undefined)?.text,
+        common.head_text,
+      );
+      const blob = `${common.title ?? ""} ${common.desc ?? ""} ${common.desc1 ?? ""} ${common.desc2 ?? ""} ${badge}`;
+      if (/充电|专属|upower/i.test(blob)) {
+        const button = (common.button ?? {}) as Record<string, unknown>;
+        return {
+          title: this.pickDynText(common.title) || "充电专属动态",
+          text:
+            this.pickDynText(common.desc, common.desc1, common.desc2) ||
+            "加入当前 UP 主的充电即可解锁观看",
+          button: this.pickDynText(button.text) || badge || "去充电",
+          url: this.pickDynText(button.jump_url, common.jump_url),
+          icon: this.pickDynText(common.cover, common.icon),
+        };
+      }
+    }
+
+    if (String(major.type ?? "").includes("UPOWER")) {
+      return {
+        title: "充电专属动态",
+        text: "加入当前 UP 主的充电即可解锁观看",
+        button: "去充电",
+        url: "",
+      };
+    }
+
+    return null;
+  }
+
+  private normalizeChargeJumpUrl(raw: string, mid: number): string | undefined {
+    const url = raw.trim();
+    if (/^https?:\/\//i.test(url)) return url.replace(/^http:/i, "https:");
+    const fromScheme = url.match(/[?&]mid=(\d+)/)?.[1];
+    const targetMid = Number(fromScheme) || mid;
+    if (targetMid > 0) {
+      return `https://www.bilibili.com/h5/upower/index?mid=${targetMid}`;
+    }
+    return url || undefined;
   }
 
   private normalizeOrigDynamic(

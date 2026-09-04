@@ -5,6 +5,7 @@ import type { LivePlayInfo } from "@shared/types";
 import {
   bindPlayerResize,
   createOsFullscreenControl,
+  createWebFullscreenControl,
 } from "@/components/video/os-fullscreen-control";
 import { cn } from "@/lib/utils";
 
@@ -215,7 +216,7 @@ export function LivePlayer({
       theme: playerThemeColor(),
       lang: "zh-cn",
       type: playInfo.format === "flv" ? "flv" : "m3u8",
-      controls: [createOsFullscreenControl()],
+      controls: [createWebFullscreenControl(), createOsFullscreenControl()],
       customType: {
         flv(video, url, player) {
           bindFlv(video, url, player);

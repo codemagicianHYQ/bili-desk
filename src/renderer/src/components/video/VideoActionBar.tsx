@@ -18,8 +18,10 @@ interface VideoActionBarProps {
   className?: string;
 }
 
-const HOLD_MS = 720;
-const TAP_MS = 240;
+/** 官网 `v-longClick:800`：按住满此时长才开始充电环，短按只点赞、不出环 */
+const CHARGE_DELAY_MS = 800;
+/** 官网 RingProgress：每 100ms `angle += 2/15`，转满 angle=2 共 15 帧 = 1.5s */
+const CHARGE_MS = 1500;
 
 function formatActionError(err: unknown): string {
   const message = err instanceof Error ? err.message : "操作失败";
@@ -117,6 +119,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
     (state) => state.invalidateFolders,
   );
 
+  const holdingRef = useRef(false);
   const chargingRef = useRef(false);
   const completedRef = useRef(false);
   const startRef = useRef(0);
@@ -134,6 +137,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
     setCelebrate(null);
     setCharging(false);
     setChargeProgress(0);
+    holdingRef.current = false;
     chargingRef.current = false;
     completedRef.current = false;
   }, [video.aid, video.stat]);
@@ -320,6 +324,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
   }, []);
 
   const clearCharge = () => {
+    holdingRef.current = false;
     chargingRef.current = false;
     if (rafRef.current) window.cancelAnimationFrame(rafRef.current);
     rafRef.current = 0;
@@ -332,15 +337,27 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerRef.current = event.pointerId;
     completedRef.current = false;
-    chargingRef.current = true;
+    chargingRef.current = false;
+    holdingRef.current = true;
     startRef.current = performance.now();
-    setCharging(true);
+    setCharging(false);
+    setChargeProgress(0);
     setError("");
     const tick = (now: number) => {
-      if (!chargingRef.current) return;
-      const progress = Math.min(1, (now - startRef.current) / HOLD_MS);
+      if (!holdingRef.current) return;
+      const elapsed = now - startRef.current;
+      if (elapsed < CHARGE_DELAY_MS) {
+        rafRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+      if (!chargingRef.current) {
+        chargingRef.current = true;
+        setCharging(true);
+      }
+      const progress = Math.min(1, (elapsed - CHARGE_DELAY_MS) / CHARGE_MS);
       setChargeProgress(progress);
       if (progress >= 1) {
+        holdingRef.current = false;
         chargingRef.current = false;
         completedRef.current = true;
         setCharging(false);
@@ -360,11 +377,12 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
     }
     pointerRef.current = null;
     const elapsed = performance.now() - startRef.current;
-    const wasCharging = chargingRef.current;
+    const startedCharge = chargingRef.current || elapsed >= CHARGE_DELAY_MS;
     const completed = completedRef.current;
     clearCharge();
     if (completed) return;
-    if (wasCharging && elapsed < TAP_MS) void handleLikeRef.current();
+    // 官网：未出环的短按走点赞；已经出环再松开只取消三连，不当点赞
+    if (!startedCharge) void handleLikeRef.current();
   };
 
   const onLikePointerCancel = () => {

@@ -22,6 +22,9 @@ export default defineConfig({
   renderer: {
     server: {
       host: "127.0.0.1",
+      // 本机 5173 常被 Flutter dartvm 占着；Windows 再绑 127.0.0.1:5173 会报 EACCES
+      port: 15173,
+      strictPort: true,
     },
     resolve: {
       alias: {

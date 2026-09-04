@@ -707,27 +707,40 @@
   font-size: 20px;
 }
 
+html.bili-player-fill,
 html.bili-os-fullscreen,
+html.bili-player-fill body,
 html.bili-os-fullscreen body,
+html.bili-player-fill #root,
 html.bili-os-fullscreen #root {
   overflow: hidden !important;
   height: 100% !important;
   background: #000;
 }
 
+html.bili-player-fill [data-app-chrome],
 html.bili-os-fullscreen [data-app-chrome],
+html.bili-player-fill [data-page-chrome],
 html.bili-os-fullscreen [data-page-chrome] {
   display: none !important;
 }
 
-/* 祖先 overflow/transform 会把 position:fixed 锁在中间栏里，全屏时先拆掉 */
+/* 祖先 overflow/transform 会把 position:fixed 锁在中间栏里，铺满时先拆掉 */
+html.bili-player-fill .h-screen,
 html.bili-os-fullscreen .h-screen,
+html.bili-player-fill main,
 html.bili-os-fullscreen main,
+html.bili-player-fill .overflow-hidden,
 html.bili-os-fullscreen .overflow-hidden,
+html.bili-player-fill .overflow-y-auto,
 html.bili-os-fullscreen .overflow-y-auto,
+html.bili-player-fill .scrollbar-overlay,
 html.bili-os-fullscreen .scrollbar-overlay,
+html.bili-player-fill .bili-watch-column,
 html.bili-os-fullscreen .bili-watch-column,
+html.bili-player-fill .max-w-4xl,
 html.bili-os-fullscreen .max-w-4xl,
+html.bili-player-fill .max-w-6xl,
 html.bili-os-fullscreen .max-w-6xl {
   overflow: visible !important;
   transform: none !important;
@@ -738,6 +751,7 @@ html.bili-os-fullscreen .max-w-6xl {
   padding: 0 !important;
 }
 
+html.bili-player-fill .bili-player-stage,
 html.bili-os-fullscreen .bili-player-stage {
   position: fixed !important;
   inset: 0 !important;
@@ -751,7 +765,9 @@ html.bili-os-fullscreen .bili-player-stage {
   background: #000;
 }
 
+html.bili-player-fill .bili-player-stage .art-video-player,
 html.bili-os-fullscreen .bili-player-stage .art-video-player,
+html.bili-player-fill .bili-player-stage video,
 html.bili-os-fullscreen .bili-player-stage video {
   width: 100% !important;
   height: 100% !important;

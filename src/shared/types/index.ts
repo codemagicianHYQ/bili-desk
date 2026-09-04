@@ -14,9 +14,21 @@ export interface VideoItem {
   pubdate: number;
 }
 
+export type VideoTagKind = "normal" | "topic" | "channel" | "bgm";
+
+/** 稿件标签（官网简介下方胶囊） */
+export interface VideoTag {
+  id: number;
+  name: string;
+  kind: VideoTagKind;
+  jumpUrl?: string;
+  cover?: string;
+}
+
 export interface VideoDetail extends VideoItem {
   desc: string;
   pages: VideoPagePart[];
+  tags: VideoTag[];
   stat: {
     view: number;
     danmaku: number;
@@ -648,7 +660,15 @@ export interface ToViewAddResult {
 export interface SpaceDynamicItem {
   id: string;
   type: string;
-  kind: "video" | "opus" | "text" | "draw" | "live" | "forward" | "article";
+  kind:
+    | "video"
+    | "opus"
+    | "text"
+    | "draw"
+    | "live"
+    | "forward"
+    | "article"
+    | "upower";
   text: string;
   pubTime: number;
   pubTimeLabel?: string;
@@ -672,6 +692,12 @@ export interface SpaceDynamicItem {
   liveRoomId?: number;
   liveUrl?: string;
   liveState?: number;
+  /** 时间旁的粉标，如「充电专属」 */
+  exclusiveTag?: string;
+  /** 充电卡按钮文案，如「88元充电」 */
+  chargeButton?: string;
+  /** 充电落地页 / H5 */
+  chargeUrl?: string;
   stats?: {
     view?: number;
     like?: number;

@@ -229,3 +229,8 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   return target.isContentEditable;
 }
+
+/** 图片灯箱、确认框等弹层打开时，播放器快捷键应让路 */
+export function isModalOpen(): boolean {
+  return Boolean(document.querySelector('[aria-modal="true"]'));
+}

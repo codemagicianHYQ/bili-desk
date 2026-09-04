@@ -3,6 +3,10 @@ import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem, UpProfile } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { LinkifiedText } from "@/components/ui/linkified-text";
+import {
+  ExclusiveTag,
+  UpowerExclusiveCard,
+} from "@/components/dynamic/DynamicFeedCard";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
 
@@ -99,7 +103,6 @@ function DynamicCard({
   const navigate = useNavigate();
   const authorName = item.authorName || fallbackName;
   const authorFace = item.authorFace || fallbackFace;
-  const meta = [item.pubTimeLabel, item.pubAction].filter(Boolean).join(" · ");
   const canOpenDetail =
     Boolean(item.id) &&
     item.id !== "0" &&
@@ -107,7 +110,8 @@ function DynamicCard({
       item.kind === "text" ||
       item.kind === "draw" ||
       item.kind === "forward" ||
-      item.kind === "article");
+      item.kind === "article" ||
+      item.kind === "upower");
 
   return (
     <article className="overflow-hidden rounded-xl bg-[#232527] shadow-sm ring-1 ring-white/5">
@@ -125,7 +129,13 @@ function DynamicCard({
           <p className="truncate text-[15px] font-medium text-[#00aeec]">
             {authorName}
           </p>
-          {meta && <p className="mt-0.5 text-xs text-[#9499a0]">{meta}</p>}
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-[#9499a0]">
+            {item.pubTimeLabel && <span>{item.pubTimeLabel}</span>}
+            {!item.exclusiveTag && item.pubAction && (
+              <span>· {item.pubAction}</span>
+            )}
+            {item.exclusiveTag && <ExclusiveTag text={item.exclusiveTag} />}
+          </p>
         </div>
       </div>
 
@@ -157,6 +167,8 @@ function DynamicCard({
             )}
             <VideoDynamicBody item={item} />
           </>
+        ) : item.kind === "upower" ? (
+          <UpowerExclusiveCard item={item} />
         ) : (
           <>
             {item.title && item.kind !== "text" && (
