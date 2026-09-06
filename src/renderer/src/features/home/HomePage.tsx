@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   SearchCategory,
   SearchOrder,
+  SearchSuggestItem,
   SearchTypeCounts,
   VideoItem,
 } from "@shared/types";
@@ -67,6 +68,29 @@ function formatSearchError(err: unknown): string {
   return message;
 }
 
+/** 前缀匹配高亮（官网 suggest 同款视觉） */
+function highlightSuggest(text: string, term: string) {
+  const q = term.trim();
+  if (!q) return text;
+  if (text.toLowerCase().startsWith(q.toLowerCase())) {
+    return (
+      <>
+        <span className="text-primary">{text.slice(0, q.length)}</span>
+        {text.slice(q.length)}
+      </>
+    );
+  }
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <span className="text-primary">{text.slice(idx, idx + q.length)}</span>
+      {text.slice(idx + q.length)}
+    </>
+  );
+}
+
 export function HomePage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -120,6 +144,12 @@ export function HomePage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [suggests, setSuggests] = useState<SearchSuggestItem[]>([]);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [suggestIndex, setSuggestIndex] = useState(-1);
+  const suggestSeqRef = useRef(0);
+  const suggestBoxRef = useRef<HTMLDivElement>(null);
+  const skipSuggestOnceRef = useRef(false);
 
   const isLiveTab = homeTab === "live";
   const isSearchMode = !isLiveTab && query.length > 0;
@@ -150,6 +180,7 @@ export function HomePage() {
   useEffect(() => {
     if (!isLiveTab) return;
     searchLoadSeqRef.current += 1;
+    suggestSeqRef.current += 1;
     setKeyword("");
     setQuery("");
     setSearchCategory("all");
@@ -157,6 +188,9 @@ export function HomePage() {
     setSearchVideos([]);
     setSearchError("");
     setSearchLoading(false);
+    setSuggests([]);
+    setShowSuggest(false);
+    setSuggestIndex(-1);
     searchPageCacheRef.current.clear();
     searchNextApiPageRef.current.clear();
     searchStableTotalRef.current = 0;
@@ -283,6 +317,10 @@ export function HomePage() {
     (nextQuery: string, nextOrder: SearchOrder) => {
       const trimmed = nextQuery.trim();
       if (!trimmed) return;
+      skipSuggestOnceRef.current = true;
+      setShowSuggest(false);
+      setSuggests([]);
+      setSuggestIndex(-1);
       setQuery(trimmed);
       setKeyword(trimmed);
       setOrder(nextOrder);
@@ -305,6 +343,53 @@ export function HomePage() {
     },
     [loadSearchPage],
   );
+
+  // 搜索联想（官网 / 客户端同款 suggest 接口）
+  useEffect(() => {
+    if (skipSuggestOnceRef.current) {
+      skipSuggestOnceRef.current = false;
+      return;
+    }
+    const term = keyword.trim();
+    if (!term) {
+      suggestSeqRef.current += 1;
+      setSuggests([]);
+      setShowSuggest(false);
+      setSuggestIndex(-1);
+      return;
+    }
+
+    const seq = ++suggestSeqRef.current;
+    const timer = window.setTimeout(() => {
+      void window.biliDesk.bili
+        .getSearchSuggest(term)
+        .then((items) => {
+          if (seq !== suggestSeqRef.current) return;
+          setSuggests(items);
+          setShowSuggest(items.length > 0);
+          setSuggestIndex(-1);
+        })
+        .catch(() => {
+          if (seq !== suggestSeqRef.current) return;
+          setSuggests([]);
+          setShowSuggest(false);
+        });
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [keyword]);
+
+  useEffect(() => {
+    if (!showSuggest) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (suggestBoxRef.current?.contains(target)) return;
+      setShowSuggest(false);
+      setSuggestIndex(-1);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [showSuggest]);
 
   const searchTotalPages = Math.max(
     1,
@@ -340,6 +425,7 @@ export function HomePage() {
 
   const clearSearch = useCallback(() => {
     searchLoadSeqRef.current += 1;
+    suggestSeqRef.current += 1;
     setKeyword("");
     setQuery("");
     setSearchCategory("all");
@@ -347,6 +433,9 @@ export function HomePage() {
     setSearchVideos([]);
     setSearchError("");
     setSearchLoading(false);
+    setSuggests([]);
+    setShowSuggest(false);
+    setSuggestIndex(-1);
     searchPageCacheRef.current.clear();
     searchNextApiPageRef.current.clear();
     searchStableTotalRef.current = 0;
@@ -355,9 +444,44 @@ export function HomePage() {
     setShowBackToTop(false);
   }, []);
 
+  const pickSuggest = useCallback(
+    (value: string) => {
+      runSearch(value, order);
+    },
+    [runSearch, order],
+  );
+
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
+    if (showSuggest && suggestIndex >= 0 && suggests[suggestIndex]) {
+      pickSuggest(suggests[suggestIndex].value);
+      return;
+    }
     runSearch(keyword, order);
+  };
+
+  const handleSuggestKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (!showSuggest || suggests.length === 0) {
+      if (event.key === "Escape") setShowSuggest(false);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSuggestIndex((prev) => (prev + 1) % suggests.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSuggestIndex((prev) => (prev <= 0 ? suggests.length - 1 : prev - 1));
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setShowSuggest(false);
+      setSuggestIndex(-1);
+    }
   };
 
   const handleOrderChange = (nextOrder: SearchOrder) => {
@@ -528,25 +652,64 @@ export function HomePage() {
       {!isLiveTab && (
         <div className="shrink-0 space-y-3 border-b border-border px-6 py-3">
           <form onSubmit={handleSubmit} className="flex gap-2">
-            <div className="relative min-w-0 flex-1">
-              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <div ref={suggestBoxRef} className="relative min-w-0 flex-1">
+              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
+                onFocus={() => {
+                  if (suggests.length > 0) setShowSuggest(true);
+                }}
+                onKeyDown={handleSuggestKeyDown}
                 placeholder="搜索视频、用户..."
                 autoComplete="off"
+                role="combobox"
+                aria-expanded={showSuggest}
+                aria-autocomplete="list"
                 className="h-9 w-full rounded-lg border border-border bg-secondary/30 pl-9 pr-9 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
               />
               {keyword && (
                 <button
                   type="button"
                   onClick={clearSearch}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
                   aria-label="清除搜索"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
+              )}
+              {showSuggest && suggests.length > 0 && (
+                <ul
+                  role="listbox"
+                  className="bili-glass absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-72 overflow-y-auto rounded-xl border border-border bg-card/40 py-1 shadow-2xl"
+                >
+                  {suggests.map((item, index) => (
+                    <li
+                      key={item.value}
+                      role="option"
+                      aria-selected={index === suggestIndex}
+                    >
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center px-3 py-2 text-left text-sm transition-colors",
+                          index === suggestIndex
+                            ? "bg-primary/15 text-foreground"
+                            : "text-foreground hover:bg-secondary/80",
+                        )}
+                        onMouseEnter={() => setSuggestIndex(index)}
+                        onMouseDown={(event) => {
+                          // 避免 input blur 抢在 click 前关掉下拉
+                          event.preventDefault();
+                          pickSuggest(item.value);
+                        }}
+                      >
+                        {highlightSuggest(item.value, keyword)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
             <Button

@@ -703,6 +703,13 @@ export interface SearchLivePage {
   total: number;
 }
 
+export interface SearchSuggestItem {
+  /** 纯文本建议词 */
+  value: string;
+  /** 带高亮标记的展示（可选，前端也可自行高亮） */
+  name?: string;
+}
+
 export interface SearchTypeCounts {
   video: number;
   bangumi: number;
@@ -1251,6 +1258,7 @@ export interface BiliDeskApi {
       page?: number,
       order?: SearchLiveOrder,
     ) => Promise<SearchLivePage>;
+    getSearchSuggest: (term: string) => Promise<SearchSuggestItem[]>;
     getSearchTypeCounts: (keyword: string) => Promise<SearchTypeCounts>;
     getToViewList: () => Promise<ToViewList>;
     addToView: (

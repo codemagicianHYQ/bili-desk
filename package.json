@@ -5,7 +5,8 @@
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "electron-vite dev --watch",
+    "dev:once": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "dist:win": "electron-vite build && electron-builder --win",

@@ -84,6 +84,7 @@ import type {
   SearchLiveItem,
   SearchLiveOrder,
   SearchLivePage,
+  SearchSuggestItem,
   ArticleDetail,
   ToViewItem,
   ToViewList,
@@ -5462,6 +5463,74 @@ class BiliApiService {
     throw new Error(lastError);
   }
 
+  /** 搜索联想：https://s.search.bilibili.com/main/suggest */
+  async getSearchSuggest(term: string): Promise<SearchSuggestItem[]> {
+    const trimmed = term.trim();
+    if (!trimmed) return [];
+
+    await this.ensureBuvid3();
+
+    try {
+      const res = await this.client.get(
+        "https://s.search.bilibili.com/main/suggest",
+        {
+          params: {
+            term: trimmed,
+            main_ver: "v1",
+            highlight: "",
+            func: "suggest",
+            suggest_type: "accurate",
+            sub_type: "tag",
+            tag_num: 10,
+            rnd: Math.random(),
+          },
+          headers: {
+            Referer: "https://search.bilibili.com/",
+            Origin: "https://search.bilibili.com",
+          },
+          validateStatus: () => true,
+        },
+      );
+
+      if (res.status === 412) return [];
+      // 该接口有时不返回 code，直接给 result
+      const payload = res.data as Record<string, unknown> | undefined;
+      if (!payload) return [];
+      if (
+        payload.code != null &&
+        Number(payload.code) !== 0 &&
+        Number(payload.code) !== 200
+      ) {
+        return [];
+      }
+
+      const result = payload.result as Record<string, unknown> | undefined;
+      const tags = Array.isArray(result?.tag)
+        ? (result.tag as Record<string, unknown>[])
+        : Array.isArray(payload.result)
+          ? (payload.result as Record<string, unknown>[])
+          : [];
+
+      const seen = new Set<string>();
+      const items: SearchSuggestItem[] = [];
+      for (const tag of tags) {
+        const value = this.stripHtml(
+          String(tag.value ?? tag.term ?? tag.name ?? ""),
+        );
+        if (!value || seen.has(value)) continue;
+        seen.add(value);
+        items.push({
+          value,
+          name: String(tag.name ?? "") || undefined,
+        });
+        if (items.length >= 10) break;
+      }
+      return items;
+    } catch {
+      return [];
+    }
+  }
+
   async searchUsers(
     keyword: string,
     page = 1,
@@ -5646,7 +5715,9 @@ class BiliApiService {
       styles: this.stripHtml(String(item.styles ?? "")),
       areas: this.stripHtml(String(item.areas ?? "")),
       desc: this.stripHtml(String(item.desc ?? item.evaluate ?? "")),
-      indexShow: this.stripHtml(String(item.index_show ?? item.indexShow ?? "")),
+      indexShow: this.stripHtml(
+        String(item.index_show ?? item.indexShow ?? ""),
+      ),
       score,
       pubtime: Number(item.pubtime ?? item.pub_time ?? 0) || 0,
       url,
@@ -9001,7 +9072,8 @@ class BiliApiService {
     const id = String(item.id_str || item.id || "").trim();
     if (!id) return null;
 
-    const type = (item.type as string) ?? "";
+    // polymer 详情偶发返回数字 type（非 DYNAMIC_TYPE_* 字符串），不能直接 .includes
+    const type = String(item.type ?? "").toUpperCase();
     const basic = item.basic as Record<string, unknown> | undefined;
     const commentIdRaw =
       basic?.comment_id_str ?? basic?.comment_id ?? item.comment_id_str;
@@ -9570,13 +9642,14 @@ class BiliApiService {
   }
 
   private getDynamicPubAction(type: string): string {
-    if (type.includes("FORWARD")) return "转发了动态";
-    if (type.includes("UGC_SEASON")) return "更新了合集";
-    if (type.includes("AV")) return "投稿了视频";
-    if (type.includes("LIVE")) return "正在直播";
-    if (type.includes("DRAW")) return "发布了动态";
-    if (type.includes("WORD")) return "发布了动态";
-    if (type.includes("ARTICLE")) return "投稿了专栏";
+    const t = String(type ?? "").toUpperCase();
+    if (t.includes("FORWARD")) return "转发了动态";
+    if (t.includes("UGC_SEASON")) return "更新了合集";
+    if (t.includes("AV")) return "投稿了视频";
+    if (t.includes("LIVE")) return "正在直播";
+    if (t.includes("DRAW")) return "发布了动态";
+    if (t.includes("WORD")) return "发布了动态";
+    if (t.includes("ARTICLE")) return "投稿了专栏";
     return "发布了动态";
   }
 

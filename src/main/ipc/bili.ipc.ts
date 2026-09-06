@@ -295,6 +295,9 @@ export function registerBiliIpc(): void {
     (_e, keyword: string, page?: number, order?: SearchLiveOrder) =>
       biliApi.searchLiveRooms(keyword, page, order),
   );
+  handleIpc(IPC.BILI_SEARCH_SUGGEST, (_e, term: string) =>
+    biliApi.getSearchSuggest(term),
+  );
   handleIpc(IPC.BILI_SEARCH_TYPE_COUNTS, (_e, keyword: string) =>
     biliApi.getSearchTypeCounts(keyword),
   );

@@ -313,6 +313,8 @@ const api = {
         page ?? 1,
         order ?? "online",
       ),
+    getSearchSuggest: (term: string) =>
+      ipcRenderer.invoke(IPC.BILI_SEARCH_SUGGEST, term),
     getSearchTypeCounts: (keyword: string) =>
       ipcRenderer.invoke(IPC.BILI_SEARCH_TYPE_COUNTS, keyword),
     getToViewList: () => ipcRenderer.invoke(IPC.BILI_TOVIEW_LIST),
