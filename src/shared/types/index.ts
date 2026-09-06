@@ -657,6 +657,52 @@ export interface SearchArticlesPage {
   total: number;
 }
 
+/** 番剧 / 影视搜索条目（search_type=media_bangumi | media_ft） */
+export type SearchMediaKind = "bangumi" | "media";
+
+export interface SearchMediaItem {
+  seasonId: number;
+  mediaId: number;
+  title: string;
+  cover: string;
+  styles: string;
+  areas: string;
+  desc: string;
+  /** 如「更新至第 12 话」 */
+  indexShow: string;
+  score: number;
+  pubtime: number;
+  url: string;
+  kind: SearchMediaKind;
+}
+
+export interface SearchMediaPage {
+  items: SearchMediaItem[];
+  page: number;
+  hasMore: boolean;
+  total: number;
+}
+
+export type SearchLiveOrder = "online" | "live_time";
+
+export interface SearchLiveItem {
+  roomId: number;
+  title: string;
+  cover: string;
+  online: number;
+  uname: string;
+  face: string;
+  areaName: string;
+  liveTime?: number;
+}
+
+export interface SearchLivePage {
+  rooms: SearchLiveItem[];
+  page: number;
+  hasMore: boolean;
+  total: number;
+}
+
 export interface SearchTypeCounts {
   video: number;
   bangumi: number;
@@ -1195,6 +1241,16 @@ export interface BiliDeskApi {
       page?: number,
       order?: SearchArticleOrder,
     ) => Promise<SearchArticlesPage>;
+    searchMedia: (
+      keyword: string,
+      kind: SearchMediaKind,
+      page?: number,
+    ) => Promise<SearchMediaPage>;
+    searchLiveRooms: (
+      keyword: string,
+      page?: number,
+      order?: SearchLiveOrder,
+    ) => Promise<SearchLivePage>;
     getSearchTypeCounts: (keyword: string) => Promise<SearchTypeCounts>;
     getToViewList: () => Promise<ToViewList>;
     addToView: (

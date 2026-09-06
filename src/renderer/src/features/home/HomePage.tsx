@@ -15,6 +15,8 @@ import { LiveCard } from "@/components/live/LiveCard";
 import { FollowingLiveList } from "@/components/live/FollowingLiveList";
 import { SearchUserPanel } from "@/features/home/SearchUserPanel";
 import { SearchArticlePanel } from "@/features/home/SearchArticlePanel";
+import { SearchMediaPanel } from "@/features/home/SearchMediaPanel";
+import { SearchLivePanel } from "@/features/home/SearchLivePanel";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { Loader2, Search as SearchIcon, ArrowUp, X } from "lucide-react";
@@ -125,11 +127,9 @@ export function HomePage() {
     searchCategory === "all" || searchCategory === "video";
   const isUserSearchCategory = searchCategory === "user";
   const isArticleSearchCategory = searchCategory === "article";
-  const isPendingSearchCategory =
-    isSearchMode &&
-    !isVideoSearchCategory &&
-    !isUserSearchCategory &&
-    !isArticleSearchCategory;
+  const isBangumiSearchCategory = searchCategory === "bangumi";
+  const isMediaSearchCategory = searchCategory === "media";
+  const isLiveSearchCategory = searchCategory === "live";
 
   useEffect(() => {
     void fetchInitial();
@@ -382,6 +382,24 @@ export function HomePage() {
           },
     );
   }, []);
+
+  const patchSearchCount = useCallback(
+    (key: "bangumi" | "media" | "live", total: number) => {
+      setSearchTypeCounts((prev) =>
+        prev
+          ? { ...prev, [key]: total }
+          : {
+              video: 0,
+              bangumi: key === "bangumi" ? total : 0,
+              media: key === "media" ? total : 0,
+              live: key === "live" ? total : 0,
+              article: 0,
+              user: 0,
+            },
+      );
+    },
+    [],
+  );
 
   const handleCategoryChange = (next: SearchCategory) => {
     if (next === searchCategory) return;
@@ -713,13 +731,26 @@ export function HomePage() {
               active
               onTotalChange={handleArticleTotalChange}
             />
-          ) : isPendingSearchCategory ? (
-            <p className="py-16 text-center text-sm text-muted-foreground">
-              「
-              {SEARCH_CATEGORY_TABS.find((t) => t.id === searchCategory)
-                ?.label ?? "该分类"}
-              」搜索即将支持，可先查看「综合 / 视频 / 专栏 / 用户」
-            </p>
+          ) : isBangumiSearchCategory && isSearchMode ? (
+            <SearchMediaPanel
+              keyword={query}
+              kind="bangumi"
+              active
+              onTotalChange={(total) => patchSearchCount("bangumi", total)}
+            />
+          ) : isMediaSearchCategory && isSearchMode ? (
+            <SearchMediaPanel
+              keyword={query}
+              kind="media"
+              active
+              onTotalChange={(total) => patchSearchCount("media", total)}
+            />
+          ) : isLiveSearchCategory && isSearchMode ? (
+            <SearchLivePanel
+              keyword={query}
+              active
+              onTotalChange={(total) => patchSearchCount("live", total)}
+            />
           ) : isSearchMode &&
             isVideoSearchCategory &&
             searchLoading &&

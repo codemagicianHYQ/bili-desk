@@ -78,6 +78,12 @@ import type {
   SearchArticleItem,
   SearchArticlesPage,
   SearchArticleOrder,
+  SearchMediaItem,
+  SearchMediaKind,
+  SearchMediaPage,
+  SearchLiveItem,
+  SearchLiveOrder,
+  SearchLivePage,
   ArticleDetail,
   ToViewItem,
   ToViewList,
@@ -5309,6 +5315,153 @@ class BiliApiService {
     throw new Error(lastError);
   }
 
+  async searchMedia(
+    keyword: string,
+    kind: SearchMediaKind,
+    page = 1,
+  ): Promise<SearchMediaPage> {
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      return { items: [], page: 1, hasMore: false, total: 0 };
+    }
+
+    await this.ensureBuvid3();
+
+    const searchType = kind === "bangumi" ? "media_bangumi" : "media_ft";
+    const apiPageSize = 20;
+    const baseParams: Record<string, string | number> = {
+      search_type: searchType,
+      keyword: trimmed,
+      page,
+      page_size: apiPageSize,
+      platform: "pc",
+    };
+
+    let lastError = kind === "bangumi" ? "搜索番剧失败" : "搜索影视失败";
+    const attempts: Array<"wbi" | "plain"> = ["wbi", "plain"];
+    for (const mode of attempts) {
+      try {
+        const params =
+          mode === "wbi" ? await signParams(baseParams) : baseParams;
+        const url =
+          mode === "wbi"
+            ? "/x/web-interface/wbi/search/type"
+            : "/x/web-interface/search/type";
+        const res = await this.client.get(url, {
+          params,
+          headers: { Referer: "https://search.bilibili.com/" },
+          validateStatus: () => true,
+        });
+
+        if (res.status === 412 || res.data?.code === -412) {
+          lastError = "请求被 B 站安全策略拦截，请稍后重试";
+          continue;
+        }
+        if (res.data?.code !== 0) {
+          lastError = String(res.data?.message ?? lastError);
+          continue;
+        }
+
+        const data = res.data?.data as Record<string, unknown> | undefined;
+        const rawResults = Array.isArray(data?.result)
+          ? (data.result as Record<string, unknown>[])
+          : [];
+        const total = Number(data?.numResults ?? rawResults.length) || 0;
+        const items = rawResults
+          .map((item) => this.normalizeSearchMedia(item, kind))
+          .filter((item): item is SearchMediaItem => item != null);
+
+        return {
+          items,
+          page,
+          hasMore: rawResults.length > 0 && page * apiPageSize < total,
+          total: Math.max(total, items.length),
+        };
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : lastError;
+      }
+    }
+
+    throw new Error(lastError);
+  }
+
+  async searchLiveRooms(
+    keyword: string,
+    page = 1,
+    order: SearchLiveOrder = "online",
+  ): Promise<SearchLivePage> {
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      return { rooms: [], page: 1, hasMore: false, total: 0 };
+    }
+
+    await this.ensureBuvid3();
+
+    const apiPageSize = 30;
+    const baseParams: Record<string, string | number> = {
+      search_type: "live_room",
+      keyword: trimmed,
+      page,
+      page_size: apiPageSize,
+      order,
+      platform: "pc",
+    };
+
+    let lastError = "搜索直播失败";
+    const attempts: Array<"wbi" | "plain"> = ["wbi", "plain"];
+    for (const mode of attempts) {
+      try {
+        const params =
+          mode === "wbi" ? await signParams(baseParams) : baseParams;
+        const url =
+          mode === "wbi"
+            ? "/x/web-interface/wbi/search/type"
+            : "/x/web-interface/search/type";
+        const res = await this.client.get(url, {
+          params,
+          headers: { Referer: "https://search.bilibili.com/" },
+          validateStatus: () => true,
+        });
+
+        if (res.status === 412 || res.data?.code === -412) {
+          lastError = "请求被 B 站安全策略拦截，请稍后重试";
+          continue;
+        }
+        if (res.data?.code !== 0) {
+          lastError = String(res.data?.message ?? lastError);
+          continue;
+        }
+
+        const data = res.data?.data as Record<string, unknown> | undefined;
+        let rawResults: Record<string, unknown>[] = [];
+        if (Array.isArray(data?.result)) {
+          rawResults = data.result as Record<string, unknown>[];
+        } else if (data?.result && typeof data.result === "object") {
+          const nested = data.result as Record<string, unknown>;
+          if (Array.isArray(nested.live_room)) {
+            rawResults = nested.live_room as Record<string, unknown>[];
+          }
+        }
+
+        const total = Number(data?.numResults ?? rawResults.length) || 0;
+        const rooms = rawResults
+          .map((item) => this.normalizeSearchLiveRoom(item))
+          .filter((item): item is SearchLiveItem => item != null);
+
+        return {
+          rooms,
+          page,
+          hasMore: rawResults.length > 0 && page * apiPageSize < total,
+          total: Math.max(total, rooms.length),
+        };
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : lastError;
+      }
+    }
+
+    throw new Error(lastError);
+  }
+
   async searchUsers(
     keyword: string,
     page = 1,
@@ -5458,6 +5611,75 @@ class BiliApiService {
       roomId: Number.isFinite(roomId) && roomId > 0 ? roomId : undefined,
       officialDesc: String(official.desc ?? "") || undefined,
       isFollowing: false,
+    };
+  }
+
+  private normalizeSearchMedia(
+    item: Record<string, unknown>,
+    kind: SearchMediaKind,
+  ): SearchMediaItem | null {
+    const seasonId = Number(item.season_id ?? item.seasonId ?? 0);
+    const mediaId = Number(item.media_id ?? item.mediaId ?? 0);
+    if (
+      (!Number.isFinite(seasonId) || seasonId <= 0) &&
+      (!Number.isFinite(mediaId) || mediaId <= 0)
+    ) {
+      return null;
+    }
+
+    const scoreObj = (item.media_score ?? {}) as Record<string, unknown>;
+    const score = Number(scoreObj.score ?? item.score ?? 0) || 0;
+    const title = this.stripHtml(String(item.title ?? item.org_title ?? ""));
+    if (!title) return null;
+
+    const sid = seasonId > 0 ? seasonId : mediaId;
+    const rawUrl = String(item.url ?? item.goto_url ?? "").trim();
+    const url = rawUrl
+      ? this.normalizeHttps(rawUrl)
+      : `https://www.bilibili.com/bangumi/play/ss${sid}`;
+
+    return {
+      seasonId: sid,
+      mediaId: mediaId > 0 ? mediaId : sid,
+      title,
+      cover: this.normalizeHttps(String(item.cover ?? item.pic ?? "")),
+      styles: this.stripHtml(String(item.styles ?? "")),
+      areas: this.stripHtml(String(item.areas ?? "")),
+      desc: this.stripHtml(String(item.desc ?? item.evaluate ?? "")),
+      indexShow: this.stripHtml(String(item.index_show ?? item.indexShow ?? "")),
+      score,
+      pubtime: Number(item.pubtime ?? item.pub_time ?? 0) || 0,
+      url,
+      kind,
+    };
+  }
+
+  private normalizeSearchLiveRoom(
+    item: Record<string, unknown>,
+  ): SearchLiveItem | null {
+    const roomId = Number(item.roomid ?? item.room_id ?? item.roomId ?? 0);
+    if (!Number.isFinite(roomId) || roomId <= 0) return null;
+
+    const title = this.stripHtml(String(item.title ?? ""));
+    if (!title) return null;
+
+    const watched = (item.watched_show ?? {}) as Record<string, unknown>;
+    const online =
+      Number(item.online ?? watched.num ?? watched.text_large ?? 0) || 0;
+
+    return {
+      roomId,
+      title,
+      cover: this.normalizeHttps(
+        String(item.cover ?? item.user_cover ?? item.keyframe ?? ""),
+      ),
+      online,
+      uname: this.stripHtml(String(item.uname ?? item.nickname ?? "")),
+      face: this.normalizeHttps(String(item.uface ?? item.face ?? "")),
+      areaName: this.stripHtml(
+        String(item.cate_name ?? item.area_v2_name ?? item.area_name ?? ""),
+      ),
+      liveTime: Number(item.live_time ?? 0) || undefined,
     };
   }
 

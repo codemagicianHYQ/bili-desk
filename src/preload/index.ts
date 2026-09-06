@@ -6,6 +6,8 @@ import type {
   SearchOrder,
   SearchUserOrder,
   SearchUserTypeFilter,
+  SearchMediaKind,
+  SearchLiveOrder,
   AddCoinPayload,
   SendDanmakuPayload,
   WatchHeartbeatPayload,
@@ -297,6 +299,19 @@ const api = {
         keyword,
         page ?? 1,
         order ?? "totalrank",
+      ),
+    searchMedia: (keyword: string, kind: SearchMediaKind, page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_SEARCH_MEDIA, keyword, kind, page ?? 1),
+    searchLiveRooms: (
+      keyword: string,
+      page?: number,
+      order?: SearchLiveOrder,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_SEARCH_LIVE,
+        keyword,
+        page ?? 1,
+        order ?? "online",
       ),
     getSearchTypeCounts: (keyword: string) =>
       ipcRenderer.invoke(IPC.BILI_SEARCH_TYPE_COUNTS, keyword),

@@ -5,6 +5,8 @@ import type {
   SearchOrder,
   SearchUserOrder,
   SearchUserTypeFilter,
+  SearchMediaKind,
+  SearchLiveOrder,
   SuggestFavFolderPayload,
   ToViewAddResult,
   UpVideosOrder,
@@ -283,6 +285,16 @@ export function registerBiliIpc(): void {
     (_e, keyword: string, page?: number, order?: SearchArticleOrder) =>
       biliApi.searchArticles(keyword, page, order),
   );
+  handleIpc(
+    IPC.BILI_SEARCH_MEDIA,
+    (_e, keyword: string, kind: SearchMediaKind, page?: number) =>
+      biliApi.searchMedia(keyword, kind, page),
+  );
+  handleIpc(
+    IPC.BILI_SEARCH_LIVE,
+    (_e, keyword: string, page?: number, order?: SearchLiveOrder) =>
+      biliApi.searchLiveRooms(keyword, page, order),
+  );
   handleIpc(IPC.BILI_SEARCH_TYPE_COUNTS, (_e, keyword: string) =>
     biliApi.getSearchTypeCounts(keyword),
   );
@@ -330,13 +342,16 @@ export function registerBiliIpc(): void {
     const videos = localToViewRepo.list();
     return { videos, count: videos.length };
   });
-  handleIpc(IPC.BILI_TOVIEW_LOCAL_REMOVE, async (_e, bvid: string | string[]) => {
-    if (Array.isArray(bvid)) {
-      localToViewRepo.removeMany(bvid.map((item) => String(item ?? "")));
-      return;
-    }
-    localToViewRepo.remove(String(bvid ?? ""));
-  });
+  handleIpc(
+    IPC.BILI_TOVIEW_LOCAL_REMOVE,
+    async (_e, bvid: string | string[]) => {
+      if (Array.isArray(bvid)) {
+        localToViewRepo.removeMany(bvid.map((item) => String(item ?? "")));
+        return;
+      }
+      localToViewRepo.remove(String(bvid ?? ""));
+    },
+  );
   handleIpc(IPC.BILI_SPACE_DYNAMICS, (_e, mid: number, offset?: string) =>
     biliApi.getSpaceDynamics(mid, offset),
   );

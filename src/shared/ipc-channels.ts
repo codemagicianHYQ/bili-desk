@@ -64,6 +64,8 @@ export const IPC = {
   BILI_SEARCH: "bili:search",
   BILI_SEARCH_USERS: "bili:search-users",
   BILI_SEARCH_ARTICLES: "bili:search-articles",
+  BILI_SEARCH_MEDIA: "bili:search-media",
+  BILI_SEARCH_LIVE: "bili:search-live",
   BILI_SEARCH_TYPE_COUNTS: "bili:search-type-counts",
   BILI_TOVIEW_LIST: "bili:toview-list",
   BILI_TOVIEW_ADD: "bili:toview-add",
