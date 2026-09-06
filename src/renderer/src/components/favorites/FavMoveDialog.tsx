@@ -60,6 +60,7 @@ export function FavMoveDialog({
     <OverlayPortal>
     <div
       className={`fixed inset-0 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
+      data-glass-scrim
       onClick={() => {
         if (!loading) onClose();
       }}
@@ -67,7 +68,8 @@ export function FavMoveDialog({
       <div
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl"
+        data-glass-panel
+        className="bili-glass w-full max-w-md rounded-2xl border border-border bg-card/40 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">

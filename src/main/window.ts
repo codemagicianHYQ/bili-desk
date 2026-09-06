@@ -7,6 +7,7 @@ import {
   isInternalAppUrl,
   resolveInAppPathFromUrl,
 } from "@shared/utils/bili-app-link";
+import { appStore } from "./store/app-store";
 
 function resolveAppIcon(): Electron.NativeImage | undefined {
   const candidates = app.isPackaged
@@ -29,8 +30,33 @@ function resolveAppIcon(): Electron.NativeImage | undefined {
   return undefined;
 }
 
+/**
+ * 液态玻璃 = 系统 Acrylic 磨砂透桌面。
+ * 必须 transparent + #00000000；材质要在 show 前后各设一次，否则客户端常是死灰。
+ */
+export function applyWindowGlassEffect(
+  win: BrowserWindow,
+  enabled: boolean,
+): boolean {
+  if (win.isDestroyed()) return false;
+
+  appStore.set("windowGlass", enabled);
+
+  if (process.platform === "win32") {
+    try {
+      win.setBackgroundMaterial(enabled ? "acrylic" : "none");
+    } catch (err) {
+      console.warn("[BiliDesk] setBackgroundMaterial failed", err);
+    }
+  }
+
+  win.setBackgroundColor(enabled ? "#00000000" : "#121212");
+  return enabled;
+}
+
 export function createMainWindow(): BrowserWindow {
   const icon = resolveAppIcon();
+  const glassOn = Boolean(appStore.get("windowGlass"));
 
   const win = new BrowserWindow({
     width: 1280,
@@ -40,16 +66,38 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     title: "BiliDesk",
+    transparent: true,
+    backgroundColor: "#00000000",
+    thickFrame: true,
+    ...(process.platform === "win32"
+      ? {
+          backgroundMaterial: (glassOn ? "acrylic" : "none") as
+            | "acrylic"
+            | "none",
+        }
+      : {}),
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.mjs"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
   });
 
-  win.on("ready-to-show", () => win.show());
+  win.on("ready-to-show", () => {
+    // show 前再刷一次材质，避免客户端区域灰死
+    if (appStore.get("windowGlass")) {
+      applyWindowGlassEffect(win, true);
+    }
+    win.show();
+    if (appStore.get("windowGlass")) {
+      setTimeout(() => {
+        if (!win.isDestroyed()) applyWindowGlassEffect(win, true);
+      }, 50);
+    }
+  });
 
   win.on("enter-full-screen", () => {
     if (!win.isDestroyed()) {
@@ -68,7 +116,6 @@ export function createMainWindow(): BrowserWindow {
       win.webContents.send(IPC.APP_NAVIGATE, inApp);
       return { action: "deny" };
     }
-    // 本应用自己的页面（含 vite hash）绝不能再丢给系统浏览器
     if (isInternalAppUrl(url)) {
       return { action: "deny" };
     }
@@ -95,7 +142,6 @@ export function createMainWindow(): BrowserWindow {
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    // localhost 访问 127.0.0.1 会被 Chromium Private Network Access 拦截
     win.loadURL(
       process.env.ELECTRON_RENDERER_URL.replace("localhost", "127.0.0.1"),
     );

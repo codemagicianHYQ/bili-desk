@@ -2,7 +2,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { AiConfig } from "@shared/types";
 import { Button } from "@/components/ui/button";
-import { THEME_PRESETS, useAppStore } from "@/stores/app-store";
+import {
+  THEME_PRESETS,
+  TEXT_COLOR_TONES,
+  useAppStore,
+} from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 import { useLogout } from "@/lib/use-logout";
 import {
@@ -88,6 +92,14 @@ export function SettingsPage() {
     themePreset,
     setTheme,
     setThemePreset,
+    uiTransparency,
+    textContrast,
+    textColorTone,
+    customTextColor,
+    setUiTransparency,
+    setTextContrast,
+    setTextColorTone,
+    setCustomTextColor,
     incognitoMode,
     setIncognitoMode,
   } = useAppStore();
@@ -252,6 +264,86 @@ export function SettingsPage() {
                       </button>
                     );
                   })}
+                </div>
+              </div>
+
+              <div className="space-y-4 border-t border-border py-5">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">透明度与文字</p>
+                  <p className="text-xs text-muted-foreground">
+                    液态玻璃下提高透明度会更透壁纸；同时拉高文字对比度保持清晰。也可在右上角主题定制面板调节。
+                  </p>
+                </div>
+                <SettingRow
+                  title={`界面透明度 ${uiTransparency}`}
+                  description="越高越透。对液态玻璃效果最明显。"
+                >
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={uiTransparency}
+                    onChange={(event) =>
+                      setUiTransparency(Number(event.target.value))
+                    }
+                    className="w-40 accent-primary"
+                  />
+                </SettingRow>
+                <SettingRow
+                  title={`文字对比度 ${textContrast}`}
+                  description="越高主文字越亮、次要信息越清楚。"
+                >
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={textContrast}
+                    onChange={(event) =>
+                      setTextContrast(Number(event.target.value))
+                    }
+                    className="w-40 accent-primary"
+                  />
+                </SettingRow>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">文字颜色</p>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {TEXT_COLOR_TONES.map((tone) => {
+                      const active = textColorTone === tone.id;
+                      return (
+                        <button
+                          key={tone.id}
+                          type="button"
+                          onClick={() => setTextColorTone(tone.id)}
+                          className={cn(
+                            "rounded-xl border px-3 py-2 text-left text-sm transition-colors",
+                            active
+                              ? "border-primary bg-primary/10"
+                              : "border-border/80 bg-secondary/20 hover:bg-secondary/60",
+                          )}
+                        >
+                          <p className="font-medium">{tone.label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {tone.hint}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {textColorTone === "custom" && (
+                    <label className="flex items-center justify-between rounded-xl border border-border bg-secondary/20 px-3 py-2">
+                      <span className="text-sm text-muted-foreground">
+                        自定义颜色
+                      </span>
+                      <input
+                        type="color"
+                        value={customTextColor}
+                        onChange={(event) =>
+                          setCustomTextColor(event.target.value)
+                        }
+                        className="h-8 w-12 cursor-pointer rounded border border-border bg-transparent"
+                      />
+                    </label>
+                  )}
                 </div>
               </div>
             </section>

@@ -1,71 +1,75 @@
-import Store from 'electron-store'
-import type { AiConfig, Theme, ToViewItem, UserInfo } from '@shared/types'
+import Store from "electron-store";
+import type { AiConfig, Theme, ToViewItem, UserInfo } from "@shared/types";
 
 interface StoreSchema {
-  theme: Theme
+  theme: Theme;
+  /** 液态玻璃：启动时就要开 Acrylic，不能等渲染进程 */
+  windowGlass: boolean;
   cookies: {
-    SESSDATA: string
-    bili_jct: string
-    DedeUserID: string
-    DedeUserID__ckMd5: string
-    buvid3: string
-  }
-  user: UserInfo | null
-  ai: AiConfig
-  refreshToken: string
-  accessToken: string
-  localDb: unknown
+    SESSDATA: string;
+    bili_jct: string;
+    DedeUserID: string;
+    DedeUserID__ckMd5: string;
+    buvid3: string;
+  };
+  user: UserInfo | null;
+  ai: AiConfig;
+  refreshToken: string;
+  accessToken: string;
+  localDb: unknown;
   /** 官方稍后再看满员后溢出到本机的列表 */
-  localToView: ToViewItem[]
+  localToView: ToViewItem[];
 }
 
 const defaults: StoreSchema = {
-  theme: 'dark',
+  theme: "dark",
+  windowGlass: false,
   cookies: {
-    SESSDATA: '',
-    bili_jct: '',
-    DedeUserID: '',
-    DedeUserID__ckMd5: '',
-    buvid3: ''
+    SESSDATA: "",
+    bili_jct: "",
+    DedeUserID: "",
+    DedeUserID__ckMd5: "",
+    buvid3: "",
   },
   user: null,
-  refreshToken: '',
-  accessToken: '',
+  refreshToken: "",
+  accessToken: "",
   ai: {
-    baseUrl: 'https://api.deepseek.com/v1',
-    apiKey: '',
-    model: 'deepseek-chat'
+    baseUrl: "https://api.deepseek.com/v1",
+    apiKey: "",
+    model: "deepseek-chat",
   },
-  localToView: []
-}
+  localToView: [],
+};
 
 export const appStore = new Store<StoreSchema>({
-  name: 'bilidesk-config',
-  defaults
-})
+  name: "bilidesk-config",
+  defaults,
+});
 
 export function getCookieString(): string {
-  const c = appStore.get('cookies')
-  const parts: string[] = []
-  if (c.SESSDATA) parts.push(`SESSDATA=${c.SESSDATA}`)
-  if (c.bili_jct) parts.push(`bili_jct=${c.bili_jct}`)
-  if (c.DedeUserID) parts.push(`DedeUserID=${c.DedeUserID}`)
-  if (c.DedeUserID__ckMd5) parts.push(`DedeUserID__ckMd5=${c.DedeUserID__ckMd5}`)
-  if (c.buvid3) parts.push(`buvid3=${c.buvid3}`)
-  return parts.join('; ')
+  const c = appStore.get("cookies");
+  const parts: string[] = [];
+  if (c.SESSDATA) parts.push(`SESSDATA=${c.SESSDATA}`);
+  if (c.bili_jct) parts.push(`bili_jct=${c.bili_jct}`);
+  if (c.DedeUserID) parts.push(`DedeUserID=${c.DedeUserID}`);
+  if (c.DedeUserID__ckMd5)
+    parts.push(`DedeUserID__ckMd5=${c.DedeUserID__ckMd5}`);
+  if (c.buvid3) parts.push(`buvid3=${c.buvid3}`);
+  return parts.join("; ");
 }
 
-export function setCookies(cookies: Partial<StoreSchema['cookies']>): void {
-  appStore.set('cookies', { ...appStore.get('cookies'), ...cookies })
+export function setCookies(cookies: Partial<StoreSchema["cookies"]>): void {
+  appStore.set("cookies", { ...appStore.get("cookies"), ...cookies });
 }
 
 export function clearAuth(): void {
-  appStore.set('cookies', defaults.cookies)
-  appStore.set('user', null)
-  appStore.set('refreshToken', '')
-  appStore.set('accessToken', '')
+  appStore.set("cookies", defaults.cookies);
+  appStore.set("user", null);
+  appStore.set("refreshToken", "");
+  appStore.set("accessToken", "");
 }
 
 export function isLoggedIn(): boolean {
-  return Boolean(appStore.get('cookies').SESSDATA)
+  return Boolean(appStore.get("cookies").SESSDATA);
 }

@@ -49,6 +49,7 @@ export function ConfirmDialog({
         'fixed inset-0 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center',
         APP_OVERLAY_ZCLASS,
       )}
+      data-glass-scrim
       onClick={() => {
         if (!loading) onCancel()
       }}
@@ -58,7 +59,8 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         aria-describedby={description ? 'confirm-dialog-description' : undefined}
-        className="w-full max-w-sm rounded-2xl border border-border bg-card shadow-2xl"
+        data-glass-panel
+        className="bili-glass w-full max-w-sm rounded-2xl border border-border bg-card/40 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-5 pt-5">

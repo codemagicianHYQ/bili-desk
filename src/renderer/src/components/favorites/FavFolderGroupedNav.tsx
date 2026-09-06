@@ -273,7 +273,10 @@ export function FavFolderGroupedNav({
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
           {menuFolderId === folder.id && (
-            <div className="absolute right-1 top-8 z-20 min-w-36 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg">
+            <div
+              data-glass-panel
+              className="bili-glass absolute right-1 top-8 z-20 min-w-36 overflow-hidden rounded-xl border border-border bg-card/40 py-1 shadow-2xl"
+            >
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-secondary"

@@ -11,6 +11,7 @@ function Bootstrap() {
 
   React.useEffect(() => {
     initSessionCaches();
+    useAppStore.getState().loadPreferences();
     void loadTheme();
     void loadUser();
   }, [loadTheme, loadUser]);

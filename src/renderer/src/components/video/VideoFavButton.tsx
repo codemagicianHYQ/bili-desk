@@ -380,12 +380,14 @@ export function VideoFavButton({
   const dialog = open ? (
     <div
       className={`fixed inset-0 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
+      data-glass-scrim
       onClick={() => {
         if (!saving) setOpen(false);
       }}
     >
       <div
-        className="relative z-[10000] w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl"
+        data-glass-panel
+        className="bili-glass relative z-[10000] w-full max-w-md rounded-2xl border border-border bg-card/40 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">

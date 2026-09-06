@@ -85,20 +85,21 @@
   }
 
   :root[data-theme-preset="glass"] {
-    --background: 214 48% 88%;
+    /* 液态玻璃：语义色只给文字/控件；底必须靠 transparent + Acrylic */
+    --background: 210 40% 96%;
     --foreground: 222 32% 14%;
     --card: 210 40% 98%;
     --card-foreground: 222 32% 14%;
     --primary: 211 88% 56%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 214 40% 92%;
+    --secondary: 214 30% 94%;
     --secondary-foreground: 222 20% 28%;
-    --muted: 214 36% 90%;
+    --muted: 214 28% 92%;
     --muted-foreground: 222 14% 38%;
     --accent: 250 70% 68%;
     --accent-foreground: 0 0% 100%;
-    --border: 214 30% 78%;
-    --input: 214 30% 78%;
+    --border: 214 24% 80%;
+    --input: 214 24% 80%;
     --ring: 211 88% 56%;
     --radius: 1rem;
   }
@@ -183,15 +184,15 @@
 
   .dark[data-theme-preset="glass"] {
     --background: 230 28% 10%;
-    --foreground: 220 20% 96%;
+    --foreground: 0 0% 98%;
     --card: 230 20% 14%;
-    --card-foreground: 220 20% 96%;
+    --card-foreground: 0 0% 98%;
     --primary: 211 92% 72%;
     --primary-foreground: 222 40% 12%;
     --secondary: 230 18% 16%;
-    --secondary-foreground: 220 18% 94%;
+    --secondary-foreground: 0 0% 96%;
     --muted: 230 16% 16%;
-    --muted-foreground: 220 12% 70%;
+    --muted-foreground: 210 16% 78%;
     --accent: 250 78% 76%;
     --accent-foreground: 250 30% 14%;
     --border: 230 16% 24%;
@@ -1161,10 +1162,10 @@ html.bili-os-fullscreen .bili-player-stage video {
 }
 
 /*
- * 液态玻璃 ≈ macOS Tahoe Liquid Glass（Clear，不是 Tinted）
- * - 玻璃只铺导航层：侧栏 / 顶栏 / 菜单，内容层不铺
- * - 侧栏是浮在窗口上的圆角玻璃片，四周透出色晕（桌面菜单栏同理：几乎无底）
- * - 填充约 5%，blur 宜轻：Apple 讲 lensing 而不是把背后糊成雾
+ * 液态玻璃 = 主题定制弹窗同款磨砂
+ * - 系统 Acrylic 透桌面（Electron transparent + acrylic）
+ * - 主区必须接近全透明，否则会变成死灰盖住壁纸
+ * - 侧栏/顶栏/弹窗：同 ThemeCustomizer（低填充 + 强 blur）
  */
 @keyframes bili-glass-drift {
   0%,
@@ -1172,37 +1173,47 @@ html.bili-os-fullscreen .bili-player-stage video {
     transform: translate3d(0, 0, 0) scale(1);
   }
   50% {
-    transform: translate3d(3%, -2.4%, 0) scale(1.08);
+    transform: translate3d(1.2%, -0.8%, 0) scale(1.03);
   }
 }
 
 html[data-theme-preset="glass"] {
-  /* Clear：少散射、少填色，才能看穿背后。Tinted 才是高 alpha */
-  --glass-blur: 18px;
-  --glass-sat: 1.9;
-  --glass-fill: rgb(255 255 255 / 0.06);
-  --glass-fill-dark: rgb(255 255 255 / 0.05);
+  /* 对标 ThemeCustomizer；alpha 由主题定制滑条写入 --ui-* */
+  --glass-blur: 24px;
+  --glass-sat: 2;
+  --glass-bright: 1.1;
+  --ui-chrome-alpha: 0.045;
+  --ui-panel-alpha: 0.02;
+  --ui-card-alpha: 0.08;
+  --ui-text-contrast: 0.78;
+  --ui-text-shadow: 0.65;
+  --glass-fill: rgb(255 255 255 / var(--ui-chrome-alpha));
+  --glass-fill-dark: rgb(255 255 255 / var(--ui-chrome-alpha));
+  --glass-rim: rgb(255 255 255 / 0.5);
+  --glass-rim-soft: rgb(255 255 255 / 0.18);
+  --glass-border: rgb(255 255 255 / 0.36);
+  --glass-border-dark: rgb(255 255 255 / 0.16);
+  --glass-shadow: 0 12px 40px rgb(20 40 80 / 0.1);
+  --glass-shadow-dark: 0 16px 48px rgb(0 0 0 / 0.32);
 }
 
-html[data-theme-preset="glass"]:not(.dark) {
-  background-color: #c5d6f4;
-}
-
-html[data-theme-preset="glass"].dark {
-  background-color: #0b1020;
+/* 整窗挖空：让 Acrylic / 壁纸透上来，禁止任何实色灰底 */
+html[data-theme-preset="glass"],
+html[data-theme-preset="glass"] body,
+html[data-theme-preset="glass"] #root {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 html[data-theme-preset="glass"] body {
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
     sans-serif;
-  background-color: transparent !important;
 }
 
 html[data-theme-preset="glass"] #root {
   position: relative;
-  isolation: isolate;
-  background: transparent;
+  min-height: 100%;
 }
 
 html[data-theme-preset="glass"] #root > * {
@@ -1210,6 +1221,7 @@ html[data-theme-preset="glass"] #root > * {
   z-index: 1;
 }
 
+/* 极淡色晕，alpha 必须很低 */
 html[data-theme-preset="glass"] #root::before,
 html[data-theme-preset="glass"] #root::after {
   content: "";
@@ -1222,62 +1234,35 @@ html[data-theme-preset="glass"] #root::after {
 html[data-theme-preset="glass"]:not(.dark) #root::before {
   background:
     radial-gradient(
-      56rem 44rem at 6% -8%,
-      rgb(255 132 188 / 0.78),
-      transparent 58%
-    ),
-    radial-gradient(
-      52rem 42rem at 98% 4%,
-      rgb(80 168 255 / 0.82),
-      transparent 55%
-    ),
-    radial-gradient(
-      48rem 40rem at 78% 108%,
-      rgb(176 132 255 / 0.62),
-      transparent 58%
-    ),
-    radial-gradient(
-      40rem 34rem at 12% 96%,
-      rgb(255 196 128 / 0.55),
+      48rem 36rem at 6% -8%,
+      rgb(255 140 200 / 0.12),
       transparent 62%
     ),
     radial-gradient(
-      36rem 28rem at 48% 42%,
-      rgb(255 255 255 / 0.28),
-      transparent 70%
-    ),
-    linear-gradient(160deg, #b9d0f4 0%, #d7c4ee 46%, #c3ddf6 100%);
-  animation: bili-glass-drift 26s ease-in-out infinite;
+      44rem 34rem at 98% 6%,
+      rgb(80 160 255 / 0.1),
+      transparent 60%
+    );
+  animation: bili-glass-drift 30s ease-in-out infinite;
 }
 
 html[data-theme-preset="glass"].dark #root::before {
   background:
     radial-gradient(
-      52rem 40rem at 4% -6%,
-      rgb(56 148 255 / 0.55),
-      transparent 56%
-    ),
-    radial-gradient(
-      48rem 38rem at 96% 6%,
-      rgb(168 120 255 / 0.48),
-      transparent 58%
-    ),
-    radial-gradient(
-      44rem 36rem at 72% 108%,
-      rgb(244 114 182 / 0.32),
+      46rem 34rem at 4% -4%,
+      rgb(56 150 255 / 0.1),
       transparent 60%
     ),
     radial-gradient(
-      32rem 26rem at 18% 88%,
-      rgb(34 211 238 / 0.28),
-      transparent 62%
-    ),
-    linear-gradient(168deg, #070b16 0%, #12182a 48%, #0a101c 100%);
-  animation: bili-glass-drift 30s ease-in-out infinite;
+      42rem 32rem at 98% 8%,
+      rgb(160 110 255 / 0.08),
+      transparent 60%
+    );
+  animation: bili-glass-drift 34s ease-in-out infinite;
 }
 
 html[data-theme-preset="glass"] #root::after {
-  opacity: 0.04;
+  opacity: 0.025;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
 }
@@ -1288,139 +1273,214 @@ html[data-theme-preset="glass"] #root::after {
   }
 }
 
+/* 不要用高不透明白/灰盖死 Acrylic —— 和弹窗一样透 */
 html[data-theme-preset="glass"]:not(.dark) [class*="bg-background"] {
-  background-color: rgb(255 255 255 / 0.06) !important;
+  background-color: rgb(255 255 255 / var(--ui-panel-alpha)) !important;
 }
 
 html[data-theme-preset="glass"].dark [class*="bg-background"] {
-  background-color: rgb(255 255 255 / 0.04) !important;
+  background-color: rgb(255 255 255 / var(--ui-panel-alpha)) !important;
 }
 
 html[data-theme-preset="glass"]:not(.dark) [class*="bg-card"] {
-  background-color: rgb(255 255 255 / 0.04) !important;
-  border-color: rgb(255 255 255 / 0.28);
+  background-color: rgb(255 255 255 / var(--ui-card-alpha)) !important;
+  border-color: rgb(255 255 255 / 0.3);
 }
 
 html[data-theme-preset="glass"].dark [class*="bg-card"] {
-  background-color: rgb(255 255 255 / 0.03) !important;
+  background-color: rgb(255 255 255 / var(--ui-card-alpha)) !important;
   border-color: rgb(255 255 255 / 0.12);
 }
 
 html[data-theme-preset="glass"]:not(.dark) .bg-secondary,
 html[data-theme-preset="glass"]:not(.dark) .bg-muted {
-  background-color: rgb(255 255 255 / 0.08) !important;
+  background-color: rgb(
+    255 255 255 / calc(var(--ui-chrome-alpha) + 0.04)
+  ) !important;
 }
 
 html[data-theme-preset="glass"].dark .bg-secondary,
 html[data-theme-preset="glass"].dark .bg-muted {
-  background-color: rgb(255 255 255 / 0.05) !important;
+  background-color: rgb(
+    255 255 255 / calc(var(--ui-chrome-alpha) + 0.02)
+  ) !important;
 }
 
 html[data-theme-preset="glass"]:not(.dark) .border-border {
-  border-color: rgb(255 255 255 / 0.32);
+  border-color: rgb(255 255 255 / 0.3);
 }
 
 html[data-theme-preset="glass"].dark .border-border {
-  border-color: rgb(255 255 255 / 0.14);
+  border-color: rgb(255 255 255 / 0.12);
 }
 
-/* Tahoe：侧栏 / 顶栏浮在内容上，四周露出窗口色晕 */
 html[data-theme-preset="glass"] [data-app-shell] {
   position: relative;
+  gap: 0.55rem;
+  padding: 0.55rem;
+  background: transparent !important;
 }
 
 html[data-theme-preset="glass"] [data-app-sidebar] {
-  position: absolute;
-  z-index: 50;
-  left: 0.5rem;
-  top: 0.5rem;
-  bottom: 0.5rem;
-  width: 14rem;
-  border-radius: 1.35rem;
-  border: 1px solid rgb(255 255 255 / 0.42) !important;
+  position: relative !important;
+  inset: auto !important;
+  left: auto !important;
+  top: auto !important;
+  bottom: auto !important;
+  z-index: 20;
+  width: 14rem !important;
+  flex: 0 0 14rem;
+  align-self: stretch;
+  border-radius: 1.45rem;
+  border: 1px solid var(--glass-border) !important;
+  overflow: hidden;
+}
+
+html[data-theme-preset="glass"].dark [data-app-sidebar] {
+  border-color: var(--glass-border-dark) !important;
+}
+
+html[data-theme-preset="glass"] [data-app-sidebar] a[class*="bg-primary/10"] {
+  background-color: rgb(255 255 255 / 0.18) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3);
+}
+
+html[data-theme-preset="glass"].dark
+  [data-app-sidebar]
+  a[class*="bg-primary/10"] {
+  background-color: rgb(255 255 255 / 0.12) !important;
 }
 
 html[data-theme-preset="glass"] [data-app-column] {
-  width: 100%;
+  position: relative;
+  display: flex;
+  width: auto;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.55rem;
+  background: transparent !important;
 }
 
 html[data-theme-preset="glass"] [data-app-topbar] {
-  position: absolute;
-  z-index: 50;
-  left: 15rem;
-  right: 0.5rem;
-  top: 0.5rem;
-  height: 3.25rem;
+  position: relative !important;
+  inset: auto !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  z-index: 20;
+  height: 3.4rem;
+  width: 100%;
+  flex: 0 0 auto;
   overflow: visible;
   border-radius: 1.35rem;
-  border: 1px solid rgb(255 255 255 / 0.42) !important;
+  border: 1px solid var(--glass-border) !important;
 }
 
+html[data-theme-preset="glass"].dark [data-app-topbar] {
+  border-color: var(--glass-border-dark) !important;
+}
+
+/*
+ * 主区：接近全透明（这是灰底的根因）
+ * 卡片之间直接透 Acrylic/壁纸，效果才像主题弹窗
+ */
 html[data-theme-preset="glass"] [data-app-main] {
   position: relative;
   z-index: 0;
-  padding: 4.25rem 0.5rem 0.5rem 15rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 1.35rem;
+  border: 1px solid var(--glass-border);
+  background: rgb(255 255 255 / var(--ui-panel-alpha)) !important;
+  box-shadow: inset 0 1px 0 var(--glass-rim);
 }
 
+html[data-theme-preset="glass"].dark [data-app-main] {
+  border-color: var(--glass-border-dark);
+  background: rgb(255 255 255 / var(--ui-panel-alpha)) !important;
+}
+
+html[data-theme-preset="glass"] [data-app-main] > * {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+/* 侧栏 / 顶栏 / 弹窗：与 ThemeCustomizer 同一配方 */
 html[data-theme-preset="glass"] [data-app-chrome],
-html[data-theme-preset="glass"] .bili-glass {
+html[data-theme-preset="glass"] .bili-glass,
+html[data-theme-preset="glass"] [data-glass-panel] {
   background: var(--glass-fill) !important;
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat))
-    brightness(1.08);
+    brightness(var(--glass-bright)) !important;
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat))
-    brightness(1.08);
+    brightness(var(--glass-bright)) !important;
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.55),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.22),
-    0 8px 28px rgb(30 50 110 / 0.1);
+    inset 0 1px 0 var(--glass-rim),
+    inset 0 0 0 0.5px var(--glass-rim-soft),
+    var(--glass-shadow);
 }
 
 html[data-theme-preset="glass"].dark [data-app-chrome],
-html[data-theme-preset="glass"].dark .bili-glass {
+html[data-theme-preset="glass"].dark .bili-glass,
+html[data-theme-preset="glass"].dark [data-glass-panel] {
   background: var(--glass-fill-dark) !important;
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.18),
-    0 10px 32px rgb(0 0 0 / 0.28);
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.1),
+    var(--glass-shadow-dark);
 }
 
 html[data-theme-preset="glass"] [data-glass-panel] {
-  background: rgb(255 255 255 / 0.05) !important;
-  backdrop-filter: blur(20px) saturate(2) brightness(1.1);
-  -webkit-backdrop-filter: blur(20px) saturate(2) brightness(1.1);
+  border-color: var(--glass-border) !important;
 }
 
 html[data-theme-preset="glass"].dark [data-glass-panel] {
-  background: rgb(255 255 255 / 0.04) !important;
+  border-color: var(--glass-border-dark) !important;
 }
 
 html[data-theme-preset="glass"] [data-glass-panel] [class*="bg-background"] {
-  background-color: rgb(255 255 255 / 0.06) !important;
+  background-color: rgb(255 255 255 / 0.08) !important;
 }
 
-html[data-theme-preset="glass"] .shadow-xl,
-html[data-theme-preset="glass"] .shadow-2xl {
-  backdrop-filter: blur(18px) saturate(1.8);
-  -webkit-backdrop-filter: blur(18px) saturate(1.8);
+html[data-theme-preset="glass"] .bili-glass-scrim,
+html[data-theme-preset="glass"] [data-glass-scrim] {
+  background: rgb(8 12 22 / 0.14) !important;
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
 }
 
-html[data-theme-preset="glass"] .shadow-sm,
-html[data-theme-preset="glass"] .shadow,
-html[data-theme-preset="glass"] .shadow-lg,
-html[data-theme-preset="glass"] .shadow-2xl {
+html[data-theme-preset="glass"]:not(.dark) .bili-glass-scrim,
+html[data-theme-preset="glass"]:not(.dark) [data-glass-scrim] {
+  background: rgb(40 60 110 / 0.08) !important;
+}
+
+/* 视频卡片略实一点，保证可读；缝隙仍透壁纸 */
+html[data-theme-preset="glass"] .rounded-xl.border.bg-card,
+html[data-theme-preset="glass"] article.bg-card,
+html[data-theme-preset="glass"] .group.bg-card {
+  background: rgb(255 255 255 / var(--ui-card-alpha)) !important;
+  border-color: rgb(255 255 255 / 0.26) !important;
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.35),
-    0 10px 28px rgb(40 70 130 / 0.1);
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 8px 22px rgb(20 30 60 / 0.08);
+  backdrop-filter: blur(16px) saturate(1.6);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
 }
 
-html[data-theme-preset="glass"].dark .shadow-sm,
-html[data-theme-preset="glass"].dark .shadow,
-html[data-theme-preset="glass"].dark .shadow-lg,
-html[data-theme-preset="glass"].dark .shadow-2xl {
+html[data-theme-preset="glass"].dark .rounded-xl.border.bg-card,
+html[data-theme-preset="glass"].dark article.bg-card,
+html[data-theme-preset="glass"].dark .group.bg-card {
+  background: rgb(255 255 255 / var(--ui-card-alpha)) !important;
+  border-color: rgb(255 255 255 / 0.12) !important;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.12),
-    0 12px 32px rgb(0 0 0 / 0.3);
+    0 10px 26px rgb(0 0 0 / 0.2);
 }
 
 html[data-theme-preset="glass"] .bili-cmt-node {
@@ -1428,15 +1488,158 @@ html[data-theme-preset="glass"] .bili-cmt-node {
 }
 
 html[data-theme-preset="glass"] .bili-cmt-fold {
-  background: rgb(255 255 255 / 0.16);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgb(255 255 255 / 0.12);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 html[data-theme-preset="glass"].dark .bili-cmt-fold {
-  background: rgb(255 255 255 / 0.1);
+  background: rgb(255 255 255 / 0.08);
 }
 
 html[data-theme-preset="glass"] .bili-cmt-avatar {
   background: transparent;
+}
+
+html[data-theme-preset="glass"] .sticky.backdrop-blur-md,
+html[data-theme-preset="glass"] .sticky.backdrop-blur,
+html[data-theme-preset="glass"] [data-page-chrome] {
+  background: var(--glass-fill) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat))
+    brightness(var(--glass-bright)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat))
+    brightness(var(--glass-bright)) !important;
+  border-color: var(--glass-border) !important;
+  box-shadow: inset 0 1px 0 var(--glass-rim);
+}
+
+html[data-theme-preset="glass"].dark .sticky.backdrop-blur-md,
+html[data-theme-preset="glass"].dark .sticky.backdrop-blur,
+html[data-theme-preset="glass"].dark [data-page-chrome] {
+  background: var(--glass-fill-dark) !important;
+  border-color: var(--glass-border-dark) !important;
+}
+
+/*
+ * 非液态玻璃：强制实色，取消磨砂/半透
+ * （侧栏/弹窗类名里常驻 bili-glass + bg-card/40，不关掉就会一直透）
+ */
+html:not([data-theme-preset="glass"]) body,
+html:not([data-theme-preset="glass"]) #root {
+  background-color: hsl(var(--background)) !important;
+}
+
+html:not([data-theme-preset="glass"]) #root::before,
+html:not([data-theme-preset="glass"]) #root::after {
+  content: none !important;
+  display: none !important;
+}
+
+html:not([data-theme-preset="glass"]) .bili-glass,
+html:not([data-theme-preset="glass"]) [data-glass-panel],
+html:not([data-theme-preset="glass"]) [data-app-chrome] {
+  background-color: hsl(var(--card)) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow:
+    0 10px 28px rgb(0 0 0 / 0.18),
+    0 1px 0 rgb(255 255 255 / 0.04);
+}
+
+html:not([data-theme-preset="glass"]) [data-app-sidebar],
+html:not([data-theme-preset="glass"]) [data-app-topbar] {
+  position: relative !important;
+  inset: auto !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: auto !important;
+  width: auto;
+  border-radius: 0 !important;
+  border-color: hsl(var(--border)) !important;
+  background-color: hsl(var(--background)) !important;
+  box-shadow: none !important;
+}
+
+html:not([data-theme-preset="glass"]) [data-app-shell] {
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
+html:not([data-theme-preset="glass"]) [data-app-main] {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html:not([data-theme-preset="glass"]) .bili-glass-scrim,
+html:not([data-theme-preset="glass"]) [data-glass-scrim] {
+  background: rgb(0 0 0 / 0.45) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* —— 文字对比度 / 色调（主题定制滑条 & 色板） —— */
+html[data-theme-preset="glass"].dark {
+  --foreground: 0 0% calc(90% + 10% * var(--ui-text-contrast, 0.78));
+  --card-foreground: 0 0% calc(90% + 10% * var(--ui-text-contrast, 0.78));
+  --muted-foreground: 210 14% calc(62% + 26% * var(--ui-text-contrast, 0.78));
+  --secondary-foreground: 0 0% calc(88% + 10% * var(--ui-text-contrast, 0.78));
+}
+
+html[data-theme-preset="glass"]:not(.dark) {
+  --foreground: 222 32% calc(18% - 10% * var(--ui-text-contrast, 0.78));
+  --card-foreground: 222 32% calc(18% - 10% * var(--ui-text-contrast, 0.78));
+  --muted-foreground: 222 14% calc(42% - 14% * var(--ui-text-contrast, 0.78));
+}
+
+html[data-text-tone="pure"].dark {
+  --foreground: 0 0% 100%;
+  --card-foreground: 0 0% 100%;
+  --muted-foreground: 0 0% calc(74% + 16% * var(--ui-text-contrast, 0.78));
+  --secondary-foreground: 0 0% 98%;
+}
+
+html[data-text-tone="pure"]:not(.dark) {
+  --foreground: 0 0% 0%;
+  --card-foreground: 0 0% 0%;
+  --muted-foreground: 0 0% calc(28% - 8% * var(--ui-text-contrast, 0.78));
+}
+
+html[data-text-tone="soft"].dark {
+  --foreground: 210 24% calc(94% + 4% * var(--ui-text-contrast, 0.78));
+  --card-foreground: 210 24% calc(94% + 4% * var(--ui-text-contrast, 0.78));
+  --muted-foreground: 210 14% calc(70% + 16% * var(--ui-text-contrast, 0.78));
+}
+
+html[data-text-tone="warm"].dark {
+  --foreground: 36 40% calc(94% + 4% * var(--ui-text-contrast, 0.78));
+  --card-foreground: 36 40% calc(94% + 4% * var(--ui-text-contrast, 0.78));
+  --muted-foreground: 32 18% calc(72% + 14% * var(--ui-text-contrast, 0.78));
+}
+
+html[data-text-tone="cool"].dark {
+  --foreground: 205 40% calc(94% + 4% * var(--ui-text-contrast, 0.78));
+  --card-foreground: 205 40% calc(94% + 4% * var(--ui-text-contrast, 0.78));
+  --muted-foreground: 205 18% calc(72% + 14% * var(--ui-text-contrast, 0.78));
+}
+
+html[data-text-tone="custom"] {
+  --foreground: var(--ui-text-hsl);
+  --card-foreground: var(--ui-text-hsl);
+}
+
+html[data-theme-preset="glass"] h1,
+html[data-theme-preset="glass"] h2,
+html[data-theme-preset="glass"] h3,
+html[data-theme-preset="glass"] .font-semibold,
+html[data-theme-preset="glass"] .font-medium {
+  text-shadow: 0 1px 2px rgb(0 0 0 / var(--ui-text-shadow, 0.65));
+}
+
+html[data-theme-preset="glass"] .text-muted-foreground {
+  text-shadow: 0 1px 1px rgb(0 0 0 / calc(var(--ui-text-shadow, 0.65) * 0.7));
 }

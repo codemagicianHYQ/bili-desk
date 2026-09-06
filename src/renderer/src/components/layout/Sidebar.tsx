@@ -104,7 +104,7 @@ export function Sidebar() {
     <aside
       data-app-chrome
       data-app-sidebar
-      className="bili-glass flex w-56 shrink-0 flex-col border-r border-border bg-card/50 px-3 py-4"
+      className="bili-glass flex w-56 shrink-0 flex-col border-r border-border bg-card/30 px-3 py-4"
     >
       <div className="mb-8 px-2">
         <h1 className="text-lg font-semibold tracking-tight">

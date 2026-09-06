@@ -73,8 +73,9 @@ export function HomeGridLayoutPicker() {
         <OverlayPortal>
           <div
             ref={panelRef}
+            data-glass-panel
             className={cn(
-              "fixed w-36 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg",
+              "bili-glass fixed w-36 overflow-hidden rounded-xl border border-border bg-card/40 py-1 shadow-2xl",
               APP_OVERLAY_ZCLASS,
             )}
             style={{ top: pos.top, right: pos.right }}

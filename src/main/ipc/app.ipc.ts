@@ -8,6 +8,7 @@ import {
   resolveInAppPathFromUrl,
 } from "@shared/utils/bili-app-link";
 import { resolveBiliUrl } from "../services/bili-link";
+import { applyWindowGlassEffect } from "../window";
 
 function windowFromEvent(
   event: Electron.IpcMainInvokeEvent,
@@ -20,6 +21,11 @@ export function registerAppIpc(): void {
   ipcMain.handle(IPC.APP_SET_THEME, (_e, theme: Theme) => {
     appStore.set("theme", theme);
     return theme;
+  });
+  ipcMain.handle(IPC.APP_SET_WINDOW_GLASS, (event, enabled: boolean) => {
+    const win = windowFromEvent(event);
+    if (!win || win.isDestroyed()) return false;
+    return applyWindowGlassEffect(win, Boolean(enabled));
   });
   ipcMain.handle(IPC.APP_SET_FULLSCREEN, (event, on: boolean) => {
     const win = windowFromEvent(event);

@@ -136,9 +136,12 @@ export function MainLayout() {
   return (
     <div data-app-shell className="flex h-full overflow-hidden">
       <Sidebar />
-      <div data-app-column className="flex min-w-0 flex-1 flex-col">
+      <div
+        data-app-column
+        className="flex min-w-0 flex-1 flex-col overflow-hidden"
+      >
         <TopBar title={meta.title} subtitle={meta.subtitle} />
-        <main data-app-main className="flex-1 overflow-hidden">
+        <main data-app-main className="min-h-0 flex-1 overflow-hidden">
           <div
             className={cn("h-full", !isHome && "hidden")}
             aria-hidden={!isHome}

@@ -15,6 +15,11 @@ if (!app.isPackaged) {
   app.commandLine.appendSwitch("log-level", "3");
 }
 
+// Windows 透明窗 + Acrylic 需要，否则客户端区域常变成死灰实色
+if (process.platform === "win32") {
+  app.commandLine.appendSwitch("enable-transparent-visuals");
+}
+
 let mainWindow: BrowserWindow | null = null;
 app.whenReady().then(async () => {
   const mediaUrls = [

@@ -23,7 +23,7 @@ export function PageBackHeader({
     <div
       data-page-chrome
       className={cn(
-        "sticky top-0 z-30 flex shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-background/85 px-4 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/70",
+        "sticky top-0 z-30 flex shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-background/40 px-4 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/30",
         className,
       )}
     >
