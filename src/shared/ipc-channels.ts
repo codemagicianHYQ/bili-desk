@@ -94,6 +94,8 @@ export const IPC = {
   BILI_SERIES_ARCHIVES: "bili:series-archives",
   BILI_BANGUMI_FOLLOW: "bili:bangumi-follow",
   BILI_SUBSCRIBED_COLLECTIONS: "bili:subscribed-collections",
+  BILI_UGC_SEASON_SUBSCRIBED: "bili:ugc-season-subscribed",
+  BILI_UGC_SEASON_SUBSCRIBE_SET: "bili:ugc-season-subscribe-set",
   BILI_FAV_VIDEO_MEDIAS: "bili:fav-video-medias",
   BILI_OPUS_FAVORITES: "bili:opus-favorites",
   BILI_CHEESE_FOLLOW: "bili:cheese-follow",

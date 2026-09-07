@@ -49,6 +49,8 @@ import type {
   VideoDetail,
   VideoItem,
   VideoTag,
+  VideoSeasonEpisode,
+  VideoUgcSeason,
   PopularVideoItem,
   PopularFeedPage,
   WeeklySeriesMeta,
@@ -1741,6 +1743,7 @@ class BiliApiService {
         duration: (part.duration as number) ?? 0,
       })),
       tags,
+      ugcSeason: this.parseVideoUgcSeason(view.ugc_season),
       stat: {
         view: view.stat?.view ?? 0,
         danmaku: view.stat?.danmaku ?? 0,
@@ -1750,6 +1753,75 @@ class BiliApiService {
         share: view.stat?.share ?? 0,
         like: view.stat?.like ?? 0,
       },
+    };
+  }
+
+  /** 官网播放页右侧「合集」：view.ugc_season */
+  private parseVideoUgcSeason(raw: unknown): VideoUgcSeason | undefined {
+    if (!raw || typeof raw !== "object") return undefined;
+    const season = raw as Record<string, unknown>;
+    const id = Number(season.id) || 0;
+    if (!id) return undefined;
+
+    const sections = Array.isArray(season.sections) ? season.sections : [];
+    const episodes: VideoSeasonEpisode[] = [];
+    const seen = new Set<string>();
+
+    for (const sectionRaw of sections) {
+      if (!sectionRaw || typeof sectionRaw !== "object") continue;
+      const section = sectionRaw as Record<string, unknown>;
+      const list = Array.isArray(section.episodes) ? section.episodes : [];
+      for (const epRaw of list) {
+        if (!epRaw || typeof epRaw !== "object") continue;
+        const ep = epRaw as Record<string, unknown>;
+        const bvid = String(ep.bvid ?? "").trim();
+        if (!bvid || seen.has(bvid)) continue;
+        seen.add(bvid);
+
+        const page =
+          ep.page && typeof ep.page === "object"
+            ? (ep.page as Record<string, unknown>)
+            : undefined;
+        const cid = Number(ep.cid ?? page?.cid) || 0;
+        const duration = Number(ep.duration ?? page?.duration) || 0;
+        const title = String(
+          ep.title ?? page?.part ?? ep.long_title ?? bvid,
+        ).trim();
+
+        const arc =
+          ep.arc && typeof ep.arc === "object"
+            ? (ep.arc as Record<string, unknown>)
+            : undefined;
+        episodes.push({
+          aid: Number(ep.aid ?? ep.id) || 0,
+          bvid,
+          cid,
+          title: title || bvid,
+          cover: String(ep.cover ?? arc?.cover ?? "").replace(
+            /^http:/,
+            "https:",
+          ),
+          duration,
+        });
+      }
+    }
+
+    if (episodes.length === 0) return undefined;
+
+    return {
+      id,
+      title: String(season.title ?? "合集").trim() || "合集",
+      cover: String(season.cover ?? "").replace(/^http:/, "https:"),
+      epCount: Number(season.ep_count) || episodes.length,
+      episodes,
+      mid: Number(season.mid) || undefined,
+      view:
+        Number(
+          (season.stat as Record<string, unknown> | undefined)?.view ??
+            (season.stat as Record<string, unknown> | undefined)?.vt ??
+            season.view,
+        ) || undefined,
+      intro: String(season.intro ?? season.desc ?? "").trim() || undefined,
     };
   }
 
@@ -7758,6 +7830,73 @@ class BiliApiService {
       page,
       hasMore: start + pageSize < all.length,
     };
+  }
+
+  /** 是否已订阅该 UGC 合集（只查 collected 列表，避免扫全收藏夹） */
+  async getUgcSeasonSubscribed(seasonId: number): Promise<boolean> {
+    const id = Number(seasonId) || 0;
+    if (!id) return false;
+    const mid =
+      appStore.get("user")?.mid ?? Number(appStore.get("cookies").DedeUserID);
+    if (!mid) return false;
+
+    try {
+      for (let page = 1; page <= 3; page++) {
+        const { items, hasMore } = await this.fetchCollectedSeasonFolders(
+          mid,
+          page,
+          50,
+        );
+        if (items.some((item) => item.id === id)) return true;
+        if (!hasMore) break;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }
+
+  /**
+   * 订阅 / 取消订阅 UGC 合集
+   * fav:   POST /x/v3/fav/season/fav
+   * unfav: POST /x/v3/fav/season/unfav
+   */
+  async setUgcSeasonSubscribe(
+    seasonId: number,
+    subscribe: boolean,
+  ): Promise<boolean> {
+    const id = Number(seasonId) || 0;
+    if (!id) throw new Error("合集 ID 无效");
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再订阅合集");
+
+    const path = subscribe ? "/x/v3/fav/season/fav" : "/x/v3/fav/season/unfav";
+    const body = new URLSearchParams({
+      season_id: String(id),
+      platform: "web",
+      csrf,
+    });
+
+    const res = await this.client.post(path, body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(
+        (res.data?.message as string) ||
+          (subscribe ? "订阅合集失败" : "取消订阅失败"),
+      );
+    }
+
+    this.subscribedSeasonsCache = null;
+    return subscribe;
   }
 
   async getFavVideoMedias(page = 1): Promise<FavMediasPage> {

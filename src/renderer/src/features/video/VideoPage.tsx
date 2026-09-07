@@ -10,6 +10,7 @@ import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
 import { VideoTagList } from "@/components/video/VideoTagList";
+import { VideoPlaylistPanel } from "@/components/video/VideoPlaylistPanel";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { videoDetailCache } from "@/lib/session-data-cache";
@@ -156,7 +157,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     loweredQnRef.current = false;
 
     const cached = videoDetailCache.get(bvid);
-    if (cached) {
+    // 旧缓存无 ugcSeason 字段时强制重拉，避免合集列表缺失
+    if (cached && "ugcSeason" in cached) {
       setVideo(cached);
       setError("");
       const preferredCid =
@@ -381,26 +383,6 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     className="shrink-0 grow-0 pt-0.5"
                   />
                 </div>
-                {video.pages.length > 1 && (
-                  <div className="flex gap-2 overflow-x-auto pb-0.5">
-                    {video.pages.map((part) => (
-                      <Button
-                        key={part.cid}
-                        size="sm"
-                        variant={
-                          selectedCid === part.cid ? "default" : "outline"
-                        }
-                        className="shrink-0"
-                        onClick={() => {
-                          setSelectedCid(part.cid);
-                        }}
-                      >
-                        P{part.page}
-                        {part.part && part.page === 1 ? "" : ` · ${part.part}`}
-                      </Button>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -418,6 +400,14 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                   variant="inline"
                 />
               }
+            />
+
+            <VideoPlaylistPanel
+              bvid={video.bvid || bvid}
+              selectedCid={selectedCid}
+              pages={video.pages}
+              ugcSeason={video.ugcSeason}
+              onSelectPart={setSelectedCid}
             />
 
             <p className="text-xs text-muted-foreground">

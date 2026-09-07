@@ -424,6 +424,14 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_BANGUMI_FOLLOW, mid, type ?? 1, page ?? 1),
     getSubscribedCollections: (page?: number) =>
       ipcRenderer.invoke(IPC.BILI_SUBSCRIBED_COLLECTIONS, page ?? 1),
+    getUgcSeasonSubscribed: (seasonId: number) =>
+      ipcRenderer.invoke(IPC.BILI_UGC_SEASON_SUBSCRIBED, seasonId),
+    setUgcSeasonSubscribe: (seasonId: number, subscribe: boolean) =>
+      ipcRenderer.invoke(
+        IPC.BILI_UGC_SEASON_SUBSCRIBE_SET,
+        seasonId,
+        subscribe,
+      ),
     getFavVideoMedias: (page?: number) =>
       ipcRenderer.invoke(IPC.BILI_FAV_VIDEO_MEDIAS, page ?? 1),
     getOpusFavorites: (page?: number) =>

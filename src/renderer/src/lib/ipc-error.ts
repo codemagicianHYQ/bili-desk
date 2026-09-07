@@ -11,6 +11,29 @@ export function extractIpcErrorMessage(err: unknown): string {
   return (match?.[1] ?? message).trim();
 }
 
+/** 评论区被关闭（正常业务态，不是系统故障） */
+export function isCommentClosedMessage(message: string): boolean {
+  const text = message.trim();
+  if (!text) return false;
+  return (
+    text.includes("关闭评论区") ||
+    text.includes("评论区已关闭") ||
+    text.includes("禁止评论") ||
+    text.includes("评论功能已关闭")
+  );
+}
+
+export function formatCommentLoadError(err: unknown): {
+  closed: boolean;
+  message: string;
+} {
+  const raw = extractIpcErrorMessage(err);
+  if (isCommentClosedMessage(raw)) {
+    return { closed: true, message: "UP主已关闭评论区" };
+  }
+  return { closed: false, message: raw || "评论加载失败" };
+}
+
 /** UP 主页 / 用户空间相关错误，转成可读原因 */
 export function formatUserSpaceError(err: unknown): string {
   const raw = extractIpcErrorMessage(err);

@@ -454,6 +454,14 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_SUBSCRIBED_COLLECTIONS, (_e, page?: number) =>
     biliApi.getSubscribedCollections(page),
   );
+  handleIpc(IPC.BILI_UGC_SEASON_SUBSCRIBED, (_e, seasonId: number) =>
+    biliApi.getUgcSeasonSubscribed(seasonId),
+  );
+  handleIpc(
+    IPC.BILI_UGC_SEASON_SUBSCRIBE_SET,
+    (_e, seasonId: number, subscribe: boolean) =>
+      biliApi.setUgcSeasonSubscribe(seasonId, subscribe),
+  );
   handleIpc(IPC.BILI_FAV_VIDEO_MEDIAS, (_e, page?: number) =>
     biliApi.getFavVideoMedias(page),
   );

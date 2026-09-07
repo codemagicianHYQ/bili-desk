@@ -6,6 +6,10 @@ import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
 import { Button } from "@/components/ui/button";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn } from "@/lib/utils";
+import {
+  extractIpcErrorMessage,
+  formatCommentLoadError,
+} from "@/lib/ipc-error";
 import { useAppStore } from "@/stores/app-store";
 import { Loader2 } from "lucide-react";
 
@@ -45,6 +49,7 @@ export function DynamicCommentSection({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [closed, setClosed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const loadingMoreRef = useRef(false);
   const commentsRef = useRef<CommentItem[]>([]);
@@ -123,6 +128,7 @@ export function DynamicCommentSection({
         setLoadingMore(true);
       }
       setError("");
+      setClosed(false);
       try {
         const result = await window.biliDesk.bili.getTargetComments(
           oid,
@@ -163,8 +169,18 @@ export function DynamicCommentSection({
           ),
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "评论加载失败");
-        if (!reset) setHasMore(false);
+        const formatted = formatCommentLoadError(err);
+        if (formatted.closed) {
+          setClosed(true);
+          setError("");
+          if (reset) {
+            setComments([]);
+            setHasMore(false);
+          }
+        } else {
+          setError(formatted.message);
+          if (!reset) setHasMore(false);
+        }
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -231,7 +247,13 @@ export function DynamicCommentSection({
       await loadComments(1, sort, true, true);
       pendingRef.current = null;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发表评论失败");
+      const formatted = formatCommentLoadError(err);
+      if (formatted.closed) {
+        setClosed(true);
+        setError("");
+      } else {
+        setError(extractIpcErrorMessage(err) || "发表评论失败");
+      }
     } finally {
       setSending(false);
     }
@@ -243,55 +265,59 @@ export function DynamicCommentSection({
         <h2 className="text-base font-semibold">
           评论 {total > 0 ? total : ""}
         </h2>
-        <div className="flex gap-2 text-sm">
-          <button
-            type="button"
-            className={cn(
-              "rounded-full px-3 py-1 transition-colors",
-              sort === 0
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => setSort(0)}
-          >
-            最热
-          </button>
-          <button
-            type="button"
-            className={cn(
-              "rounded-full px-3 py-1 transition-colors",
-              sort === 2
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => setSort(2)}
-          >
-            最新
-          </button>
-        </div>
+        {!closed && (
+          <div className="flex gap-2 text-sm">
+            <button
+              type="button"
+              className={cn(
+                "rounded-full px-3 py-1 transition-colors",
+                sort === 0
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setSort(0)}
+            >
+              最热
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "rounded-full px-3 py-1 transition-colors",
+                sort === 2
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setSort(2)}
+            >
+              最新
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="flex gap-3">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={2}
-          placeholder="发一条友善的评论吧"
-          className="min-h-[64px] flex-1 resize-none rounded-xl border border-border bg-secondary/30 px-3 py-2 text-sm outline-none focus:border-primary/50"
-        />
-        <div className="flex flex-col gap-2">
-          <EmotePickerButton
-            onPick={(emote) => setDraft((prev) => prev + emote)}
+      {!closed && (
+        <div className="flex gap-3">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={2}
+            placeholder="发一条友善的评论吧"
+            className="min-h-[64px] flex-1 resize-none rounded-xl border border-border bg-secondary/30 px-3 py-2 text-sm outline-none focus:border-primary/50"
           />
-          <Button
-            size="sm"
-            disabled={sending || !draft.trim()}
-            onClick={() => void handleSend()}
-          >
-            {sending ? "发送中" : "发表"}
-          </Button>
+          <div className="flex flex-col gap-2">
+            <EmotePickerButton
+              onPick={(emote) => setDraft((prev) => prev + emote)}
+            />
+            <Button
+              size="sm"
+              disabled={sending || !draft.trim()}
+              onClick={() => void handleSend()}
+            >
+              {sending ? "发送中" : "发表"}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
@@ -300,6 +326,10 @@ export function DynamicCommentSection({
           <Loader2 className="h-4 w-4 animate-spin" />
           加载评论中...
         </div>
+      ) : closed ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          UP主已关闭评论区
+        </p>
       ) : comments.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
           还没有评论，来抢沙发吧

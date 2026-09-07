@@ -29,6 +29,8 @@ export interface VideoDetail extends VideoItem {
   desc: string;
   pages: VideoPagePart[];
   tags: VideoTag[];
+  /** 所属合集；无则 undefined */
+  ugcSeason?: VideoUgcSeason;
   stat: {
     view: number;
     danmaku: number;
@@ -180,6 +182,32 @@ export interface VideoPagePart {
   page: number;
   part: string;
   duration: number;
+}
+
+/** 稿件所属 UGC 合集中的一集（不同 BV） */
+export interface VideoSeasonEpisode {
+  aid: number;
+  bvid: string;
+  cid: number;
+  title: string;
+  cover: string;
+  /** 秒 */
+  duration: number;
+}
+
+/** /x/web-interface/view 的 ugc_season */
+export interface VideoUgcSeason {
+  id: number;
+  title: string;
+  cover: string;
+  epCount: number;
+  episodes: VideoSeasonEpisode[];
+  /** 合集作者 mid */
+  mid?: number;
+  /** 合集总播放 */
+  view?: number;
+  /** 简介 */
+  intro?: string;
 }
 
 export interface BiliDashTrackInfo {
@@ -1342,6 +1370,11 @@ export interface BiliDeskApi {
       page?: number,
     ) => Promise<BangumiFollowPage>;
     getSubscribedCollections: (page?: number) => Promise<UserCollectionsPage>;
+    getUgcSeasonSubscribed: (seasonId: number) => Promise<boolean>;
+    setUgcSeasonSubscribe: (
+      seasonId: number,
+      subscribe: boolean,
+    ) => Promise<boolean>;
     getFavVideoMedias: (page?: number) => Promise<FavMediasPage>;
     getOpusFavorites: (page?: number) => Promise<OpusFavPage>;
     getCheeseFollowList: (

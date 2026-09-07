@@ -14,6 +14,10 @@ import { Button } from "@/components/ui/button";
 import { VirtualList } from "@/components/ui/virtual-list";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { commentsCache, commentsCacheKey } from "@/lib/session-data-cache";
+import {
+  extractIpcErrorMessage,
+  formatCommentLoadError,
+} from "@/lib/ipc-error";
 import { formatCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import { Loader2 } from "lucide-react";
@@ -63,6 +67,7 @@ export function VideoCommentSection({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [closed, setClosed] = useState(false);
 
   commentsRef.current = comments;
   useReplyEmotes();
@@ -119,6 +124,7 @@ export function VideoCommentSection({
         setLoadingMore(true);
       }
       setError("");
+      setClosed(false);
 
       try {
         const result = await window.biliDesk.bili.getComments(
@@ -169,8 +175,19 @@ export function VideoCommentSection({
           nextOffset: result.nextOffset,
         });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "评论加载失败");
-        if (!reset) setHasMore(false);
+        const formatted = formatCommentLoadError(err);
+        if (formatted.closed) {
+          setClosed(true);
+          setError("");
+          if (reset) {
+            setComments([]);
+            commentsRef.current = [];
+            setHasMore(false);
+          }
+        } else {
+          setError(formatted.message);
+          if (!reset) setHasMore(false);
+        }
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -192,6 +209,7 @@ export function VideoCommentSection({
       setLoading(false);
       setLoadingMore(false);
       setError("");
+      setClosed(false);
       void loadComments(1, sort, true, true);
       return;
     }
@@ -241,7 +259,13 @@ export function VideoCommentSection({
       await loadComments(1, sort, true, true);
       pendingRef.current = null;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发表评论失败");
+      const formatted = formatCommentLoadError(err);
+      if (formatted.closed) {
+        setClosed(true);
+        setError("");
+      } else {
+        setError(extractIpcErrorMessage(err) || "发表评论失败");
+      }
     } finally {
       setSending(false);
     }
@@ -256,61 +280,69 @@ export function VideoCommentSection({
             {formatCount(total)}
           </span>
         </h2>
-        <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant={sort === 0 ? "default" : "outline"}
-            onClick={() => setSort(0)}
-          >
-            按热度
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={sort === 2 ? "default" : "outline"}
-            onClick={() => setSort(2)}
-          >
-            按时间
-          </Button>
-        </div>
+        {!closed && (
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant={sort === 0 ? "default" : "outline"}
+              onClick={() => setSort(0)}
+            >
+              按热度
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={sort === 2 ? "default" : "outline"}
+              onClick={() => setSort(2)}
+            >
+              按时间
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="space-y-2">
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          rows={3}
-          maxLength={1000}
-          placeholder="发一条友善的评论吧"
-          className="w-full resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-        />
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <EmotePickerButton
-              onPick={(emote) =>
-                setDraft((prev) => (prev + emote).slice(0, 1000))
-              }
-            />
-            <p className="text-xs text-muted-foreground">
-              {draft.trim().length}/1000
-            </p>
+      {!closed && (
+        <div className="space-y-2">
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={3}
+            maxLength={1000}
+            placeholder="发一条友善的评论吧"
+            className="w-full resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+          />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <EmotePickerButton
+                onPick={(emote) =>
+                  setDraft((prev) => (prev + emote).slice(0, 1000))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {draft.trim().length}/1000
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={sending || !draft.trim()}
+              onClick={() => void handleSend()}
+            >
+              {sending ? "发送中..." : "发表评论"}
+            </Button>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={sending || !draft.trim()}
-            onClick={() => void handleSend()}
-          >
-            {sending ? "发送中..." : "发表评论"}
-          </Button>
         </div>
-      </div>
+      )}
 
       {loading ? (
         <p className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           加载评论中...
+        </p>
+      ) : closed ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          UP主已关闭评论区
         </p>
       ) : comments.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
