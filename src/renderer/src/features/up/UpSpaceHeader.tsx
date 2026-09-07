@@ -75,6 +75,20 @@ export function UpSpaceHeader({
                 </div>
                 <div className="text-xs text-muted-foreground">获赞</div>
               </div>
+              <div>
+                <div className="text-lg font-semibold tabular-nums">
+                  {formatCount(profile.archiveViews ?? 0)}
+                </div>
+                <div className="text-xs text-muted-foreground">播放</div>
+              </div>
+              {(profile.favourites ?? 0) > 0 && (
+                <div>
+                  <div className="text-lg font-semibold tabular-nums">
+                    {formatCount(profile.favourites ?? 0)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">收藏夹</div>
+                </div>
+              )}
             </div>
 
             {currentMid !== profile.mid && (

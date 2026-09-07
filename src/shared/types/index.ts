@@ -31,6 +31,8 @@ export interface VideoDetail extends VideoItem {
   tags: VideoTag[];
   /** 所属合集；无则 undefined */
   ugcSeason?: VideoUgcSeason;
+  /** 1=自制 2=转载；官网「未经作者授权禁止转载」类提示 */
+  copyright?: 1 | 2;
   stat: {
     view: number;
     danmaku: number;
@@ -1225,6 +1227,7 @@ export interface BiliDeskApi {
       mediaId: number,
       page?: number,
       riskRetry?: "short" | "long",
+      expectedCount?: number,
     ) => Promise<FavResourcesPage>;
     removeFavResources: (mediaId: number, aids: number[]) => Promise<void>;
     moveFavResources: (

@@ -272,9 +272,9 @@ export class FavClassifyEngine {
         const items = await biliApi.getAllFavResourcesInFolder(
           folder.id,
           async (fetchedInFolder) => {
-            report({
-              progress: Math.min(
-                18,
+          report({
+            progress: Math.min(
+              18,
                 Math.round(
                   (15 * (all.length + fetchedInFolder)) / totalEstimate,
                 ),
@@ -314,8 +314,8 @@ export class FavClassifyEngine {
       const total = await classifyFavoriteItemsAsync(
         all,
         (done, totalCount) => {
-          report({
-            progress: Math.round(20 + (done / totalCount) * 75),
+        report({
+          progress: Math.round(20 + (done / totalCount) * 75),
             message: `正在分类 ${done}/${totalCount}...`,
           });
         },
@@ -352,7 +352,7 @@ export class FavClassifyEngine {
       const items = await biliApi.getAllFavResourcesInFolder(
         mediaId,
         async (fetched) => {
-          report({
+        report({
             progress: Math.min(
               20,
               Math.round((fetched / Math.max(fetched, 1)) * 20),

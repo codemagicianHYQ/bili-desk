@@ -190,12 +190,19 @@ export function registerBiliIpc(): void {
   );
   ipcMain.handle(
     IPC.BILI_FAV_RESOURCES,
-    (_e, mediaId: number, page?: number, riskRetry?: "short" | "long") =>
+    (
+      _e,
+      mediaId: number,
+      page?: number,
+      riskRetry?: "short" | "long",
+      expectedCount?: number,
+    ) =>
       biliApi.getFavResources(
         mediaId,
         page ?? 1,
         20,
         riskRetry === "long" ? "long" : "short",
+        Number(expectedCount) || 0,
       ),
   );
   ipcMain.handle(

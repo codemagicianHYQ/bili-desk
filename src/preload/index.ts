@@ -207,7 +207,15 @@ const api = {
       mediaId: number,
       page?: number,
       riskRetry?: "short" | "long",
-    ) => ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES, mediaId, page, riskRetry),
+      expectedCount?: number,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_FAV_RESOURCES,
+        mediaId,
+        page,
+        riskRetry,
+        expectedCount,
+      ),
     removeFavResources: (mediaId: number, aids: number[]) =>
       ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES_REMOVE, mediaId, aids),
     moveFavResources: (

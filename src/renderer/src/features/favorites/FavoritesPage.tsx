@@ -352,6 +352,7 @@ export function FavoritesPage() {
           mediaId,
           page,
           "long",
+          expected,
         );
         if (seq !== folderLoadSeqRef.current) return;
 
@@ -359,6 +360,7 @@ export function FavoritesPage() {
           foldersRef.current.find((folder) => folder.id === mediaId)
             ?.mediaCount ?? expected;
         if (!append && result.resources.length === 0 && latestExpected > 0) {
+          useFavoritesStore.getState().clearFolderList(mediaId);
           setResources([]);
           setFolderPage(1);
           setFolderHasMore(false);
@@ -372,11 +374,14 @@ export function FavoritesPage() {
           const next = append
             ? [...prev, ...result.resources]
             : result.resources;
-          useFavoritesStore.getState().putFolderList(mediaId, {
-            resources: next,
-            page: result.page,
-            hasMore: result.hasMore,
-          });
+          // 空列表且夹里有稿：绝不写入缓存，否则下次点开会跳过请求、误显示「0 条」
+          if (!(next.length === 0 && latestExpected > 0)) {
+            useFavoritesStore.getState().putFolderList(mediaId, {
+              resources: next,
+              page: result.page,
+              hasMore: result.hasMore,
+            });
+          }
           return next;
         });
         setFolderPage(result.page);
@@ -414,8 +419,16 @@ export function FavoritesPage() {
 
   useEffect(() => {
     if (sidebarMode !== "bilibili" || !selectedFolder) return;
+    const expected =
+      foldersRef.current.find((folder) => folder.id === selectedFolder)
+        ?.mediaCount ?? 0;
     const cached = useFavoritesStore.getState().getFolderList(selectedFolder);
     if (cached) {
+      if (cached.resources.length === 0 && expected > 0) {
+        useFavoritesStore.getState().clearFolderList(selectedFolder);
+        void loadFolderPage(selectedFolder, 1, false);
+        return;
+      }
       applyFolderListCache(cached);
       return;
     }
@@ -452,10 +465,14 @@ export function FavoritesPage() {
       return;
     }
 
+    const expected =
+      foldersRef.current.find((folder) => folder.id === folderId)?.mediaCount ??
+      0;
     const cached = useFavoritesStore.getState().getFolderList(folderId);
-    if (cached) {
+    if (cached && !(cached.resources.length === 0 && expected > 0)) {
       applyFolderListCache(cached);
     } else {
+      if (cached) useFavoritesStore.getState().clearFolderList(folderId);
       setListReady(false);
     }
     setSelectedFolder(folderId);
@@ -1370,6 +1387,9 @@ export function FavoritesPage() {
                         size="sm"
                         variant="outline"
                         onClick={() => {
+                          useFavoritesStore
+                            .getState()
+                            .clearFolderList(selectedFolder);
                           void loadFolderPage(selectedFolder, 1, false);
                         }}
                       >

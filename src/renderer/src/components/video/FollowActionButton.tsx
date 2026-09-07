@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { List, Star } from "lucide-react";
+import { List, MoreHorizontal, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
@@ -42,6 +42,7 @@ export function FollowActionButton({
   const [menuOpen, setMenuOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [unfollowOpen, setUnfollowOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const menuPanelRef = useRef<HTMLDivElement>(null);
@@ -124,6 +125,22 @@ export function FollowActionButton({
     }
   };
 
+  const handleBlock = async () => {
+    setLoading(true);
+    try {
+      await window.biliDesk.bili.modifyBlock(mid, true);
+      onFollowingChange(false);
+      onSpecialChange?.(false);
+      patchFollowing(mid, null);
+      invalidateFollowings();
+      setBlockOpen(false);
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : "拉黑失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const openGroupDialog = () => {
     setMenuOpen(false);
     setTagDialogOpen(true);
@@ -134,51 +151,17 @@ export function FollowActionButton({
     }
   };
 
-  if (!isFollowing) {
-    return (
-      <FollowButton
-        isFollowing={false}
-        loading={loading}
-        disabled={disabled}
-        size={size}
-        className={className}
-        onClick={() => void handleFollow()}
-      />
-    );
-  }
-
-  return (
-    <>
-      <div ref={wrapRef} className={cn("relative shrink-0", className)}>
-        <Button
-          type="button"
-          size={size}
-          variant="secondary"
-          disabled={disabled || loading}
-          className={cn(
-            "gap-1.5 border border-border bg-muted text-muted-foreground shadow-none hover:bg-muted/80",
-            showSpecial && "text-primary",
-            menuOpen && "bg-muted/80",
-          )}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          {showSpecial ? (
-            <Star className="h-3.5 w-3.5 fill-current" />
-          ) : (
-            <List className="h-3.5 w-3.5" />
-          )}
-          {loading ? "处理中..." : showSpecial ? "特别关注" : "已关注"}
-        </Button>
-      </div>
-
-      {menuOpen &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            ref={menuPanelRef}
-            className={`fixed min-w-[132px] overflow-hidden rounded-xl bg-zinc-800 py-1 shadow-2xl ${APP_OVERLAY_ZCLASS}`}
-            style={{ top: menuPos.top, right: menuPos.right }}
-          >
+  const menuPortal =
+    menuOpen &&
+    typeof document !== "undefined" &&
+    createPortal(
+      <div
+        ref={menuPanelRef}
+        className={`fixed min-w-[132px] overflow-hidden rounded-xl bg-zinc-800 py-1 shadow-2xl ${APP_OVERLAY_ZCLASS}`}
+        style={{ top: menuPos.top, right: menuPos.right }}
+      >
+        {isFollowing && (
+          <>
             <button
               type="button"
               className="w-full px-6 py-2.5 text-center text-sm text-white transition-colors hover:bg-white/10"
@@ -196,10 +179,24 @@ export function FollowActionButton({
             >
               取消关注
             </button>
-          </div>,
-          document.body,
+          </>
         )}
+        <button
+          type="button"
+          className="w-full px-6 py-2.5 text-center text-sm text-red-300 transition-colors hover:bg-white/10"
+          onClick={() => {
+            setMenuOpen(false);
+            setBlockOpen(true);
+          }}
+        >
+          拉黑
+        </button>
+      </div>,
+      document.body,
+    );
 
+  const dialogs = (
+    <>
       <FollowTagDialog
         up={tagDialogOpen ? { mid, uname } : null}
         tags={followTags}
@@ -244,6 +241,92 @@ export function FollowActionButton({
           />
         ) : null}
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={blockOpen}
+        title="拉黑"
+        description={`确定拉黑「${uname}」吗？拉黑后将取消关注，对方无法私信你；可在设置 → 黑名单取消。`}
+        confirmLabel="拉黑"
+        cancelLabel="取消"
+        destructive
+        loading={loading}
+        onConfirm={() => void handleBlock()}
+        onCancel={() => {
+          if (!loading) setBlockOpen(false);
+        }}
+      >
+        {face ? (
+          <BiliImage
+            src={face}
+            alt=""
+            className="h-12 w-12 rounded-full object-cover ring-2 ring-border"
+          />
+        ) : null}
+      </ConfirmDialog>
+    </>
+  );
+
+  if (!isFollowing) {
+    return (
+      <>
+        <div
+          ref={wrapRef}
+          className={cn("relative flex shrink-0 items-center gap-1", className)}
+        >
+          <FollowButton
+            isFollowing={false}
+            loading={loading}
+            disabled={disabled}
+            size={size}
+            onClick={() => void handleFollow()}
+          />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            disabled={disabled || loading}
+            className={cn(
+              "text-muted-foreground",
+              size === "sm" && "h-8 w-8",
+            )}
+            aria-label="更多"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </div>
+        {menuPortal}
+        {dialogs}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div ref={wrapRef} className={cn("relative shrink-0", className)}>
+        <Button
+          type="button"
+          size={size}
+          variant="secondary"
+          disabled={disabled || loading}
+          className={cn(
+            "gap-1.5 border border-border bg-muted text-muted-foreground shadow-none hover:bg-muted/80",
+            showSpecial && "text-primary",
+            menuOpen && "bg-muted/80",
+          )}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {showSpecial ? (
+            <Star className="h-3.5 w-3.5 fill-current" />
+          ) : (
+            <List className="h-3.5 w-3.5" />
+          )}
+          {loading ? "处理中..." : showSpecial ? "特别关注" : "已关注"}
+        </Button>
+      </div>
+
+      {menuPortal}
+      {dialogs}
     </>
   );
 }

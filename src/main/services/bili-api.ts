@@ -1744,6 +1744,12 @@ class BiliApiService {
       })),
       tags,
       ugcSeason: this.parseVideoUgcSeason(view.ugc_season),
+      copyright:
+        Number(view.copyright) === 2
+          ? 2
+          : Number(view.copyright) === 1
+            ? 1
+            : undefined,
       stat: {
         view: view.stat?.view ?? 0,
         danmaku: view.stat?.danmaku ?? 0,
@@ -3844,11 +3850,14 @@ class BiliApiService {
     page: number,
     pageSize: number,
     riskRetry: "short" | "long" = "short",
+    expectedCount = 0,
   ): Promise<{ medias: unknown[]; hasMore: boolean }> {
     await this.ensureBuvid3();
 
-    const waits = riskRetry === "long" ? [8000, 20000, 40000] : [2000];
+    const waits = riskRetry === "long" ? [2500, 6000, 12000] : [1200, 2500];
     const maxAttempts = waits.length + 1;
+    const mid =
+      appStore.get("user")?.mid ?? Number(appStore.get("cookies").DedeUserID);
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const res = await this.client.get("/x/v3/fav/resource/list", {
@@ -3858,8 +3867,16 @@ class BiliApiService {
           ps: pageSize,
           platform: "web",
           mobi_app: "web",
+          type: 0,
+          tid: 0,
+          keyword: "",
+          order: "mtime",
         },
-        headers: { Referer: "https://www.bilibili.com/" },
+        headers: {
+          Referer: mid
+            ? `https://www.bilibili.com/medialist/detail/ml${mediaId}`
+            : "https://www.bilibili.com/",
+        },
         validateStatus: () => true,
       });
 
@@ -3876,36 +3893,43 @@ class BiliApiService {
         throw new Error((res.data?.message as string) || "收藏列表获取失败");
       }
 
-      const medias = res.data?.data?.medias;
-      const rawCount =
-        res.data?.data?.info?.media_count ?? res.data?.data?.media_count;
+      const data = res.data?.data as Record<string, unknown> | undefined;
+      const mediasRaw = data?.medias;
+      const medias = Array.isArray(mediasRaw) ? mediasRaw : null;
+      const info = data?.info as Record<string, unknown> | undefined;
+      const rawCount = info?.media_count ?? data?.media_count;
       const infoCount = Number(rawCount);
       const countKnown = Number.isFinite(infoCount);
-      // 空夹：medias 常为 null，且 info.media_count 明确为 0
+      const expect =
+        (countKnown && infoCount > 0 ? infoCount : 0) ||
+        (expectedCount > 0 ? expectedCount : 0);
+
+      // 空夹：medias 常为 null，且 media_count 明确为 0
       if (medias == null) {
-        if (code === 0 && countKnown && infoCount === 0) {
+        if (code === 0 && ((countKnown && infoCount === 0) || expect === 0)) {
           return { medias: [], hasMore: false };
         }
         if (attempt < maxAttempts) {
           await sleep(waits[attempt - 1] ?? 2000);
           continue;
         }
-        throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+        throw new Error(
+          expect > 0
+            ? `[412] 收藏夹有 ${expect} 条但列表未返回，请稍后重试`
+            : "[412] 请求被 B 站安全策略拦截，请稍后重试",
+        );
       }
 
-      const hasMore = res.data?.data?.has_more ?? medias.length >= pageSize;
-      // 夹里明明有稿，列表却给空数组，也是风控软失败，不能当成空夹
-      if (
-        Array.isArray(medias) &&
-        medias.length === 0 &&
-        countKnown &&
-        infoCount > 0
-      ) {
+      const hasMore = Boolean(data?.has_more) || medias.length >= pageSize;
+      // 夹里明明有稿，列表却给空数组：风控软失败
+      if (medias.length === 0 && expect > 0) {
         if (attempt < maxAttempts) {
           await sleep(waits[attempt - 1] ?? 2000);
           continue;
         }
-        throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
+        throw new Error(
+          `[412] 收藏夹有 ${expect} 条但列表未返回，请稍后重试`,
+        );
       }
       return { medias, hasMore };
     }
@@ -4389,6 +4413,7 @@ class BiliApiService {
     page = 1,
     pageSize = 20,
     riskRetry: "short" | "long" = "short",
+    expectedCount = 0,
   ): Promise<{
     resources: FavResource[];
     page: number;
@@ -4399,6 +4424,7 @@ class BiliApiService {
       page,
       pageSize,
       riskRetry,
+      expectedCount,
     );
     return {
       resources: this.mapFavMedias(medias),

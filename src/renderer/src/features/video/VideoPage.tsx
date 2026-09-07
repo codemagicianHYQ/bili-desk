@@ -412,9 +412,18 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
             <p className="text-xs text-muted-foreground">
               {formatCount(video.stat.view)} 播放 ·{" "}
-              {formatCount(video.stat.danmaku)} 弹幕
+              {formatCount(video.stat.danmaku)} 弹幕 ·{" "}
+              {formatCount(video.stat.like)} 点赞 ·{" "}
+              {formatCount(video.stat.coin)} 投币 ·{" "}
+              {formatCount(video.stat.favorite)} 收藏 ·{" "}
+              {formatCount(video.stat.share)} 分享
               {video.pubdate > 0 ? ` · ${formatPubdate(video.pubdate)}` : ""}
               {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
+              {video.copyright === 1
+                ? " · 自制"
+                : video.copyright === 2
+                  ? " · 转载"
+                  : ""}
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground">
               {video.desc ? <BiliEmoteText text={video.desc} /> : "暂无简介"}
