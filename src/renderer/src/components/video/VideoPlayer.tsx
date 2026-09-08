@@ -3,7 +3,7 @@ import Artplayer from "artplayer";
 import artplayerPluginDanmuku from "artplayer-plugin-danmuku";
 import flvjs from "flv.js";
 import dashjs from "dashjs";
-import type { VideoPlayInfo } from "@shared/types";
+import type { VideoPlayInfo, VideoSubtitleTrack } from "@shared/types";
 import { attachBiliDash } from "@/components/video/dash-mse";
 import { createPlaybackRateControl } from "@/components/video/playback-rate-setting";
 import {
@@ -18,6 +18,12 @@ import {
   writeDanmakuPref,
 } from "@/components/video/danmaku-pref";
 import { createQualityControl } from "@/components/video/quality-setting";
+import {
+  applyArtSubtitle,
+  createSubtitleBlobUrl,
+  createSubtitleControl,
+  pickSubtitleTrack,
+} from "@/components/video/subtitle-control";
 import {
   attachPlayerHotkeys,
   createSeekStepSetting,
@@ -49,6 +55,8 @@ interface VideoPlayerProps {
   /** 优先于本地缓存的续播秒数（如历史记录进度） */
   initialTime?: number;
   reloadKey?: number;
+  /** CC / AI 字幕轨（已转 WebVTT） */
+  subtitleTracks?: VideoSubtitleTrack[];
   /** 0 = 自动，其余为 B 站 qn */
   selectedQn?: number;
   onQualityChange: (qn: number) => void;
@@ -104,6 +112,7 @@ export function VideoPlayer({
   active = true,
   initialTime,
   reloadKey = 0,
+  subtitleTracks = [],
   selectedQn = BILI_AUTO_QN,
   onQualityChange,
   onError,
@@ -281,6 +290,16 @@ export function VideoPlayer({
       onErrorRef.current?.(message, "stall", detail);
     };
 
+    const preferredSubtitle = pickSubtitleTrack(subtitleTracks);
+    let subtitleBlobUrl = "";
+    if (preferredSubtitle) {
+      subtitleBlobUrl = createSubtitleBlobUrl(preferredSubtitle.vtt);
+    }
+    const subtitleTrackUrls = new Map<number, string>();
+    if (preferredSubtitle && subtitleBlobUrl) {
+      subtitleTrackUrls.set(preferredSubtitle.id, subtitleBlobUrl);
+    }
+
     const art = new Artplayer({
       container,
       url: playInfo.url,
@@ -297,6 +316,9 @@ export function VideoPlayer({
       mutex: true,
       hotkey: false,
       controls: [
+        ...(subtitleTracks.length > 0
+          ? [createSubtitleControl(subtitleTracks, subtitleTrackUrls)]
+          : []),
         createQualityControl(playInfo, selectedQn, (qn) => {
           saveCurrentProgress();
           onQualityChangeRef.current(qn);
@@ -308,6 +330,22 @@ export function VideoPlayer({
       theme: playerThemeColor(),
       lang: "zh-cn",
       type: resolvePlayerType(playInfo.format),
+      ...(preferredSubtitle
+        ? {
+            subtitle: {
+              url: subtitleBlobUrl,
+              type: "vtt",
+              encoding: "utf-8",
+              escape: true,
+              name: preferredSubtitle.lanDoc || preferredSubtitle.lan || "字幕",
+              style: {
+                color: "#fff",
+                fontSize: "20px",
+                textShadow: "0 1px 2px rgba(0,0,0,.85)",
+              },
+            },
+          }
+        : {}),
       customType: {
         flv(video, url, player) {
           if (!flvjs.isSupported()) {
@@ -573,6 +611,10 @@ export function VideoPlayer({
       }
       artRef.current = null;
       flushDanmakuPref();
+      if (subtitleBlobUrl) URL.revokeObjectURL(subtitleBlobUrl);
+      for (const url of subtitleTrackUrls.values()) {
+        if (url !== subtitleBlobUrl) URL.revokeObjectURL(url);
+      }
       const media = art.video as HTMLVideoElement | undefined;
       try {
         art.pause();
@@ -598,6 +640,55 @@ export function VideoPlayer({
     initialTime,
     reloadKey,
   ]);
+
+  useEffect(() => {
+    const art = artRef.current;
+    if (!art) return;
+
+    const createdUrls: string[] = [];
+    const trackUrls = new Map<number, string>();
+
+    const sync = async () => {
+      try {
+        art.controls.remove("bili-subtitle");
+      } catch {
+        // 尚未添加过
+      }
+
+      if (subtitleTracks.length === 0) {
+        try {
+          art.subtitle.show = false;
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      for (const track of subtitleTracks) {
+        const url = createSubtitleBlobUrl(track.vtt);
+        createdUrls.push(url);
+        trackUrls.set(track.id, url);
+      }
+
+      art.controls.add(createSubtitleControl(subtitleTracks, trackUrls));
+
+      const preferred = pickSubtitleTrack(subtitleTracks);
+      if (!preferred) return;
+      const url = trackUrls.get(preferred.id);
+      if (!url) return;
+      try {
+        await applyArtSubtitle(art, preferred, url);
+      } catch {
+        // ignore
+      }
+    };
+
+    void sync();
+
+    return () => {
+      for (const url of createdUrls) URL.revokeObjectURL(url);
+    };
+  }, [subtitleTracks, cid, reloadKey]);
 
   useEffect(() => {
     const art = artRef.current;

@@ -55,6 +55,17 @@ export function registerBiliIpc(): void {
     biliApi.getLivePlayUrl(roomId, qn),
   );
   ipcMain.handle(IPC.BILI_VIDEO, (_e, bvid: string) => biliApi.getVideo(bvid));
+  handleIpc(IPC.BILI_RELATED_VIDEOS, (_e, bvid: string) =>
+    biliApi.getRelatedVideos(bvid),
+  );
+  handleIpc(
+    IPC.BILI_VIDEO_ONLINE,
+    (_e, aid: number, cid: number, bvid?: string) =>
+      biliApi.getVideoOnlineTotal(aid, cid, bvid),
+  );
+  handleIpc(IPC.BILI_VIDEO_SUBTITLES, (_e, bvid: string, cid: number) =>
+    biliApi.getVideoSubtitles(bvid, cid),
+  );
   ipcMain.handle(
     IPC.BILI_PLAY_URL,
     (
@@ -263,8 +274,8 @@ export function registerBiliIpc(): void {
   );
   handleIpc(
     IPC.BILI_UP_VIDEOS,
-    (_e, mid: number, page?: number, order?: UpVideosOrder) =>
-      biliApi.getUpVideos(mid, page, order),
+    (_e, mid: number, page?: number, order?: UpVideosOrder, keyword?: string) =>
+      biliApi.getUpVideos(mid, page, order, keyword ?? ""),
   );
   handleIpc(
     IPC.BILI_SEARCH,

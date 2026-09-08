@@ -100,6 +100,12 @@ const api = {
         ? ipcRenderer.invoke(IPC.BILI_LIVE_PLAY_URL, roomId)
         : ipcRenderer.invoke(IPC.BILI_LIVE_PLAY_URL, roomId, qn),
     getVideo: (bvid: string) => ipcRenderer.invoke(IPC.BILI_VIDEO, bvid),
+    getRelatedVideos: (bvid: string) =>
+      ipcRenderer.invoke(IPC.BILI_RELATED_VIDEOS, bvid),
+    getVideoOnlineTotal: (aid: number, cid: number, bvid?: string) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_ONLINE, aid, cid, bvid),
+    getVideoSubtitles: (bvid: string, cid: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_SUBTITLES, bvid, cid),
     getPlayUrl: (
       bvid: string,
       cid: number,
@@ -262,12 +268,18 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_BLACKLIST, page ?? 1),
     modifyBlock: (mid: number, block: boolean) =>
       ipcRenderer.invoke(IPC.BILI_UP_MODIFY_BLOCK, mid, block),
-    getUpVideos: (mid: number, page?: number, order?: UpVideosOrder) =>
+    getUpVideos: (
+      mid: number,
+      page?: number,
+      order?: UpVideosOrder,
+      keyword?: string,
+    ) =>
       ipcRenderer.invoke(
         IPC.BILI_UP_VIDEOS,
         mid,
         page ?? 1,
         order ?? "pubdate",
+        keyword ?? "",
       ),
     searchVideos: (
       keyword: string,

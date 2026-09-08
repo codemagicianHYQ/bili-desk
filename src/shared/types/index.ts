@@ -33,6 +33,10 @@ export interface VideoDetail extends VideoItem {
   ugcSeason?: VideoUgcSeason;
   /** 1=自制 2=转载；官网「未经作者授权禁止转载」类提示 */
   copyright?: 1 | 2;
+  /** 荣誉条：入站必刷 / 每周必看 / 热门等 */
+  honors?: VideoHonor[];
+  /** 联合创作 staff */
+  staff?: VideoStaffMember[];
   stat: {
     view: number;
     danmaku: number;
@@ -42,6 +46,33 @@ export interface VideoDetail extends VideoItem {
     share: number;
     like: number;
   };
+}
+
+export interface VideoHonor {
+  type: number;
+  desc: string;
+}
+
+export interface VideoStaffMember {
+  mid: number;
+  name: string;
+  face: string;
+  title: string;
+}
+
+export interface VideoSubtitleTrack {
+  id: number;
+  lan: string;
+  lanDoc: string;
+  /** 已转成 WebVTT 文本，可直接给 Artplayer */
+  vtt: string;
+}
+
+export interface VideoOnlineTotal {
+  /** 展示文案，如「1234」或「1.2万+」 */
+  total: string;
+  /** 原始人数，解析失败为 0 */
+  count: number;
 }
 
 /** 播放器弹幕（对齐 artplayer-plugin-danmuku） */
@@ -1154,6 +1185,16 @@ export interface BiliDeskApi {
     getLiveRoom: (roomId: number) => Promise<LiveRoomDetail>;
     getLivePlayUrl: (roomId: number, qn?: number) => Promise<LivePlayInfo>;
     getVideo: (bvid: string) => Promise<VideoDetail>;
+    getRelatedVideos: (bvid: string) => Promise<VideoItem[]>;
+    getVideoOnlineTotal: (
+      aid: number,
+      cid: number,
+      bvid?: string,
+    ) => Promise<VideoOnlineTotal>;
+    getVideoSubtitles: (
+      bvid: string,
+      cid: number,
+    ) => Promise<VideoSubtitleTrack[]>;
     getPlayUrl: (
       bvid: string,
       cid: number,
@@ -1260,6 +1301,7 @@ export interface BiliDeskApi {
       mid: number,
       page?: number,
       order?: UpVideosOrder,
+      keyword?: string,
     ) => Promise<UpVideosPage>;
     searchVideos: (
       keyword: string,

@@ -74,6 +74,8 @@ export function UpSpacePage() {
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [order, setOrder] = useState<UpVideosOrder>("pubdate");
+  const [videoKeyword, setVideoKeyword] = useState("");
+  const [videoKeywordInput, setVideoKeywordInput] = useState("");
   const [profileError, setProfileError] = useState("");
   const [videosError, setVideosError] = useState("");
   const [videosLoading, setVideosLoading] = useState(true);
@@ -110,20 +112,29 @@ export function UpSpacePage() {
   }, [total, hasMore, page]);
 
   const loadVideos = useCallback(
-    async (targetMid: number, nextPage: number, nextOrder: UpVideosOrder) => {
-      const cachedSpace = upSpaceCache.get(String(targetMid));
-      const cachedPage =
-        cachedSpace?.videos[upVideosCacheKey(nextOrder, nextPage)];
-      if (cachedPage) {
-        loadSeqRef.current += 1;
-        setVideos(cachedPage.videos);
-        setPage(cachedPage.page);
-        setTotal(cachedPage.total);
-        setHasMore(cachedPage.hasMore);
-        setVideosError("");
-        setVideosLoading(false);
-        scrollRef.current?.scrollTo({ top: 0 });
-        return;
+    async (
+      targetMid: number,
+      nextPage: number,
+      nextOrder: UpVideosOrder,
+      keyword = "",
+    ) => {
+      const kw = keyword.trim();
+      // 搜索结果不走空间缓存，避免和全量投稿互相覆盖
+      if (!kw) {
+        const cachedSpace = upSpaceCache.get(String(targetMid));
+        const cachedPage =
+          cachedSpace?.videos[upVideosCacheKey(nextOrder, nextPage)];
+        if (cachedPage) {
+          loadSeqRef.current += 1;
+          setVideos(cachedPage.videos);
+          setPage(cachedPage.page);
+          setTotal(cachedPage.total);
+          setHasMore(cachedPage.hasMore);
+          setVideosError("");
+          setVideosLoading(false);
+          scrollRef.current?.scrollTo({ top: 0 });
+          return;
+        }
       }
 
       const seq = ++loadSeqRef.current;
@@ -135,40 +146,50 @@ export function UpSpacePage() {
           targetMid,
           nextPage,
           nextOrder,
+          kw,
         );
         if (seq !== loadSeqRef.current) return;
 
         const list = result.videos ?? [];
-        if (list.length > 0) {
+        if (list.length > 0 || (kw && (result.total ?? 0) === 0)) {
           const nextTotal = Math.max(
             result.total ?? 0,
-            cachedSpace?.profile.videos ?? 0,
+            kw ? 0 : (upSpaceCache.get(String(targetMid))?.profile.videos ?? 0),
           );
           const nextHasMore = Boolean(result.hasMore);
           setVideos(list);
           setPage(result.page ?? nextPage);
-          setTotal((prev) => Math.max(result.total ?? 0, prev));
+          setTotal(result.total ?? (kw ? list.length : 0));
           setHasMore(nextHasMore);
           setVideosError("");
           scrollRef.current?.scrollTo({ top: 0 });
-          const current = upSpaceCache.get(String(targetMid));
-          if (current) {
-            upSpaceCache.set(String(targetMid), {
-              ...current,
-              videos: {
-                ...current.videos,
-                [upVideosCacheKey(nextOrder, nextPage)]: {
-                  videos: list,
-                  page: result.page ?? nextPage,
-                  total: nextTotal,
-                  hasMore: nextHasMore,
+          if (!kw) {
+            const current = upSpaceCache.get(String(targetMid));
+            if (current) {
+              upSpaceCache.set(String(targetMid), {
+                ...current,
+                videos: {
+                  ...current.videos,
+                  [upVideosCacheKey(nextOrder, nextPage)]: {
+                    videos: list,
+                    page: result.page ?? nextPage,
+                    total: nextTotal,
+                    hasMore: nextHasMore,
+                  },
                 },
-              },
-            });
+              });
+            }
           }
         } else {
           // 空成功不覆盖当前页，避免「有时有、有时暂无」
-          setVideosError("本页投稿暂时无法获取，请点击重新加载");
+          setVideosError(
+            kw ? "没有搜到相关投稿" : "本页投稿暂时无法获取，请点击重新加载",
+          );
+          if (kw) {
+            setVideos([]);
+            setTotal(0);
+            setHasMore(false);
+          }
         }
       } catch (e) {
         if (seq !== loadSeqRef.current) return;
@@ -190,6 +211,8 @@ export function UpSpacePage() {
     setVideosError("");
     setRelationPanel(null);
     setOrder("pubdate");
+    setVideoKeyword("");
+    setVideoKeywordInput("");
     setTab("home");
     setOpusPreview([]);
     setCollectionPreview([]);
@@ -411,13 +434,27 @@ export function UpSpacePage() {
   const handleOrderChange = (nextOrder: UpVideosOrder) => {
     if (!mid || nextOrder === order || videosLoading) return;
     setOrder(nextOrder);
-    void loadVideos(mid, 1, nextOrder);
+    void loadVideos(mid, 1, nextOrder, videoKeyword);
+  };
+
+  const submitVideoSearch = () => {
+    if (!mid || videosLoading) return;
+    const next = videoKeywordInput.trim();
+    setVideoKeyword(next);
+    void loadVideos(mid, 1, order, next);
+  };
+
+  const clearVideoSearch = () => {
+    if (!mid || videosLoading) return;
+    setVideoKeywordInput("");
+    setVideoKeyword("");
+    void loadVideos(mid, 1, order, "");
   };
 
   const goToPage = (nextPage: number) => {
     if (!mid || videosLoading || nextPage < 1 || nextPage === page) return;
     if (nextPage > totalPages && !hasMore) return;
-    void loadVideos(mid, nextPage, order);
+    void loadVideos(mid, nextPage, order, videoKeyword);
   };
 
   const openRelationList = useCallback((type: UserRelationListType) => {
@@ -475,7 +512,40 @@ export function UpSpacePage() {
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-medium">投稿视频</h2>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <form
+            className="flex items-center gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitVideoSearch();
+            }}
+          >
+            <input
+              value={videoKeywordInput}
+              onChange={(event) => setVideoKeywordInput(event.target.value)}
+              placeholder="搜索投稿"
+              className="h-8 w-40 rounded-md border border-border bg-background px-2.5 text-xs outline-none focus:border-primary sm:w-52"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              variant="outline"
+              disabled={videosLoading}
+            >
+              搜索
+            </Button>
+            {videoKeyword ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={videosLoading}
+                onClick={clearVideoSearch}
+              >
+                清空
+              </Button>
+            ) : null}
+          </form>
           {ORDER_OPTIONS.map((option) => (
             <Button
               key={option.value}
@@ -500,7 +570,7 @@ export function UpSpacePage() {
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => void loadVideos(mid, page, order)}
+            onClick={() => void loadVideos(mid, page, order, videoKeyword)}
           >
             重新加载
           </Button>
@@ -517,7 +587,7 @@ export function UpSpacePage() {
             <VideoCard key={video.bvid} video={video} />
           ))}
         </div>
-      ) : (profile.videos ?? 0) > 0 ? (
+      ) : (profile.videos ?? 0) > 0 && !videoKeyword ? (
         <div className="space-y-2">
           <p className="text-sm text-red-400">
             投稿列表暂时无法获取，请点击重新加载
@@ -526,13 +596,15 @@ export function UpSpacePage() {
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => void loadVideos(mid, 1, order)}
+            onClick={() => void loadVideos(mid, 1, order, videoKeyword)}
           >
             重新加载
           </Button>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">暂无投稿</p>
+        <p className="text-sm text-muted-foreground">
+          {videoKeyword ? "没有搜到相关投稿" : "暂无投稿"}
+        </p>
       )}
 
       {videosError && videos.length > 0 && (

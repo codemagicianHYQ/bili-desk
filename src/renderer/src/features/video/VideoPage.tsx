@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import type { VideoDetail, VideoPlayInfo } from "@shared/types";
+import { Link, useSearchParams } from "react-router-dom";
+import type {
+  VideoDetail,
+  VideoPlayInfo,
+  VideoSubtitleTrack,
+} from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { formatCount, formatPubdate } from "@/lib/utils";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -9,6 +13,7 @@ import { UpOwnerCard } from "@/components/video/UpOwnerCard";
 import { VideoActionBar } from "@/components/video/VideoActionBar";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
+import { RelatedVideosPanel } from "@/features/video/RelatedVideosPanel";
 import { VideoTagList } from "@/components/video/VideoTagList";
 import { VideoPlaylistPanel } from "@/components/video/VideoPlaylistPanel";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
@@ -44,6 +49,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [playErrorDetail, setPlayErrorDetail] = useState("");
   const [resumeCancelled, setResumeCancelled] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [onlineLabel, setOnlineLabel] = useState("");
+  const [subtitles, setSubtitles] = useState<VideoSubtitleTrack[]>([]);
   const playRequestIdRef = useRef(0);
   const streamModeRef = useRef<"mp4" | "dash">("mp4");
   const loweredQnRef = useRef(false);
@@ -308,6 +315,50 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     }
   }, [bvid]);
 
+  useEffect(() => {
+    if (!video?.aid || !selectedCid || !active) {
+      setOnlineLabel("");
+      return;
+    }
+    let cancelled = false;
+    const pull = () => {
+      void window.biliDesk.bili
+        .getVideoOnlineTotal(video.aid, selectedCid, video.bvid || bvid)
+        .then((info) => {
+          if (cancelled) return;
+          setOnlineLabel(info.total ? `${info.total} 人在看` : "");
+        })
+        .catch(() => {
+          if (!cancelled) setOnlineLabel("");
+        });
+    };
+    pull();
+    const timer = window.setInterval(pull, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [video?.aid, video?.bvid, selectedCid, active, bvid]);
+
+  useEffect(() => {
+    if (!selectedCid || !bvid) {
+      setSubtitles([]);
+      return;
+    }
+    let cancelled = false;
+    void window.biliDesk.bili
+      .getVideoSubtitles(bvid, selectedCid)
+      .then((tracks) => {
+        if (!cancelled) setSubtitles(tracks);
+      })
+      .catch(() => {
+        if (!cancelled) setSubtitles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bvid, selectedCid]);
+
   const scrollToTop = useCallback(() => {
     scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
@@ -347,6 +398,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     cid={selectedCid}
                     poster={video.cover}
                     active={active}
+                    subtitleTracks={subtitles}
                     initialTime={initialTime}
                     reloadKey={reloadKey}
                     selectedQn={quality}
@@ -402,6 +454,32 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               }
             />
 
+            {video.staff && video.staff.length > 0 && (
+              <div className="flex flex-wrap gap-3">
+                {video.staff.map((member) => (
+                  <Link
+                    key={`${member.mid}-${member.title}`}
+                    to={`/up/${member.mid}`}
+                    className="flex min-w-[140px] items-center gap-2 rounded-xl border border-border bg-muted/30 px-2.5 py-2 transition-colors hover:bg-muted/60"
+                  >
+                    <BiliImage
+                      src={member.face}
+                      alt={member.name}
+                      className="h-9 w-9 rounded-full object-cover"
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {member.name}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        {member.title}
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+
             <VideoPlaylistPanel
               bvid={video.bvid || bvid}
               selectedCid={selectedCid}
@@ -410,6 +488,19 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               onSelectPart={setSelectedCid}
             />
 
+            {video.honors && video.honors.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {video.honors.map((honor) => (
+                  <span
+                    key={`${honor.type}-${honor.desc}`}
+                    className="rounded-md bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-600 dark:text-amber-300"
+                  >
+                    {honor.desc}
+                  </span>
+                ))}
+              </div>
+            )}
+
             <p className="text-xs text-muted-foreground">
               {formatCount(video.stat.view)} 播放 ·{" "}
               {formatCount(video.stat.danmaku)} 弹幕 ·{" "}
@@ -417,6 +508,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               {formatCount(video.stat.coin)} 投币 ·{" "}
               {formatCount(video.stat.favorite)} 收藏 ·{" "}
               {formatCount(video.stat.share)} 分享
+              {onlineLabel ? ` · ${onlineLabel}` : ""}
               {video.pubdate > 0 ? ` · ${formatPubdate(video.pubdate)}` : ""}
               {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
               {video.copyright === 1
@@ -450,6 +542,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                 )}
               </div>
             )}
+
+            <RelatedVideosPanel bvid={video.bvid || bvid} />
 
             <VideoCommentSection
               aid={video.aid}

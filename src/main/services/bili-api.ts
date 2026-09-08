@@ -49,6 +49,10 @@ import type {
   VideoDetail,
   VideoItem,
   VideoTag,
+  VideoHonor,
+  VideoStaffMember,
+  VideoSubtitleTrack,
+  VideoOnlineTotal,
   VideoSeasonEpisode,
   VideoUgcSeason,
   PopularVideoItem,
@@ -1750,6 +1754,8 @@ class BiliApiService {
           : Number(view.copyright) === 1
             ? 1
             : undefined,
+      honors: this.parseVideoHonors(view.honor_reply),
+      staff: this.parseVideoStaff(view.staff),
       stat: {
         view: view.stat?.view ?? 0,
         danmaku: view.stat?.danmaku ?? 0,
@@ -1760,6 +1766,218 @@ class BiliApiService {
         like: view.stat?.like ?? 0,
       },
     };
+  }
+
+  private parseVideoHonors(raw: unknown): VideoHonor[] | undefined {
+    if (!raw || typeof raw !== "object") return undefined;
+    const list = (raw as { honor?: unknown }).honor;
+    if (!Array.isArray(list) || list.length === 0) return undefined;
+    const honors: VideoHonor[] = [];
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const desc = String(row.desc ?? "").trim();
+      if (!desc) continue;
+      honors.push({
+        type: Number(row.type) || 0,
+        desc,
+      });
+    }
+    return honors.length > 0 ? honors : undefined;
+  }
+
+  private parseVideoStaff(raw: unknown): VideoStaffMember[] | undefined {
+    if (!Array.isArray(raw) || raw.length === 0) return undefined;
+    const staff: VideoStaffMember[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const mid = Number(row.mid) || 0;
+      const name = String(row.name ?? "").trim();
+      if (!mid || !name) continue;
+      staff.push({
+        mid,
+        name,
+        face: this.normalizeVideoCoverUrl(String(row.face ?? "")),
+        title: String(row.title ?? "联合创作").trim() || "联合创作",
+      });
+    }
+    return staff.length > 0 ? staff : undefined;
+  }
+
+  async getRelatedVideos(bvid: string): Promise<VideoItem[]> {
+    await this.ensureBuvid3();
+    const trimmed = bvid.trim();
+    if (!trimmed) return [];
+
+    const res = await this.client.get("/x/web-interface/archive/related", {
+      params: { bvid: trimmed },
+      headers: { Referer: `https://www.bilibili.com/video/${trimmed}` },
+      validateStatus: () => true,
+    });
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "相关推荐获取失败");
+    }
+
+    const list = Array.isArray(res.data?.data) ? res.data.data : [];
+    return list
+      .map((item: Record<string, unknown>) => this.normalizeRelatedVideo(item))
+      .filter((item: VideoItem) => Boolean(item.bvid));
+  }
+
+  private normalizeRelatedVideo(item: Record<string, unknown>): VideoItem {
+    const owner = item.owner as Record<string, unknown> | undefined;
+    const stat = item.stat as Record<string, unknown> | undefined;
+    return {
+      bvid: String(item.bvid ?? ""),
+      aid: Number(item.aid ?? item.id) || 0,
+      title: String(item.title ?? ""),
+      cover: this.normalizeVideoCoverUrl(String(item.pic ?? "")),
+      duration: Number(item.duration) || 0,
+      play: Number(stat?.view ?? item.play) || 0,
+      danmaku: Number(stat?.danmaku ?? item.video_review) || 0,
+      owner: {
+        mid: Number(owner?.mid) || 0,
+        name: String(owner?.name ?? ""),
+        face: this.normalizeVideoCoverUrl(String(owner?.face ?? "")),
+      },
+      pubdate: Number(item.pubdate ?? item.ctime) || 0,
+    };
+  }
+
+  async getVideoOnlineTotal(
+    aid: number,
+    cid: number,
+    bvid?: string,
+  ): Promise<VideoOnlineTotal> {
+    await this.ensureBuvid3();
+    const params: Record<string, string | number> = {
+      aid,
+      cid,
+    };
+    if (bvid) params.bvid = bvid;
+
+    const res = await this.client.get("/x/player/online/total", {
+      params,
+      headers: {
+        Referer: bvid
+          ? `https://www.bilibili.com/video/${bvid}`
+          : "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "在线人数获取失败");
+    }
+
+    const data = (res.data?.data as Record<string, unknown>) ?? {};
+    const totalRaw = String(data.total ?? data.count ?? "").trim();
+    const countNum = Number(data.count);
+    return {
+      total: totalRaw || (Number.isFinite(countNum) ? String(countNum) : "0"),
+      count: Number.isFinite(countNum) ? countNum : 0,
+    };
+  }
+
+  async getVideoSubtitles(
+    bvid: string,
+    cid: number,
+  ): Promise<VideoSubtitleTrack[]> {
+    await this.ensureBuvid3();
+    const referer = `https://www.bilibili.com/video/${bvid}`;
+    const aid = bvToAid(bvid);
+
+    const tryFetch = async (path: string) => {
+      const params = await signParams({
+        ...(aid > 0 ? { aid } : {}),
+        bvid,
+        cid,
+      });
+      return this.client.get(path, {
+        params,
+        headers: { Referer: referer },
+        validateStatus: () => true,
+      });
+    };
+
+    let res = await tryFetch("/x/player/wbi/v2");
+    if (res.data?.code !== 0) {
+      res = await tryFetch("/x/player/v2");
+    }
+    if (res.data?.code !== 0) {
+      return [];
+    }
+
+    const subtitleRoot = (res.data?.data as Record<string, unknown> | undefined)
+      ?.subtitle as Record<string, unknown> | undefined;
+    const list = Array.isArray(subtitleRoot?.subtitles)
+      ? (subtitleRoot.subtitles as Record<string, unknown>[])
+      : [];
+
+    const tracks: VideoSubtitleTrack[] = [];
+    for (const item of list) {
+      let url = String(item.subtitle_url ?? "").trim();
+      if (!url) continue;
+      if (url.startsWith("//")) url = `https:${url}`;
+      try {
+        const bodyRes = await this.client.get(url, {
+          headers: { Referer: referer },
+          validateStatus: () => true,
+          timeout: 12000,
+        });
+        const body =
+          bodyRes.data?.body ??
+          (typeof bodyRes.data === "object"
+            ? (bodyRes.data as { body?: unknown }).body
+            : undefined);
+        if (!Array.isArray(body) || body.length === 0) continue;
+        const vtt = this.biliSubtitleBodyToVtt(body);
+        if (!vtt) continue;
+        tracks.push({
+          id: Number(item.id ?? item.id_str) || tracks.length + 1,
+          lan: String(item.lan ?? ""),
+          lanDoc: String(item.lan_doc ?? item.lan ?? "字幕"),
+          vtt,
+        });
+      } catch {
+        // 单轨失败不阻断其它字幕
+      }
+    }
+    return tracks;
+  }
+
+  private biliSubtitleBodyToVtt(body: unknown[]): string {
+    const lines: string[] = ["WEBVTT", ""];
+    let index = 0;
+    for (const raw of body) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw as Record<string, unknown>;
+      const from = Number(row.from);
+      const to = Number(row.to);
+      const content = String(row.content ?? "")
+        .replace(/\r\n/g, "\n")
+        .trim();
+      if (!Number.isFinite(from) || !Number.isFinite(to) || !content) continue;
+      index += 1;
+      lines.push(String(index));
+      lines.push(
+        `${this.formatVttTimestamp(from)} --> ${this.formatVttTimestamp(to)}`,
+      );
+      lines.push(content);
+      lines.push("");
+    }
+    return index > 0 ? lines.join("\n") : "";
+  }
+
+  private formatVttTimestamp(seconds: number): string {
+    const totalMs = Math.max(0, Math.round(seconds * 1000));
+    const h = Math.floor(totalMs / 3_600_000);
+    const m = Math.floor((totalMs % 3_600_000) / 60_000);
+    const s = Math.floor((totalMs % 60_000) / 1000);
+    const ms = totalMs % 1000;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
   }
 
   /** 官网播放页右侧「合集」：view.ugc_season */
@@ -5090,12 +5308,14 @@ class BiliApiService {
     mid: number,
     page = 1,
     order: UpVideosOrder = "pubdate",
+    keyword = "",
   ): Promise<UpVideosPage> {
-    const key = `${mid}:${Math.max(1, page)}:${order}`;
+    const kw = keyword.trim();
+    const key = `${mid}:${Math.max(1, page)}:${order}:${kw}`;
     const pending = this.upVideosInflight.get(key);
     if (pending) return pending;
 
-    const task = this.loadUpVideos(mid, page, order).finally(() => {
+    const task = this.loadUpVideos(mid, page, order, kw).finally(() => {
       if (this.upVideosInflight.get(key) === task) {
         this.upVideosInflight.delete(key);
       }
@@ -5108,10 +5328,18 @@ class BiliApiService {
     mid: number,
     page = 1,
     order: UpVideosOrder = "pubdate",
+    keyword = "",
   ): Promise<UpVideosPage> {
     await this.ensureBuvid3();
 
     const sort = order === "click" ? "click" : "pubdate";
+    const kw = keyword.trim();
+
+    // 空间内关键词搜索：走 arc/search 的 keyword
+    if (kw) {
+      return this.fetchSpaceArcList(mid, page, sort, kw);
+    }
+
     const currentUser = this.getAuthStatus();
     if (sort === "pubdate" && currentUser.isLogin && currentUser.mid === mid) {
       try {
@@ -6053,10 +6281,12 @@ class BiliApiService {
     mid: number,
     page: number,
     order: UpVideosOrder = "pubdate",
+    keyword = "",
   ): Promise<UpVideosPage> {
-    const referer = `https://space.bilibili.com/${mid}/video?tid=0&pn=${page}&keyword=&order=${order}`;
+    const kw = keyword.trim();
+    const referer = `https://space.bilibili.com/${mid}/video?tid=0&pn=${page}&keyword=${encodeURIComponent(kw)}&order=${order}`;
     const pageSize = 30;
-    const locations = page > 1 ? ["1550101", "333.1387"] : ["1550101"];
+    const locations = page > 1 || kw ? ["1550101", "333.1387"] : ["1550101"];
     let lastError: Error | null = null;
 
     for (const webLocation of locations) {
@@ -6067,6 +6297,7 @@ class BiliApiService {
         pageSize,
         referer,
         webLocation,
+        kw,
       );
       if (result.ok) return result.page;
       lastError = result.error;
@@ -6082,13 +6313,14 @@ class BiliApiService {
     pageSize: number,
     referer: string,
     webLocation: string,
+    keyword = "",
   ): Promise<{ ok: true; page: UpVideosPage } | { ok: false; error: Error }> {
     const baseParams: Record<string, string | number> = {
       mid: String(mid),
       pn: page,
       ps: pageSize,
       tid: 0,
-      keyword: "",
+      keyword,
       order,
       platform: "web",
       web_location: webLocation,
