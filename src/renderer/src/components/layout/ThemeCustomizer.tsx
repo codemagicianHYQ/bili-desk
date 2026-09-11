@@ -86,23 +86,10 @@ export function ThemeCustomizer() {
       });
     };
 
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        wrapRef.current?.contains(target) ||
-        panelRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setOpen(false);
-    };
-
     updatePos();
-    document.addEventListener("mousedown", handleClickOutside);
     window.addEventListener("resize", updatePos);
     window.addEventListener("scroll", updatePos, true);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
       window.removeEventListener("resize", updatePos);
       window.removeEventListener("scroll", updatePos, true);
     };
@@ -130,6 +117,18 @@ export function ThemeCustomizer() {
 
       {open && (
         <OverlayPortal>
+          <button
+            type="button"
+            aria-label="关闭主题定制"
+            className={cn(
+              "fixed inset-0 cursor-default border-0 bg-transparent p-0",
+              APP_OVERLAY_ZCLASS,
+            )}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setOpen(false);
+            }}
+          />
           <div
             ref={panelRef}
             className={cn(
@@ -139,6 +138,7 @@ export function ThemeCustomizer() {
             )}
             {...(themePreset === "glass" ? { "data-glass-panel": true } : {})}
             style={{ top: pos.top, right: pos.right }}
+            onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="max-h-[min(78vh,640px)] space-y-3 overflow-y-auto p-3">
               <div>
