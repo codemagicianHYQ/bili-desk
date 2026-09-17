@@ -764,6 +764,19 @@ html.bili-os-fullscreen [data-page-chrome] {
   display: none !important;
 }
 
+/* 网页全屏 / 系统全屏：隐藏标题下的点赞投币收藏，避免叠在播放器控制条上 */
+html.bili-player-fill [data-watch-actions],
+html.bili-os-fullscreen [data-watch-actions] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
 /* 祖先 overflow/transform 会把 position:fixed 锁在中间栏里，铺满时先拆掉 */
 html.bili-player-fill .h-screen,
 html.bili-os-fullscreen .h-screen,

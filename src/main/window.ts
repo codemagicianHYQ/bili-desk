@@ -51,6 +51,12 @@ export function applyWindowGlassEffect(
   }
 
   win.setBackgroundColor(enabled ? "#00000000" : "#121212");
+  // transparent 只能在创建时设定；运行中切玻璃时尽量保住最大化能力
+  try {
+    win.setMaximizable(true);
+  } catch {
+    // ignore
+  }
   return enabled;
 }
 
@@ -58,6 +64,8 @@ export function createMainWindow(): BrowserWindow {
   const icon = resolveAppIcon();
   const glassOn = Boolean(appStore.get("windowGlass"));
 
+  // 不要开 transparent：Windows 下会让系统最大化按钮变灰不可点。
+  // 液态玻璃只靠 backgroundMaterial=acrylic（Win11）。
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -66,8 +74,10 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     title: "BiliDesk",
-    transparent: true,
-    backgroundColor: "#00000000",
+    maximizable: true,
+    fullscreenable: true,
+    transparent: false,
+    backgroundColor: glassOn ? "#00000000" : "#121212",
     thickFrame: true,
     ...(process.platform === "win32"
       ? {

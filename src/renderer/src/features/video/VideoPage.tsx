@@ -425,7 +425,10 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                 )}
               </div>
 
-              <div className="relative z-20 shrink-0 space-y-2 border-t border-border px-4 py-2">
+              <div
+                data-watch-actions
+                className="relative z-20 shrink-0 space-y-2 border-t border-border px-4 py-2"
+              >
                 <div className="flex min-w-0 items-start gap-3">
                   <h1 className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words line-clamp-2 lg:text-base">
                     {video.title}
