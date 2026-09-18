@@ -1,3 +1,7 @@
+import type { AiProviderId } from "../ai-providers";
+
+export type { AiProviderId };
+
 export interface VideoItem {
   bvid: string;
   aid: number;
@@ -1145,6 +1149,8 @@ export interface UpGroupSelection {
 }
 
 export interface AiConfig {
+  /** 平台预设；旧数据可能没有，按 baseUrl 推断 */
+  provider?: AiProviderId;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -1456,6 +1462,9 @@ export interface BiliDeskApi {
   ai: {
     getConfig: () => Promise<AiConfig>;
     setConfig: (config: Partial<AiConfig>) => Promise<AiConfig>;
+    testConnection: () => Promise<
+      { ok: true; reply: string } | { ok: false; message: string }
+    >;
     runUpClassification: () => Promise<{ taskId: number }>;
     getTaskStatus: (taskId: number) => Promise<ClassificationTask | null>;
   };

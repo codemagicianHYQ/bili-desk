@@ -126,6 +126,7 @@ export const IPC = {
 
   AI_CONFIG_GET: "ai:config-get",
   AI_CONFIG_SET: "ai:config-set",
+  AI_TEST: "ai:test",
   AI_RUN_UP_CLASSIFY: "ai:run-up-classify",
   AI_TASK_STATUS: "ai:task-status",
 

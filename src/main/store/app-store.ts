@@ -35,6 +35,7 @@ const defaults: StoreSchema = {
   refreshToken: "",
   accessToken: "",
   ai: {
+    provider: "deepseek",
     baseUrl: "https://api.deepseek.com/v1",
     apiKey: "",
     model: "deepseek-chat",

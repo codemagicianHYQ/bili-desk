@@ -501,6 +501,7 @@ const api = {
     getConfig: () => ipcRenderer.invoke(IPC.AI_CONFIG_GET),
     setConfig: (config: Partial<AiConfig>) =>
       ipcRenderer.invoke(IPC.AI_CONFIG_SET, config),
+    testConnection: () => ipcRenderer.invoke(IPC.AI_TEST),
     runUpClassification: () => ipcRenderer.invoke(IPC.AI_RUN_UP_CLASSIFY),
     getTaskStatus: (taskId: number) =>
       ipcRenderer.invoke(IPC.AI_TASK_STATUS, taskId),

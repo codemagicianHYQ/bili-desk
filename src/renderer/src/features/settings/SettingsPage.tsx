@@ -1,6 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { AiConfig } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import {
   THEME_PRESETS,
@@ -22,6 +21,7 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
+import { AiConfigPanel } from "./AiConfigPanel";
 import { BlacklistPanel } from "./BlacklistPanel";
 import { ShortcutsPanel } from "./ShortcutsPanel";
 
@@ -105,22 +105,6 @@ export function SettingsPage() {
   } = useAppStore();
   const logout = useLogout();
   const [section, setSection] = useState<SettingsSection>("account");
-  const [ai, setAi] = useState<AiConfig>({
-    baseUrl: "",
-    apiKey: "",
-    model: "",
-  });
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    void window.biliDesk.ai.getConfig().then(setAi);
-  }, []);
-
-  const saveAi = async () => {
-    await window.biliDesk.ai.setConfig(ai);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
 
   const activeNav = NAV_ITEMS.find((item) => item.id === section);
 
@@ -386,47 +370,7 @@ export function SettingsPage() {
 
           {section === "blacklist" && <BlacklistPanel />}
 
-          {section === "ai" && (
-            <section className="space-y-5 rounded-xl border border-border bg-card/60 p-5">
-              <p className="text-sm text-muted-foreground">
-                支持 OpenAI 兼容 API（DeepSeek、OpenAI、Ollama 等），用于关注 UP
-                智能分组。未填 Key 时只跑本地规则。
-              </p>
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium">API Base URL</span>
-                <input
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
-                  value={ai.baseUrl}
-                  onChange={(e) => setAi({ ...ai, baseUrl: e.target.value })}
-                  placeholder="https://api.deepseek.com/v1"
-                />
-              </label>
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium">API Key</span>
-                <input
-                  type="password"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
-                  value={ai.apiKey}
-                  onChange={(e) => setAi({ ...ai, apiKey: e.target.value })}
-                  placeholder="sk-..."
-                />
-              </label>
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium">模型</span>
-                <input
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
-                  value={ai.model}
-                  onChange={(e) => setAi({ ...ai, model: e.target.value })}
-                  placeholder="deepseek-chat"
-                />
-              </label>
-              <div className="flex justify-end">
-                <Button onClick={() => void saveAi()}>
-                  {saved ? "已保存" : "保存 AI 配置"}
-                </Button>
-              </div>
-            </section>
-          )}
+          {section === "ai" && <AiConfigPanel />}
 
           {section === "about" && (
             <div className="space-y-4">
