@@ -221,6 +221,13 @@
       -apple-system,
       sans-serif;
   }
+
+  /* 窗口常开透明：非玻璃主题必须实色盖住，避免透出桌面 */
+  html:not([data-theme-preset="glass"]),
+  html:not([data-theme-preset="glass"]) body,
+  html:not([data-theme-preset="glass"]) #root {
+    background-color: hsl(var(--background)) !important;
+  }
 }
 
 @layer utilities {
@@ -1176,32 +1183,25 @@ html.bili-os-fullscreen .bili-player-stage video {
 
 /*
  * 液态玻璃 = 主题定制弹窗同款磨砂
- * - 系统 Acrylic 透桌面（Electron transparent + acrylic）
+ * - 系统 Mica/Acrylic 透桌面（Electron transparent + backgroundMaterial）
  * - 主区必须接近全透明，否则会变成死灰盖住壁纸
  * - 侧栏/顶栏/弹窗：同 ThemeCustomizer（低填充 + 强 blur）
+ * - 不要做背景位移动画：和系统磨砂叠在一起会抖、会花
  */
-@keyframes bili-glass-drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(1.2%, -0.8%, 0) scale(1.03);
-  }
-}
 
 html[data-theme-preset="glass"] {
   /* 对标 ThemeCustomizer；alpha 由主题定制滑条写入 --ui-* */
-  --glass-blur: 24px;
-  --glass-sat: 2;
-  --glass-bright: 1.1;
-  --ui-chrome-alpha: 0.045;
-  --ui-panel-alpha: 0.02;
-  --ui-card-alpha: 0.08;
+  --glass-blur: 28px;
+  --glass-sat: 1.8;
+  --glass-bright: 1.08;
+  --ui-chrome-alpha: 0.1;
+  --ui-panel-alpha: 0.05;
+  --ui-card-alpha: 0.12;
   --ui-text-contrast: 0.78;
   --ui-text-shadow: 0.65;
   --glass-fill: rgb(255 255 255 / var(--ui-chrome-alpha));
-  --glass-fill-dark: rgb(255 255 255 / var(--ui-chrome-alpha));
+  /* 深色下用淡墨而不是纯白低 alpha，否则侧栏会像死黑 */
+  --glass-fill-dark: rgb(18 22 32 / calc(0.28 + var(--ui-chrome-alpha)));
   --glass-rim: rgb(255 255 255 / 0.5);
   --glass-rim-soft: rgb(255 255 255 / 0.18);
   --glass-border: rgb(255 255 255 / 0.36);
@@ -1248,45 +1248,35 @@ html[data-theme-preset="glass"]:not(.dark) #root::before {
   background:
     radial-gradient(
       48rem 36rem at 6% -8%,
-      rgb(255 140 200 / 0.12),
+      rgb(255 140 200 / 0.08),
       transparent 62%
     ),
     radial-gradient(
       44rem 34rem at 98% 6%,
-      rgb(80 160 255 / 0.1),
+      rgb(80 160 255 / 0.07),
       transparent 60%
     );
-  animation: bili-glass-drift 30s ease-in-out infinite;
 }
 
 html[data-theme-preset="glass"].dark #root::before {
   background:
     radial-gradient(
       46rem 34rem at 4% -4%,
-      rgb(56 150 255 / 0.1),
+      rgb(56 150 255 / 0.07),
       transparent 60%
     ),
     radial-gradient(
       42rem 32rem at 98% 8%,
-      rgb(160 110 255 / 0.08),
+      rgb(160 110 255 / 0.06),
       transparent 60%
     );
-  animation: bili-glass-drift 34s ease-in-out infinite;
 }
 
 html[data-theme-preset="glass"] #root::after {
-  opacity: 0.025;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+  display: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html[data-theme-preset="glass"] #root::before {
-    animation: none;
-  }
-}
-
-/* 不要用高不透明白/灰盖死 Acrylic —— 和弹窗一样透 */
+/* 不要用高不透明白/灰盖死磨砂 —— 和弹窗一样透 */
 html[data-theme-preset="glass"]:not(.dark) [class*="bg-background"] {
   background-color: rgb(255 255 255 / var(--ui-panel-alpha)) !important;
 }

@@ -22,6 +22,11 @@ export function registerAppIpc(): void {
     appStore.set("theme", theme);
     return theme;
   });
+  ipcMain.handle(IPC.APP_SET_THEME_PRESET, (_e, preset: string) => {
+    const next = String(preset || "rose");
+    appStore.set("themePreset", next);
+    return next;
+  });
   ipcMain.handle(IPC.APP_SET_WINDOW_GLASS, (event, enabled: boolean) => {
     const win = windowFromEvent(event);
     if (!win || win.isDestroyed()) return false;

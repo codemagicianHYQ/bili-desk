@@ -1471,6 +1471,7 @@ export interface BiliDeskApi {
   app: {
     getTheme: () => Promise<Theme>;
     setTheme: (theme: Theme) => Promise<Theme>;
+    setThemePreset: (preset: string) => Promise<string>;
     /** 开启/关闭系统 Acrylic，透出桌面壁纸磨砂 */
     setWindowGlass: (enabled: boolean) => Promise<boolean>;
     setFullscreen: (on: boolean) => Promise<boolean>;

@@ -133,6 +133,7 @@ export const IPC = {
   APP_GET_THEME: "app:get-theme",
   APP_SET_THEME: "app:set-theme",
   APP_SET_WINDOW_GLASS: "app:set-window-glass",
+  APP_SET_THEME_PRESET: "app:set-theme-preset",
   APP_SET_FULLSCREEN: "app:set-fullscreen",
   APP_GET_FULLSCREEN: "app:get-fullscreen",
   APP_FULLSCREEN_CHANGED: "app:fullscreen-changed",

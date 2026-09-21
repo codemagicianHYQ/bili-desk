@@ -10,7 +10,13 @@ export type ThemePreset =
   | "emerald"
   | "amber";
 
-export type TextColorTone = "auto" | "pure" | "soft" | "warm" | "cool" | "custom";
+export type TextColorTone =
+  | "auto"
+  | "pure"
+  | "soft"
+  | "warm"
+  | "cool"
+  | "custom";
 
 export const THEME_PRESETS: Array<{
   id: ThemePreset;
@@ -27,7 +33,7 @@ export const THEME_PRESETS: Array<{
   {
     id: "glass",
     label: "液态玻璃",
-    description: "Windows Acrylic：磨砂透出桌面壁纸",
+    description: "Win11 磨砂透壁纸",
     swatches: ["#c5dbff", "#7eb6ff", "#161822"],
   },
   {
@@ -170,17 +176,11 @@ export function applyUiCustomization(opts: {
   const t = clamp(opts.uiTransparency, 0, 100) / 100;
   const c = clamp(opts.textContrast, 0, 100) / 100;
   // 越高越透：chrome / panel / card alpha 越低
-  root.style.setProperty(
-    "--ui-chrome-alpha",
-    lerp(0.14, 0.02, t).toFixed(3),
-  );
+  root.style.setProperty("--ui-chrome-alpha", lerp(0.14, 0.02, t).toFixed(3));
   root.style.setProperty("--ui-panel-alpha", lerp(0.08, 0.008, t).toFixed(3));
   root.style.setProperty("--ui-card-alpha", lerp(0.2, 0.05, t).toFixed(3));
   root.style.setProperty("--ui-text-contrast", c.toFixed(3));
-  root.style.setProperty(
-    "--ui-text-shadow",
-    (0.25 + 0.55 * c).toFixed(3),
-  );
+  root.style.setProperty("--ui-text-shadow", (0.25 + 0.55 * c).toFixed(3));
 
   if (opts.textColorTone === "custom") {
     const hsl = hexToHslComponents(opts.customTextColor);
@@ -196,11 +196,18 @@ export function applyUiCustomization(opts: {
   }
 
   const glassOn = opts.themePreset === "glass";
-  void window.biliDesk?.app
-    ?.setWindowGlass?.(glassOn)
-    ?.catch((err: unknown) => {
+  void (async () => {
+    try {
+      await window.biliDesk?.app?.setThemePreset?.(opts.themePreset);
+    } catch (err: unknown) {
+      console.warn("[BiliDesk] setThemePreset failed", err);
+    }
+    try {
+      await window.biliDesk?.app?.setWindowGlass?.(glassOn);
+    } catch (err: unknown) {
       console.warn("[BiliDesk] setWindowGlass failed", err);
-    });
+    }
+  })();
 }
 
 function applyFromState(get: () => AppState) {

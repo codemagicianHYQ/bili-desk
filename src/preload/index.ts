@@ -509,6 +509,8 @@ const api = {
   app: {
     getTheme: () => ipcRenderer.invoke(IPC.APP_GET_THEME),
     setTheme: (theme: Theme) => ipcRenderer.invoke(IPC.APP_SET_THEME, theme),
+    setThemePreset: (preset: string) =>
+      ipcRenderer.invoke(IPC.APP_SET_THEME_PRESET, preset),
     setWindowGlass: (enabled: boolean) =>
       ipcRenderer.invoke(IPC.APP_SET_WINDOW_GLASS, enabled),
     setFullscreen: (on: boolean) =>

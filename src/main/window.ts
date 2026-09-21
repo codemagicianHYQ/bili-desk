@@ -1,4 +1,4 @@
-import { BrowserWindow, shell, app, nativeImage } from "electron";
+import { BrowserWindow, shell, app, nativeImage, screen } from "electron";
 import { existsSync } from "fs";
 import { join } from "path";
 import { IPC } from "@shared/ipc-channels";
@@ -8,6 +8,15 @@ import {
   resolveInAppPathFromUrl,
 } from "@shared/utils/bili-app-link";
 import { appStore } from "./store/app-store";
+
+/**
+ * Win32 始终开透明窗：Acrylic 可随时开关，切主题不必重建/重启。
+ * 非玻璃主题由 CSS 实色盖住；最大化用 workArea 伪最大化。
+ */
+const USE_TRANSPARENT_WINDOW = process.platform === "win32";
+
+/** 透明窗下系统最大化不可用，用 workArea 伪最大化 */
+let boundsBeforePseudoMax: Electron.Rectangle | null = null;
 
 function resolveAppIcon(): Electron.NativeImage | undefined {
   const candidates = app.isPackaged
@@ -30,10 +39,31 @@ function resolveAppIcon(): Electron.NativeImage | undefined {
   return undefined;
 }
 
-/**
- * 液态玻璃 = 系统 Acrylic 磨砂透桌面。
- * 必须 transparent + #00000000；材质要在 show 前后各设一次，否则客户端常是死灰。
- */
+function applyPseudoMaximize(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  if (boundsBeforePseudoMax) {
+    win.setBounds(boundsBeforePseudoMax);
+    boundsBeforePseudoMax = null;
+    return;
+  }
+  boundsBeforePseudoMax = win.getBounds();
+  const display = screen.getDisplayMatching(boundsBeforePseudoMax);
+  win.setBounds(display.workArea);
+}
+
+function setWinMaterial(
+  win: BrowserWindow,
+  material: "none" | "acrylic" | "mica",
+): void {
+  if (process.platform !== "win32" || win.isDestroyed()) return;
+  try {
+    win.setBackgroundMaterial(material);
+  } catch (err) {
+    console.warn("[BiliDesk] setBackgroundMaterial failed", material, err);
+  }
+}
+
+/** 液态玻璃：开/关 Acrylic，即时生效，不重建窗口 */
 export function applyWindowGlassEffect(
   win: BrowserWindow,
   enabled: boolean,
@@ -41,31 +71,36 @@ export function applyWindowGlassEffect(
   if (win.isDestroyed()) return false;
 
   appStore.set("windowGlass", enabled);
-
-  if (process.platform === "win32") {
-    try {
-      win.setBackgroundMaterial(enabled ? "acrylic" : "none");
-    } catch (err) {
-      console.warn("[BiliDesk] setBackgroundMaterial failed", err);
-    }
+  if (enabled) {
+    appStore.set("themePreset", "glass");
   }
 
-  win.setBackgroundColor(enabled ? "#00000000" : "#121212");
-  // transparent 只能在创建时设定；运行中切玻璃时尽量保住最大化能力
+  if (!enabled) {
+    setWinMaterial(win, "none");
+    // 透明窗上用实色底，配合 CSS 不透壁纸
+    win.setBackgroundColor("#121212");
+    return false;
+  }
+
   try {
-    win.setMaximizable(true);
+    win.setBackgroundMaterial("acrylic");
   } catch {
-    // ignore
+    setWinMaterial(win, "mica");
   }
-  return enabled;
+  win.setBackgroundColor("#00000000");
+  return true;
 }
 
 export function createMainWindow(): BrowserWindow {
   const icon = resolveAppIcon();
-  const glassOn = Boolean(appStore.get("windowGlass"));
+  const glassOn =
+    Boolean(appStore.get("windowGlass")) ||
+    appStore.get("themePreset") === "glass";
+  if (glassOn && !appStore.get("windowGlass")) {
+    appStore.set("windowGlass", true);
+  }
+  boundsBeforePseudoMax = null;
 
-  // 不要开 transparent：Windows 下会让系统最大化按钮变灰不可点。
-  // 液态玻璃只靠 backgroundMaterial=acrylic（Win11）。
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -76,7 +111,8 @@ export function createMainWindow(): BrowserWindow {
     title: "BiliDesk",
     maximizable: true,
     fullscreenable: true,
-    transparent: false,
+    // 始终透明（Win），切玻璃只改材质，无需重启
+    transparent: USE_TRANSPARENT_WINDOW,
     backgroundColor: glassOn ? "#00000000" : "#121212",
     thickFrame: true,
     ...(process.platform === "win32"
@@ -97,15 +133,15 @@ export function createMainWindow(): BrowserWindow {
   });
 
   win.on("ready-to-show", () => {
-    // show 前再刷一次材质，避免客户端区域灰死
-    if (appStore.get("windowGlass")) {
-      applyWindowGlassEffect(win, true);
-    }
+    applyWindowGlassEffect(win, Boolean(appStore.get("windowGlass")));
     win.show();
     if (appStore.get("windowGlass")) {
       setTimeout(() => {
         if (!win.isDestroyed()) applyWindowGlassEffect(win, true);
-      }, 50);
+      }, 80);
+      setTimeout(() => {
+        if (!win.isDestroyed()) applyWindowGlassEffect(win, true);
+      }, 300);
     }
   });
 
@@ -160,4 +196,19 @@ export function createMainWindow(): BrowserWindow {
   }
 
   return win;
+}
+
+/** 供 IPC：透明窗伪最大化切换 */
+export function toggleWindowMaximize(win: BrowserWindow): boolean {
+  if (win.isDestroyed()) return false;
+  if (USE_TRANSPARENT_WINDOW) {
+    applyPseudoMaximize(win);
+    return Boolean(boundsBeforePseudoMax);
+  }
+  if (win.isMaximized()) {
+    win.unmaximize();
+    return false;
+  }
+  win.maximize();
+  return true;
 }

@@ -3,8 +3,10 @@ import type { AiConfig, Theme, ToViewItem, UserInfo } from "@shared/types";
 
 interface StoreSchema {
   theme: Theme;
-  /** 液态玻璃：启动时就要开 Acrylic，不能等渲染进程 */
+  /** 液态玻璃：启动时就要开透明窗 + Acrylic，不能等渲染进程 */
   windowGlass: boolean;
+  /** 与渲染进程 themePreset 同步，避免只改 localStorage 导致启动未开透明 */
+  themePreset: string;
   cookies: {
     SESSDATA: string;
     bili_jct: string;
@@ -24,6 +26,7 @@ interface StoreSchema {
 const defaults: StoreSchema = {
   theme: "dark",
   windowGlass: false,
+  themePreset: "rose",
   cookies: {
     SESSDATA: "",
     bili_jct: "",

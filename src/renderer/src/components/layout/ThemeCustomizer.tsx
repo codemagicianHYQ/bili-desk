@@ -144,7 +144,7 @@ export function ThemeCustomizer() {
               <div>
                 <p className="text-sm font-medium text-foreground">主题定制</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  配色、透明度、文字颜色与对比度都可调。液态玻璃透出壁纸。
+                  配色、透明度、文字颜色与对比度都可调，切换即时生效。
                 </p>
               </div>
 
