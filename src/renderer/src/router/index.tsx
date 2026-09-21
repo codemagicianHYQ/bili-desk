@@ -5,6 +5,7 @@ import { UpSpacePage } from "@/features/up/UpSpacePage";
 import { DynamicDetailPage } from "@/features/dynamics/DynamicDetailPage";
 import { ArticleDetailPage } from "@/features/article/ArticleDetailPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { IntegrityPage } from "@/features/integrity/IntegrityPage";
 
 export const router = createHashRouter([
   {
@@ -25,6 +26,7 @@ export const router = createHashRouter([
       { path: "live/:roomId", element: null },
       { path: "up/:mid", element: <UpSpacePage /> },
       { path: "search", element: <Navigate to="/" replace /> },
+      { path: "integrity", element: <IntegrityPage /> },
       { path: "settings", element: <SettingsPage /> },
     ],
   },

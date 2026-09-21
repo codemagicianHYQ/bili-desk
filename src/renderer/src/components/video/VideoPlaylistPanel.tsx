@@ -46,7 +46,18 @@ export function VideoPlaylistPanel({
 
   useEffect(() => {
     if (!hasSeason && !hasPages) return;
-    activeRef.current?.scrollIntoView({ block: "nearest" });
+    const el = activeRef.current;
+    if (!el) return;
+    // 只在合集/选集列表内部滚动，禁止带动页面把播放器顶走
+    const list = el.closest("[data-playlist-scroll]") as HTMLElement | null;
+    if (!list) return;
+    const elRect = el.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    if (elRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - elRect.top;
+    } else if (elRect.bottom > listRect.bottom) {
+      list.scrollTop += elRect.bottom - listRect.bottom;
+    }
   }, [bvid, selectedCid, hasSeason, hasPages]);
 
   useEffect(() => {
@@ -167,7 +178,10 @@ export function VideoPlaylistPanel({
               <p className="pl-6 text-xs text-red-400">{subError}</p>
             )}
           </header>
-          <div className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1 pt-1">
+          <div
+            data-playlist-scroll
+            className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1 pt-1"
+          >
             {ugcSeason.episodes.map((ep, index) => {
               const active = ep.bvid === bvid;
               return (
@@ -221,7 +235,10 @@ export function VideoPlaylistPanel({
               ({pageIndex >= 0 ? pageIndex + 1 : "-"}/{pages.length})
             </span>
           </header>
-          <div className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1">
+          <div
+            data-playlist-scroll
+            className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1"
+          >
             {pages.map((part) => {
               const active = part.cid === selectedCid;
               return (

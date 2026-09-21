@@ -1,5 +1,12 @@
 import Store from "electron-store";
-import type { AiConfig, Theme, ToViewItem, UserInfo } from "@shared/types";
+import type {
+  AbnormalFollowingRecord,
+  AiConfig,
+  InvalidVideoRecord,
+  Theme,
+  ToViewItem,
+  UserInfo,
+} from "@shared/types";
 
 interface StoreSchema {
   theme: Theme;
@@ -21,6 +28,22 @@ interface StoreSchema {
   localDb: unknown;
   /** 官方稍后再看满员后溢出到本机的列表 */
   localToView: ToViewItem[];
+  /** 失效视频归档（收藏 / 稍后再看） */
+  invalidVideos: InvalidVideoRecord[];
+  /** 关注里被封 / 注销的 UP */
+  abnormalFollowings: AbnormalFollowingRecord[];
+  /** 仍有效时缓存标题/UP，失效后用来还原展示 */
+  videoMetaCache: Record<
+    string,
+    {
+      title: string;
+      cover: string;
+      upperMid: number;
+      upperName: string;
+      updatedAt: number;
+    }
+  >;
+  lastIntegrityScanAt: number;
 }
 
 const defaults: StoreSchema = {
@@ -37,6 +60,7 @@ const defaults: StoreSchema = {
   user: null,
   refreshToken: "",
   accessToken: "",
+  localDb: null,
   ai: {
     provider: "deepseek",
     baseUrl: "https://api.deepseek.com/v1",
@@ -44,6 +68,10 @@ const defaults: StoreSchema = {
     model: "deepseek-chat",
   },
   localToView: [],
+  invalidVideos: [],
+  abnormalFollowings: [],
+  videoMetaCache: {},
+  lastIntegrityScanAt: 0,
 };
 
 export const appStore = new Store<StoreSchema>({

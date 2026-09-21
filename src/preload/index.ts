@@ -16,6 +16,8 @@ import type {
   HistoryCursor,
   HistoryFeedType,
   HistoryFilters,
+  IntegrityScanProgress,
+  IntegrityScanScope,
   UpGroupSelection,
   UpGroupTreeNode,
   UpVideosOrder,
@@ -26,6 +28,10 @@ const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
 let fullscreenIpcBound = false;
 const navigateCallbacks = new Set<(path: string) => void>();
 let navigateIpcBound = false;
+const integrityProgressCallbacks = new Set<
+  (progress: IntegrityScanProgress) => void
+>();
+let integrityProgressIpcBound = false;
 
 function subscribeFullscreenChange(callback: (on: boolean) => void) {
   if (!fullscreenIpcBound) {
@@ -57,6 +63,26 @@ function subscribeNavigate(callback: (path: string) => void) {
   navigateCallbacks.add(callback);
   return () => {
     navigateCallbacks.delete(callback);
+  };
+}
+
+function subscribeIntegrityProgress(
+  callback: (progress: IntegrityScanProgress) => void,
+) {
+  if (!integrityProgressIpcBound) {
+    integrityProgressIpcBound = true;
+    ipcRenderer.on(
+      IPC.BILI_INTEGRITY_PROGRESS,
+      (_event, progress: IntegrityScanProgress) => {
+        for (const cb of integrityProgressCallbacks) {
+          cb(progress);
+        }
+      },
+    );
+  }
+  integrityProgressCallbacks.add(callback);
+  return () => {
+    integrityProgressCallbacks.delete(callback);
   };
 }
 
@@ -351,6 +377,18 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_TOVIEW_LOCAL_REMOVE, bvid),
     removeManyFromLocalToView: (bvids: string[]) =>
       ipcRenderer.invoke(IPC.BILI_TOVIEW_LOCAL_REMOVE, bvids),
+    scanIntegrity: (scope?: IntegrityScanScope) =>
+      ipcRenderer.invoke(IPC.BILI_INTEGRITY_SCAN, scope ?? "favorites"),
+    getIntegrityArchive: () => ipcRenderer.invoke(IPC.BILI_INTEGRITY_ARCHIVE),
+    dismissInvalidVideo: (id: string) =>
+      ipcRenderer.invoke(IPC.BILI_INTEGRITY_DISMISS_VIDEO, id),
+    dismissAbnormalFollowing: (mid: number) =>
+      ipcRenderer.invoke(IPC.BILI_INTEGRITY_DISMISS_FOLLOWING, mid),
+    clearIntegrityArchive: (scope?: IntegrityScanScope) =>
+      ipcRenderer.invoke(IPC.BILI_INTEGRITY_CLEAR, scope),
+    onIntegrityProgress: (
+      callback: (progress: IntegrityScanProgress) => void,
+    ) => subscribeIntegrityProgress(callback),
     getSpaceDynamics: (mid: number, offset?: string) =>
       ipcRenderer.invoke(IPC.BILI_SPACE_DYNAMICS, mid, offset ?? ""),
     getSpaceOpus: (mid: number, offset?: string) =>

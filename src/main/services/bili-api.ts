@@ -4145,9 +4145,7 @@ class BiliApiService {
           await sleep(waits[attempt - 1] ?? 2000);
           continue;
         }
-        throw new Error(
-          `[412] 收藏夹有 ${expect} 条但列表未返回，请稍后重试`,
-        );
+        throw new Error(`[412] 收藏夹有 ${expect} 条但列表未返回，请稍后重试`);
       }
       return { medias, hasMore };
     }
@@ -4679,6 +4677,49 @@ class BiliApiService {
     return all;
   }
 
+  /** 扫描用：保留 medias 原始字段（含 attr）
+   * soft=true 时遇 412 / 列表空返回已拉到的内容，不抛错，避免整次扫描中断
+   */
+  async getAllFavMediaRawInFolder(
+    mediaId: number,
+    options?: { soft?: boolean },
+  ): Promise<Record<string, unknown>[]> {
+    const pageSize = 40;
+    const all: Record<string, unknown>[] = [];
+    let page = 1;
+    const soft = Boolean(options?.soft);
+
+    while (true) {
+      try {
+        const { medias, hasMore } = await this.fetchFavResourcePage(
+          mediaId,
+          page,
+          pageSize,
+          soft ? "short" : "long",
+        );
+        if (medias.length === 0) break;
+        for (const media of medias) {
+          all.push(media as Record<string, unknown>);
+        }
+        if (!hasMore) break;
+        page++;
+        await sleep(page < 8 ? 700 : page < 20 ? 1100 : 1600);
+      } catch (err) {
+        if (soft) {
+          console.warn(
+            "[BiliDesk][integrity] fav folder soft-skip",
+            mediaId,
+            err instanceof Error ? err.message : err,
+          );
+          break;
+        }
+        throw err;
+      }
+    }
+
+    return all;
+  }
+
   async getAllFavResources(): Promise<FavResource[]> {
     const folders = await this.getFavFolders();
     const seen = new Set<number>();
@@ -4706,6 +4747,74 @@ class BiliApiService {
 
     const list = res.data?.data?.list ?? [];
     return list.map((u: Record<string, unknown>) => this.mapFollowingUser(u));
+  }
+
+  /** 分页拉全量关注，供失效/封禁扫描 */
+  async getAllFollowings(): Promise<FollowingUp[]> {
+    const all: FollowingUp[] = [];
+    let page = 1;
+    while (true) {
+      const batch = await this.getFollowings(page);
+      if (batch.length === 0) break;
+      all.push(...batch);
+      if (batch.length < 50) break;
+      page += 1;
+      await sleep(400);
+    }
+    return all;
+  }
+
+  /**
+   * 账号状态：/x/space/wbi/acc/info 的 silence / is_deleted
+   * silence=1 被封；is_deleted=1 注销；接口失败时标 unavailable
+   */
+  async getUserAccountStatus(mid: number): Promise<{
+    mid: number;
+    name: string;
+    face: string;
+    silence: boolean;
+    deleted: boolean;
+    unavailable: boolean;
+  }> {
+    await this.ensureBuvid3();
+    const accParams = await signParams({ mid: String(mid) });
+    const res = await this.client.get("/x/space/wbi/acc/info", {
+      params: accParams,
+      headers: { Referer: `https://space.bilibili.com/${mid}` },
+      validateStatus: () => true,
+    });
+
+    const code = res.data?.code as number | undefined;
+    if (code === -404 || code === -403 || code === 22015) {
+      return {
+        mid,
+        name: "",
+        face: "",
+        silence: false,
+        deleted: true,
+        unavailable: true,
+      };
+    }
+    if (code !== 0) {
+      return {
+        mid,
+        name: "",
+        face: "",
+        silence: false,
+        deleted: false,
+        unavailable: true,
+      };
+    }
+
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    return {
+      mid,
+      name: String(data.name ?? ""),
+      face: String(data.face ?? "").replace(/^http:/, "https:"),
+      silence: Number(data.silence) === 1,
+      deleted: Number(data.is_deleted) === 1,
+      unavailable: false,
+    };
   }
 
   /** 查看指定用户的关注 / 粉丝列表（含隐私校验） */
@@ -7061,6 +7170,56 @@ class BiliApiService {
       videos,
       count: (data?.count as number) ?? videos.length,
     };
+  }
+
+  /** 稍后再看：附带失效判定（title / state） */
+  async getToViewListDetailed(): Promise<
+    Array<
+      ToViewItem & {
+        invalid: boolean;
+        reason?: string;
+        state?: number;
+      }
+    >
+  > {
+    if (!isLoggedIn()) return [];
+
+    await this.ensureBuvid3();
+
+    const res = await this.client.get("/x/v2/history/toview", {
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "稍后再看列表获取失败");
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const list = (data?.list as Record<string, unknown>[] | undefined) ?? [];
+
+    return list
+      .filter((item) => item.bvid)
+      .map((item) => {
+        const base = this.normalizeToViewItem(item);
+        const title = String(item.title ?? "");
+        const state = Number(item.state);
+        const placeholder =
+          title.includes("已失效") ||
+          title.includes("视频不见了") ||
+          title.includes("内容已失效") ||
+          !title.trim();
+        // state < 0 常见为不可见/锁定；0 正常
+        const badState = Number.isFinite(state) && state < 0;
+        const invalid = placeholder || badState;
+        let reason: string | undefined;
+        if (placeholder) reason = "标题显示为已失效";
+        else if (badState) reason = `稿件状态异常 (state=${state})`;
+        return { ...base, invalid, reason, state };
+      });
   }
 
   async addToView(aid: number, bvid: string): Promise<void> {

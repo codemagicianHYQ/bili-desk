@@ -456,6 +456,70 @@ export interface UpProfile {
   pugvCount?: number;
   /** 该 UP 是否开通充电 */
   upowerEnabled?: boolean;
+  /** 账号封禁：acc/info.silence === 1 */
+  silenced?: boolean;
+}
+
+/** 失效视频来源 */
+export type InvalidVideoSource = "favorite" | "toview" | "toview-local";
+
+export interface InvalidVideoRecord {
+  id: string;
+  source: InvalidVideoSource;
+  aid: number;
+  bvid: string;
+  /** 尽量保留的原标题；官方已盖成「已失效视频」时可能来自本地缓存 */
+  title: string;
+  titlePlaceholder: boolean;
+  cover: string;
+  upperMid: number;
+  upperName: string;
+  folderId?: number;
+  folderTitle?: string;
+  reason: string;
+  attr?: number;
+  detectedAt: number;
+}
+
+export interface AbnormalFollowingRecord {
+  mid: number;
+  name: string;
+  face: string;
+  sign: string;
+  reason: "silenced" | "deleted" | "unavailable";
+  reasonText: string;
+  detectedAt: number;
+}
+
+export type IntegrityScanScope = "favorites" | "toview" | "following";
+
+export interface IntegrityScanProgress {
+  phase: "favorites" | "toview" | "following" | "done";
+  message: string;
+  current: number;
+  total: number;
+}
+
+export interface IntegrityScanResult {
+  invalidVideos: InvalidVideoRecord[];
+  abnormalFollowings: AbnormalFollowingRecord[];
+  scannedAt: number;
+  stats: {
+    invalidFavorites: number;
+    invalidToView: number;
+    abnormalFollowings: number;
+  };
+  /** 扫描中被跳过的夹 / 接口提示（如 412 风控） */
+  warnings?: string[];
+}
+
+export interface UserAccountStatus {
+  mid: number;
+  name: string;
+  face: string;
+  silence: boolean;
+  deleted: boolean;
+  unavailable: boolean;
 }
 
 export interface UpRelation {
@@ -1350,6 +1414,16 @@ export interface BiliDeskApi {
     getLocalToViewList: () => Promise<ToViewList>;
     removeFromLocalToView: (bvid: string) => Promise<void>;
     removeManyFromLocalToView: (bvids: string[]) => Promise<void>;
+    scanIntegrity: (scope?: IntegrityScanScope) => Promise<IntegrityScanResult>;
+    getIntegrityArchive: () => Promise<IntegrityScanResult>;
+    dismissInvalidVideo: (id: string) => Promise<IntegrityScanResult>;
+    dismissAbnormalFollowing: (mid: number) => Promise<IntegrityScanResult>;
+    clearIntegrityArchive: (
+      scope?: IntegrityScanScope,
+    ) => Promise<IntegrityScanResult>;
+    onIntegrityProgress: (
+      callback: (progress: IntegrityScanProgress) => void,
+    ) => () => void;
     getSpaceDynamics: (
       mid: number,
       offset?: string,

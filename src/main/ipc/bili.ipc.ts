@@ -20,6 +20,13 @@ import {
   pickClassifyCommentSnippets,
   suggestExistingFavFolderTitle,
 } from "../services/fav-classifier";
+import {
+  clearIntegrityArchive,
+  dismissAbnormalFollowing,
+  dismissInvalidVideo,
+  getIntegrityArchive,
+  runIntegrityScan,
+} from "../services/integrity-scan";
 import { fetchMediaRange } from "../services/media-proxy";
 import { handleIpc } from "./safe-handler";
 
@@ -373,6 +380,33 @@ export function registerBiliIpc(): void {
       localToViewRepo.remove(String(bvid ?? ""));
     },
   );
+  handleIpc(IPC.BILI_INTEGRITY_ARCHIVE, async () => getIntegrityArchive());
+  ipcMain.handle(IPC.BILI_INTEGRITY_CLEAR, (_e, scope?: string) => {
+    const next =
+      scope === "favorites" || scope === "toview" || scope === "following"
+        ? scope
+        : undefined;
+    return clearIntegrityArchive(next);
+  });
+  ipcMain.handle(IPC.BILI_INTEGRITY_DISMISS_VIDEO, (_e, id: string) =>
+    dismissInvalidVideo(String(id ?? "")),
+  );
+  ipcMain.handle(IPC.BILI_INTEGRITY_DISMISS_FOLLOWING, (_e, mid: number) =>
+    dismissAbnormalFollowing(Number(mid) || 0),
+  );
+  ipcMain.handle(IPC.BILI_INTEGRITY_SCAN, async (event, scope?: string) => {
+    const next =
+      scope === "toview" || scope === "following" || scope === "favorites"
+        ? scope
+        : "favorites";
+    return runIntegrityScan(next, (progress) => {
+      try {
+        event.sender.send(IPC.BILI_INTEGRITY_PROGRESS, progress);
+      } catch {
+        // sender may be gone
+      }
+    });
+  });
   handleIpc(IPC.BILI_SPACE_DYNAMICS, (_e, mid: number, offset?: string) =>
     biliApi.getSpaceDynamics(mid, offset),
   );
