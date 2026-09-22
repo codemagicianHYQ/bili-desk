@@ -18,6 +18,8 @@ import type {
   HistoryFilters,
   IntegrityScanProgress,
   IntegrityScanScope,
+  UpActivityArchive,
+  UpActivityScanProgress,
   UpGroupSelection,
   UpGroupTreeNode,
   UpVideosOrder,
@@ -32,6 +34,10 @@ const integrityProgressCallbacks = new Set<
   (progress: IntegrityScanProgress) => void
 >();
 let integrityProgressIpcBound = false;
+const upActivityProgressCallbacks = new Set<
+  (progress: UpActivityScanProgress) => void
+>();
+let upActivityProgressIpcBound = false;
 
 function subscribeFullscreenChange(callback: (on: boolean) => void) {
   if (!fullscreenIpcBound) {
@@ -83,6 +89,26 @@ function subscribeIntegrityProgress(
   integrityProgressCallbacks.add(callback);
   return () => {
     integrityProgressCallbacks.delete(callback);
+  };
+}
+
+function subscribeUpActivityProgress(
+  callback: (progress: UpActivityScanProgress) => void,
+) {
+  if (!upActivityProgressIpcBound) {
+    upActivityProgressIpcBound = true;
+    ipcRenderer.on(
+      IPC.BILI_UP_ACTIVITY_PROGRESS,
+      (_event, progress: UpActivityScanProgress) => {
+        for (const cb of upActivityProgressCallbacks) {
+          cb(progress);
+        }
+      },
+    );
+  }
+  upActivityProgressCallbacks.add(callback);
+  return () => {
+    upActivityProgressCallbacks.delete(callback);
   };
 }
 
@@ -389,6 +415,16 @@ const api = {
     onIntegrityProgress: (
       callback: (progress: IntegrityScanProgress) => void,
     ) => subscribeIntegrityProgress(callback),
+    scanUpActivity: () => ipcRenderer.invoke(IPC.BILI_UP_ACTIVITY_SCAN),
+    getUpActivityArchive: () =>
+      ipcRenderer.invoke(IPC.BILI_UP_ACTIVITY_ARCHIVE),
+    clearUpActivityArchive: () =>
+      ipcRenderer.invoke(IPC.BILI_UP_ACTIVITY_CLEAR),
+    removeUpActivityRecords: (mids: number[]) =>
+      ipcRenderer.invoke(IPC.BILI_UP_ACTIVITY_REMOVE, mids),
+    onUpActivityProgress: (
+      callback: (progress: UpActivityScanProgress) => void,
+    ) => subscribeUpActivityProgress(callback),
     getSpaceDynamics: (mid: number, offset?: string) =>
       ipcRenderer.invoke(IPC.BILI_SPACE_DYNAMICS, mid, offset ?? ""),
     getSpaceOpus: (mid: number, offset?: string) =>

@@ -11,6 +11,7 @@ import {
   History,
   Flame,
   ShieldAlert,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -27,6 +28,7 @@ const navItems = [
   { to: "/history", icon: History, label: "历史记录" },
   { to: "/watch-later", icon: Clock, label: "稍后再看" },
   { to: "/integrity", icon: ShieldAlert, label: "失效检测" },
+  { to: "/up-activity", icon: Activity, label: "UP活跃" },
   { to: "/settings", icon: Settings, label: "设置" },
 ];
 

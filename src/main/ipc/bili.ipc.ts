@@ -27,6 +27,12 @@ import {
   getIntegrityArchive,
   runIntegrityScan,
 } from "../services/integrity-scan";
+import {
+  clearUpActivityArchive,
+  getUpActivityArchive,
+  removeUpActivityRecords,
+  runUpActivityScan,
+} from "../services/up-activity-scan";
 import { fetchMediaRange } from "../services/media-proxy";
 import { handleIpc } from "./safe-handler";
 
@@ -402,6 +408,20 @@ export function registerBiliIpc(): void {
     return runIntegrityScan(next, (progress) => {
       try {
         event.sender.send(IPC.BILI_INTEGRITY_PROGRESS, progress);
+      } catch {
+        // sender may be gone
+      }
+    });
+  });
+  handleIpc(IPC.BILI_UP_ACTIVITY_ARCHIVE, async () => getUpActivityArchive());
+  ipcMain.handle(IPC.BILI_UP_ACTIVITY_CLEAR, () => clearUpActivityArchive());
+  handleIpc(IPC.BILI_UP_ACTIVITY_REMOVE, (_e, mids: number[]) =>
+    removeUpActivityRecords(Array.isArray(mids) ? mids : []),
+  );
+  ipcMain.handle(IPC.BILI_UP_ACTIVITY_SCAN, async (event) => {
+    return runUpActivityScan((progress) => {
+      try {
+        event.sender.send(IPC.BILI_UP_ACTIVITY_PROGRESS, progress);
       } catch {
         // sender may be gone
       }

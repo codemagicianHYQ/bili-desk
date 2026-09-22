@@ -31,6 +31,10 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
     title: "失效检测",
     subtitle: "失效收藏 / 稍后再看 / 异常关注",
   },
+  "/up-activity": {
+    title: "UP 活跃状态",
+    subtitle: "按稿件 / 动态筛活跃与停更",
+  },
   "/settings": { title: "设置", subtitle: "外观、隐私、黑名单与 AI" },
   "/login": { title: "登录", subtitle: "扫码登录 B 站账号" },
 };
@@ -133,10 +137,12 @@ export function MainLayout() {
   const isLive = path.startsWith("/live/");
   const isSettings = path === "/settings";
   const isIntegrity = path === "/integrity";
+  const isUpActivity = path === "/up-activity";
   const showOutlet =
     isUpSpace ||
     isSettings ||
     isIntegrity ||
+    isUpActivity ||
     isDynamicDetail ||
     isArticleDetail;
   const showVideo = isVideo && effectiveVideoBvid != null;
@@ -228,7 +234,7 @@ export function MainLayout() {
             <div
               className={cn(
                 "h-full",
-                isSettings || isIntegrity
+                isSettings || isIntegrity || isUpActivity
                   ? "overflow-hidden"
                   : "scrollbar-overlay overflow-y-auto",
               )}

@@ -522,6 +522,55 @@ export interface UserAccountStatus {
   unavailable: boolean;
 }
 
+/** UP 活跃度：稿件 / 动态最新时间 */
+export interface UpActivityRecord {
+  mid: number;
+  name: string;
+  face: string;
+  sign: string;
+  latestVideoAt: number;
+  latestVideoTitle: string;
+  latestVideoBvid: string;
+  latestDynamicAt: number;
+  latestDynamicText: string;
+  latestDynamicId: string;
+  scannedAt: number;
+  error?: string;
+}
+
+export type UpActivitySource = "video" | "dynamic";
+
+/**
+ * 时间窗（互斥区间，无重叠）：
+ * - age0_3：0＜距今天数≤3
+ * - age3_7：3＜距今天数≤7
+ * - …依此类推
+ * - age365_plus：超过一年未更新
+ * - never：暂无稿件/动态
+ */
+export type UpActivityTimeFilter =
+  | "age0_3"
+  | "age3_7"
+  | "age7_30"
+  | "age30_90"
+  | "age90_180"
+  | "age180_365"
+  | "age365_plus"
+  | "never";
+
+export interface UpActivityScanProgress {
+  message: string;
+  current: number;
+  total: number;
+  phase: "followings" | "activity" | "done";
+}
+
+export interface UpActivityArchive {
+  items: UpActivityRecord[];
+  scannedAt: number;
+  warnings?: string[];
+}
+
 export interface UpRelation {
   isFollowing: boolean;
   attribute: number;
@@ -1423,6 +1472,13 @@ export interface BiliDeskApi {
     ) => Promise<IntegrityScanResult>;
     onIntegrityProgress: (
       callback: (progress: IntegrityScanProgress) => void,
+    ) => () => void;
+    scanUpActivity: () => Promise<UpActivityArchive>;
+    getUpActivityArchive: () => Promise<UpActivityArchive>;
+    clearUpActivityArchive: () => Promise<UpActivityArchive>;
+    removeUpActivityRecords: (mids: number[]) => Promise<UpActivityArchive>;
+    onUpActivityProgress: (
+      callback: (progress: UpActivityScanProgress) => void,
     ) => () => void;
     getSpaceDynamics: (
       mid: number,

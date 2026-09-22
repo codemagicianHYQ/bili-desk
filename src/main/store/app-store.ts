@@ -5,6 +5,7 @@ import type {
   InvalidVideoRecord,
   Theme,
   ToViewItem,
+  UpActivityRecord,
   UserInfo,
 } from "@shared/types";
 
@@ -44,6 +45,9 @@ interface StoreSchema {
     }
   >;
   lastIntegrityScanAt: number;
+  /** 关注 UP 活跃度（最新稿件 / 动态时间） */
+  upActivityCache: UpActivityRecord[];
+  lastUpActivityScanAt: number;
 }
 
 const defaults: StoreSchema = {
@@ -72,6 +76,8 @@ const defaults: StoreSchema = {
   abnormalFollowings: [],
   videoMetaCache: {},
   lastIntegrityScanAt: 0,
+  upActivityCache: [],
+  lastUpActivityScanAt: 0,
 };
 
 export const appStore = new Store<StoreSchema>({

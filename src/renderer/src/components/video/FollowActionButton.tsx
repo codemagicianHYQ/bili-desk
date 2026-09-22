@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { List, MoreHorizontal, Star } from "lucide-react";
+import {
+  FolderCog,
+  List,
+  MoreHorizontal,
+  Star,
+  StarOff,
+  UserMinus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
@@ -141,6 +148,28 @@ export function FollowActionButton({
     }
   };
 
+  const handleToggleSpecial = async () => {
+    const next = !showSpecial;
+    setMenuOpen(false);
+    setLoading(true);
+    try {
+      await window.biliDesk.bili.modifySpecialFollow(mid, next);
+      patchFollowing(mid, { special: next });
+      patchSpecialFollowCount(next ? 1 : -1);
+      onSpecialChange?.(next);
+    } catch (error) {
+      onError?.(
+        error instanceof Error
+          ? error.message
+          : next
+            ? "加入特别关注失败"
+            : "移除特别关注失败",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const openGroupDialog = () => {
     setMenuOpen(false);
     setTagDialogOpen(true);
@@ -157,33 +186,48 @@ export function FollowActionButton({
     createPortal(
       <div
         ref={menuPanelRef}
-        className={`fixed min-w-[132px] overflow-hidden rounded-xl bg-zinc-800 py-1 shadow-2xl ${APP_OVERLAY_ZCLASS}`}
+        className={`fixed min-w-[168px] overflow-hidden rounded-xl bg-zinc-800 py-1 shadow-2xl ${APP_OVERLAY_ZCLASS}`}
         style={{ top: menuPos.top, right: menuPos.right }}
       >
         {isFollowing && (
           <>
             <button
               type="button"
-              className="w-full px-6 py-2.5 text-center text-sm text-white transition-colors hover:bg-white/10"
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-amber-200 transition-colors hover:bg-white/10"
               onClick={openGroupDialog}
             >
+              <FolderCog className="h-4 w-4 shrink-0" />
               设置分组
             </button>
             <button
               type="button"
-              className="w-full px-6 py-2.5 text-center text-sm text-white transition-colors hover:bg-white/10"
+              disabled={loading}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-amber-200 transition-colors hover:bg-white/10 disabled:opacity-50"
+              onClick={() => void handleToggleSpecial()}
+            >
+              {showSpecial ? (
+                <StarOff className="h-4 w-4 shrink-0" />
+              ) : (
+                <Star className="h-4 w-4 shrink-0" />
+              )}
+              {showSpecial ? "移除特别关注" : "加入特别关注"}
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-white/10"
               onClick={() => {
                 setMenuOpen(false);
                 setUnfollowOpen(true);
               }}
             >
+              <UserMinus className="h-4 w-4 shrink-0" />
               取消关注
             </button>
           </>
         )}
         <button
           type="button"
-          className="w-full px-6 py-2.5 text-center text-sm text-red-300 transition-colors hover:bg-white/10"
+          className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-300 transition-colors hover:bg-white/10"
           onClick={() => {
             setMenuOpen(false);
             setBlockOpen(true);
@@ -285,10 +329,7 @@ export function FollowActionButton({
             size="icon"
             variant="ghost"
             disabled={disabled || loading}
-            className={cn(
-              "text-muted-foreground",
-              size === "sm" && "h-8 w-8",
-            )}
+            className={cn("text-muted-foreground", size === "sm" && "h-8 w-8")}
             aria-label="更多"
             onClick={() => setMenuOpen((open) => !open)}
           >

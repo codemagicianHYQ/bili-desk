@@ -4817,6 +4817,54 @@ class BiliApiService {
     };
   }
 
+  /** 取 UP 最新一稿 + 最新一条动态的时间（活跃度页用） */
+  async getUpLatestActivity(mid: number): Promise<{
+    latestVideoAt: number;
+    latestVideoTitle: string;
+    latestVideoBvid: string;
+    latestDynamicAt: number;
+    latestDynamicText: string;
+    latestDynamicId: string;
+  }> {
+    const empty = {
+      latestVideoAt: 0,
+      latestVideoTitle: "",
+      latestVideoBvid: "",
+      latestDynamicAt: 0,
+      latestDynamicText: "",
+      latestDynamicId: "",
+    };
+
+    const [videoSettled, dynamicSettled] = await Promise.allSettled([
+      this.getUpVideos(mid, 1, "pubdate"),
+      this.getSpaceDynamics(mid, ""),
+    ]);
+
+    const result = { ...empty };
+
+    if (videoSettled.status === "fulfilled") {
+      const first = videoSettled.value.videos[0];
+      if (first) {
+        result.latestVideoAt = Number(first.pubdate) || 0;
+        result.latestVideoTitle = first.title || "";
+        result.latestVideoBvid = first.bvid || "";
+      }
+    }
+
+    if (dynamicSettled.status === "fulfilled") {
+      const first = dynamicSettled.value.items[0];
+      if (first) {
+        result.latestDynamicAt = Number(first.pubTime) || 0;
+        result.latestDynamicText = (first.title || first.text || "")
+          .trim()
+          .slice(0, 80);
+        result.latestDynamicId = first.id || "";
+      }
+    }
+
+    return result;
+  }
+
   /** 查看指定用户的关注 / 粉丝列表（含隐私校验） */
   async getUserRelationList(
     mid: number,
@@ -4889,21 +4937,6 @@ class BiliApiService {
       total,
       hasMore: users.length >= pageSize && page * pageSize < total,
     };
-  }
-
-  async getAllFollowings(): Promise<FollowingUp[]> {
-    const all: FollowingUp[] = [];
-    let page = 1;
-
-    while (true) {
-      const batch = await this.getFollowings(page);
-      if (batch.length === 0) break;
-      all.push(...batch);
-      if (batch.length < 50) break;
-      page++;
-    }
-
-    return all;
   }
 
   async getFollowTags(): Promise<FollowTag[]> {
