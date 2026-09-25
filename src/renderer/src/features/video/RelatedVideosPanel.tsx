@@ -6,9 +6,11 @@ import { cn } from "@/lib/utils";
 export function RelatedVideosPanel({
   bvid,
   className,
+  hideTitle = false,
 }: {
   bvid: string;
   className?: string;
+  hideTitle?: boolean;
 }) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +43,7 @@ export function RelatedVideosPanel({
 
   return (
     <section className={cn("space-y-3", className)}>
-      <h2 className="text-sm font-semibold">相关推荐</h2>
+      {!hideTitle && <h2 className="text-sm font-semibold">相关推荐</h2>}
       {loading && (
         <p className="text-xs text-muted-foreground">加载推荐中...</p>
       )}

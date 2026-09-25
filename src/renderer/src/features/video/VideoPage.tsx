@@ -6,7 +6,7 @@ import type {
   VideoSubtitleTrack,
 } from "@shared/types";
 import { Button } from "@/components/ui/button";
-import { formatCount, formatPubdate } from "@/lib/utils";
+import { cn, formatCount, formatPubdate } from "@/lib/utils";
 import { BiliImage } from "@/components/ui/bili-image";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { UpOwnerCard } from "@/components/video/UpOwnerCard";
@@ -23,7 +23,18 @@ import {
   readQualityPref,
   writeQualityPref,
 } from "@/components/video/quality-pref";
-import { ArrowUp } from "lucide-react";
+import {
+  ArrowUp,
+  BadgeCheck,
+  CalendarDays,
+  Gauge,
+  MessageSquare,
+  Play,
+  Radio,
+  Repeat2,
+} from "lucide-react";
+
+type BelowTab = "comments" | "related";
 
 interface VideoPageProps {
   bvid: string;
@@ -50,6 +61,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [resumeCancelled, setResumeCancelled] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [onlineLabel, setOnlineLabel] = useState("");
+  const [belowTab, setBelowTab] = useState<BelowTab>("comments");
   const [subtitles, setSubtitles] = useState<VideoSubtitleTrack[]>([]);
   const playRequestIdRef = useRef(0);
   const streamModeRef = useRef<"mp4" | "dash">("mp4");
@@ -67,6 +79,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
   useEffect(() => {
     setResumeCancelled(false);
+    setBelowTab("comments");
   }, [bvid, resumeCid, resumeTimeRaw]);
 
   const initialTime = useMemo(() => {
@@ -504,22 +517,43 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               </div>
             )}
 
-            <p className="text-xs text-muted-foreground">
-              {formatCount(video.stat.view)} 播放 ·{" "}
-              {formatCount(video.stat.danmaku)} 弹幕 ·{" "}
-              {formatCount(video.stat.like)} 点赞 ·{" "}
-              {formatCount(video.stat.coin)} 投币 ·{" "}
-              {formatCount(video.stat.favorite)} 收藏 ·{" "}
-              {formatCount(video.stat.share)} 分享
-              {onlineLabel ? ` · ${onlineLabel}` : ""}
-              {video.pubdate > 0 ? ` · ${formatPubdate(video.pubdate)}` : ""}
-              {playInfo ? ` · ${playInfo.qualityLabel}` : ""}
-              {video.copyright === 1
-                ? " · 自制"
-                : video.copyright === 2
-                  ? " · 转载"
-                  : ""}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                {
+                  icon: Play,
+                  label: `${formatCount(video.stat.view)} 播放`,
+                },
+                {
+                  icon: MessageSquare,
+                  label: `${formatCount(video.stat.danmaku)} 弹幕`,
+                },
+                onlineLabel ? { icon: Radio, label: onlineLabel } : null,
+                video.pubdate > 0
+                  ? {
+                      icon: CalendarDays,
+                      label: formatPubdate(video.pubdate),
+                    }
+                  : null,
+                playInfo ? { icon: Gauge, label: playInfo.qualityLabel } : null,
+                video.copyright === 1
+                  ? { icon: BadgeCheck, label: "自制" }
+                  : video.copyright === 2
+                    ? { icon: Repeat2, label: "转载" }
+                    : null,
+              ]
+                .filter((item): item is { icon: typeof Play; label: string } =>
+                  Boolean(item),
+                )
+                .map((item) => (
+                  <span
+                    key={item.label}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-secondary/40 px-2.5 py-1 text-xs text-muted-foreground"
+                  >
+                    <item.icon className="h-3.5 w-3.5 opacity-70" />
+                    {item.label}
+                  </span>
+                ))}
+            </div>
             <p className="text-sm leading-relaxed text-muted-foreground">
               {video.desc ? <BiliEmoteText text={video.desc} /> : "暂无简介"}
             </p>
@@ -546,15 +580,81 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               </div>
             )}
 
-            <RelatedVideosPanel bvid={video.bvid || bvid} />
+            <div className="space-y-4">
+              <div className="relative mx-auto grid w-full max-w-md grid-cols-2 rounded-full border border-border/70 bg-secondary/50 p-1">
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-full bg-background shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                  style={{
+                    left: 4,
+                    transform:
+                      belowTab === "related"
+                        ? "translateX(100%)"
+                        : "translateX(0)",
+                  }}
+                />
+                <button
+                  type="button"
+                  className={cn(
+                    "relative z-10 rounded-full py-1.5 text-sm transition-colors duration-300",
+                    belowTab === "comments"
+                      ? "font-medium text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setBelowTab("comments")}
+                >
+                  评论
+                  {video.stat.reply > 0 ? (
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      {formatCount(video.stat.reply)}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "relative z-10 rounded-full py-1.5 text-sm transition-colors duration-300",
+                    belowTab === "related"
+                      ? "font-medium text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setBelowTab("related")}
+                >
+                  相关推荐
+                </button>
+              </div>
 
-            <VideoCommentSection
-              aid={video.aid}
-              bvid={video.bvid || bvid}
-              ownerMid={video.owner.mid}
-              replyCount={video.stat.reply}
-              scrollRootRef={scrollRef}
-            />
+              <div className="relative">
+                <div
+                  className={cn(
+                    "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                    belowTab === "comments"
+                      ? "translate-x-0 opacity-100"
+                      : "pointer-events-none h-0 overflow-hidden -translate-x-8 opacity-0",
+                  )}
+                  aria-hidden={belowTab !== "comments"}
+                >
+                  <VideoCommentSection
+                    aid={video.aid}
+                    bvid={video.bvid || bvid}
+                    ownerMid={video.owner.mid}
+                    replyCount={video.stat.reply}
+                    scrollRootRef={scrollRef}
+                  />
+                </div>
+                <div
+                  className={cn(
+                    "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                    belowTab === "related"
+                      ? "translate-x-0 opacity-100"
+                      : "pointer-events-none h-0 overflow-hidden translate-x-8 opacity-0",
+                  )}
+                  aria-hidden={belowTab !== "related"}
+                >
+                  <RelatedVideosPanel hideTitle bvid={video.bvid || bvid} />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
