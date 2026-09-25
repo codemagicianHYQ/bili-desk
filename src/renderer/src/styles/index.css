@@ -1414,10 +1414,19 @@ html[data-theme-preset="glass"] [data-app-main] > * {
   background: transparent !important;
 }
 
+/* 播放页滚动条不预留 gutter，避免右侧空出一条浅色边 */
+.bili-watch-scroll {
+  scrollbar-gutter: auto;
+}
+
 /* 播放页：主区已有玻璃圆角框，去掉内层卡片边框和留白，画面贴满 */
 html[data-theme-preset="glass"] .bili-watch-player-wrap {
   padding: 0 !important;
   max-width: none !important;
+}
+
+html[data-theme-preset="glass"] [data-app-main]:has(.bili-watch-player-card) {
+  background: #000 !important;
 }
 
 html[data-theme-preset="glass"] .bili-watch-player-card,

@@ -1,9 +1,9 @@
 import { type MouseEvent, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { openBiliHref } from "@/lib/open-bili-href";
 import { isBiliShortUrl, isBiliUrl } from "@shared/utils/bili-app-link";
-import { splitLinkifiedText } from "@shared/utils/external-url";
+import { normalizeBvid, splitLinkifiedText } from "@shared/utils/external-url";
 
 export function ExternalTextLink({
   href,
@@ -40,6 +40,28 @@ export function ExternalTextLink({
   );
 }
 
+export function BvidTextLink({
+  bvid,
+  className,
+}: {
+  bvid: string;
+  className?: string;
+}) {
+  const id = normalizeBvid(bvid);
+  return (
+    <Link
+      to={`/video/${id}`}
+      className={cn(
+        "break-all font-medium text-[#00AEEC] underline-offset-2 hover:underline",
+        className,
+      )}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {bvid}
+    </Link>
+  );
+}
+
 export function LinkifiedText({
   text,
   className,
@@ -55,6 +77,8 @@ export function LinkifiedText({
           <ExternalTextLink key={`u-${index}`} href={part.href}>
             {part.value}
           </ExternalTextLink>
+        ) : part.kind === "bvid" ? (
+          <BvidTextLink key={`bv-${index}`} bvid={part.value} />
         ) : (
           <span key={`t-${index}`}>{part.value}</span>
         ),

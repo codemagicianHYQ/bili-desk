@@ -9,9 +9,32 @@ const URL_SPLIT_RE =
 
 const TRAILING_PUNCT_RE = /[),.;:!?。，、；：！？…》>\]\}」』】）]+$/u;
 
+/** 裸 BV 号：BV + 10 位，和官网长度一致 */
+const BVID_SPLIT_RE = /(BV[0-9A-Za-z]{10})/gi;
+
 export type LinkifyPart =
   | { kind: "text"; value: string }
-  | { kind: "url"; value: string; href: string };
+  | { kind: "url"; value: string; href: string }
+  | { kind: "bvid"; value: string };
+
+export function normalizeBvid(raw: string): string {
+  return String(raw ?? "")
+    .trim()
+    .replace(/^bv/i, "BV");
+}
+
+function splitBvidParts(text: string): LinkifyPart[] {
+  if (!text) return [];
+  BVID_SPLIT_RE.lastIndex = 0;
+  return text
+    .split(BVID_SPLIT_RE)
+    .filter(Boolean)
+    .map((chunk) =>
+      /^BV[0-9A-Za-z]{10}$/i.test(chunk)
+        ? { kind: "bvid" as const, value: chunk }
+        : { kind: "text" as const, value: chunk },
+    );
+}
 
 export function sanitizeExternalUrl(raw: string): string | null {
   const trimmed = String(raw ?? "").trim();
@@ -35,7 +58,7 @@ export function splitLinkifiedText(text: string): LinkifyPart[] {
     if (!chunk) continue;
     const looksLikeUrl = /^(https?:\/\/|www\.)/i.test(chunk);
     if (!looksLikeUrl) {
-      parts.push({ kind: "text", value: chunk });
+      parts.push(...splitBvidParts(chunk));
       continue;
     }
     const core = chunk.replace(TRAILING_PUNCT_RE, "");
@@ -43,9 +66,9 @@ export function splitLinkifiedText(text: string): LinkifyPart[] {
     const href = sanitizeExternalUrl(core);
     if (href) {
       parts.push({ kind: "url", value: core, href });
-      if (trail) parts.push({ kind: "text", value: trail });
+      if (trail) parts.push(...splitBvidParts(trail));
     } else {
-      parts.push({ kind: "text", value: chunk });
+      parts.push(...splitBvidParts(chunk));
     }
   }
   return parts;

@@ -27,6 +27,8 @@ import {
   ArrowUp,
   BadgeCheck,
   CalendarDays,
+  Check,
+  Copy,
   Gauge,
   MessageSquare,
   Play,
@@ -62,6 +64,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [onlineLabel, setOnlineLabel] = useState("");
   const [belowTab, setBelowTab] = useState<BelowTab>("comments");
+  const [bvidCopied, setBvidCopied] = useState(false);
   const [subtitles, setSubtitles] = useState<VideoSubtitleTrack[]>([]);
   const playRequestIdRef = useRef(0);
   const streamModeRef = useRef<"mp4" | "dash">("mp4");
@@ -80,6 +83,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   useEffect(() => {
     setResumeCancelled(false);
     setBelowTab("comments");
+    setBvidCopied(false);
   }, [bvid, resumeCid, resumeTimeRaw]);
 
   const initialTime = useMemo(() => {
@@ -397,7 +401,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
-          className="scrollbar-overlay h-full overflow-x-hidden overflow-y-auto"
+          className="bili-watch-scroll scrollbar-overlay h-full overflow-x-hidden overflow-y-auto"
         >
           <div className="bili-watch-column bili-watch-player-wrap mx-auto flex h-full w-full shrink-0 flex-col px-4 pt-3 lg:px-6">
             <div className="bili-watch-player-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
@@ -443,9 +447,36 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                 className="relative z-20 shrink-0 space-y-2 border-t border-border px-4 py-2"
               >
                 <div className="flex min-w-0 items-start gap-3">
-                  <h1 className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words line-clamp-2 lg:text-base">
-                    {video.title}
-                  </h1>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <h1 className="text-sm font-semibold leading-snug break-words line-clamp-2 lg:text-base">
+                      {video.title}
+                    </h1>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-primary"
+                      title="复制 BV 号"
+                      onClick={async () => {
+                        const id = video.bvid || bvid;
+                        try {
+                          await navigator.clipboard.writeText(id);
+                          setBvidCopied(true);
+                          window.setTimeout(() => setBvidCopied(false), 1600);
+                        } catch {
+                          setBvidCopied(false);
+                        }
+                      }}
+                    >
+                      {video.bvid || bvid}
+                      {bvidCopied ? (
+                        <Check className="h-3 w-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="h-3 w-3 opacity-70" />
+                      )}
+                      <span className="font-sans">
+                        {bvidCopied ? "已复制" : "复制"}
+                      </span>
+                    </button>
+                  </div>
                   <VideoActionBar
                     video={video}
                     className="shrink-0 grow-0 pt-0.5"

@@ -67,6 +67,21 @@ export function registerBiliIpc(): void {
   ipcMain.handle(IPC.BILI_LIVE_PLAY_URL, (_e, roomId: number, qn?: number) =>
     biliApi.getLivePlayUrl(roomId, qn),
   );
+  handleIpc(IPC.BILI_LIVE_DANMU_INFO, (_e, roomId: number) =>
+    biliApi.getLiveDanmuInfo(roomId),
+  );
+  handleIpc(IPC.BILI_LIVE_DANMU_HISTORY, (_e, roomId: number) =>
+    biliApi.getLiveDanmuHistory(roomId),
+  );
+  handleIpc(IPC.BILI_LIVE_EMOTES, (_e, roomId: number) =>
+    biliApi.getLiveEmotes(roomId),
+  );
+  handleIpc(IPC.BILI_LIVE_DANMU_SEND, (_e, roomId: number, message: string) =>
+    biliApi.sendLiveDanmu(roomId, message),
+  );
+  handleIpc(IPC.BILI_LIVE_ROOM_VIEWERS, (_e, roomId: number, uid?: number) =>
+    biliApi.getLiveRoomViewers(roomId, uid),
+  );
   ipcMain.handle(IPC.BILI_VIDEO, (_e, bvid: string) => biliApi.getVideo(bvid));
   handleIpc(IPC.BILI_RELATED_VIDEOS, (_e, bvid: string) =>
     biliApi.getRelatedVideos(bvid),

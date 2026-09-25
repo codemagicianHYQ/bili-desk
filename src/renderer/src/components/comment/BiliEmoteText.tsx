@@ -2,7 +2,7 @@ import { Fragment, useMemo } from "react";
 import { Link } from "react-router-dom";
 import type { CommentMember } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
-import { ExternalTextLink } from "@/components/ui/linkified-text";
+import { BvidTextLink, ExternalTextLink } from "@/components/ui/linkified-text";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn } from "@/lib/utils";
 import { splitLinkifiedText } from "@shared/utils/external-url";
@@ -116,6 +116,11 @@ export function BiliEmoteText({
                           >
                             {piece.value}
                           </ExternalTextLink>
+                        ) : piece.kind === "bvid" ? (
+                          <BvidTextLink
+                            key={`bv-${index}-${mentionIndex}-${pieceIndex}`}
+                            bvid={piece.value}
+                          />
                         ) : (
                           <Fragment
                             key={`p-${index}-${mentionIndex}-${pieceIndex}`}

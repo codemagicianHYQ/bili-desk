@@ -119,7 +119,13 @@ import type {
   FollowingLivePage,
   LiveRoomDetail,
   LivePlayInfo,
+  LiveDanmuInfo,
+  LiveChatMessage,
 } from "@shared/types";
+import {
+  addLiveEmote,
+  parseHistoryItemEmotes,
+} from "@shared/utils/live-danmu-emotes";
 
 const COOKIE_KEYS = [
   "SESSDATA",
@@ -1275,6 +1281,8 @@ class BiliApiService {
           String(roomInfo.cover ?? roomInfo.keyframe ?? ""),
         ),
         online: Number(roomInfo.online ?? 0),
+        ...this.parseLiveWatched(data, roomInfo),
+        viewers: this.parseLiveViewers(data),
         areaName: String(roomInfo.area_name ?? ""),
         parentAreaName: String(roomInfo.parent_area_name ?? "") || undefined,
         liveStatus: Number(roomInfo.live_status ?? 0),
@@ -1306,6 +1314,7 @@ class BiliApiService {
         String(info.user_cover ?? info.keyframe ?? ""),
       ),
       online: Number(info.online ?? 0),
+      ...this.parseLiveWatched(info, info),
       areaName: String(info.area_name ?? ""),
       parentAreaName: String(info.parent_area_name ?? "") || undefined,
       liveStatus: Number(info.live_status ?? 0),
@@ -1567,6 +1576,270 @@ class BiliApiService {
     return url.replace(/^http:/, "https:");
   }
 
+  private parseLiveViewers(data: Record<string, unknown>): number | undefined {
+    const rank = (data.online_gold_rank_info_v2 ??
+      data.online_gold_rank_info ??
+      {}) as Record<string, unknown>;
+    const num = Number(rank.online_num ?? rank.count ?? data.online_count ?? 0);
+    return Number.isFinite(num) && num > 0 ? num : undefined;
+  }
+
+  async getLiveRoomViewers(roomId: number, uid?: number): Promise<number> {
+    await this.ensureBuvid3();
+    const res = await this.liveClient.get(
+      "/xlive/general-interface/v1/rank/getOnlineGoldRank",
+      {
+        params: {
+          roomId,
+          ruid: uid ?? 0,
+          page: 1,
+          pageSize: 1,
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.data?.code !== 0) return 0;
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const num = Number(data.onlineNum ?? data.online_num ?? 0);
+    return Number.isFinite(num) && num > 0 ? num : 0;
+  }
+
+  private parseLiveWatched(
+    data: Record<string, unknown>,
+    roomInfo: Record<string, unknown>,
+  ): { watched?: number; watchedText?: string } {
+    const watched = (data.watched_show ??
+      roomInfo.watched_show ??
+      {}) as Record<string, unknown>;
+    const num = Number(watched.num ?? 0);
+    const text = String(watched.text_large ?? watched.text_small ?? "").trim();
+    return {
+      watched: Number.isFinite(num) && num > 0 ? num : undefined,
+      watchedText: text || undefined,
+    };
+  }
+
+  private normalizeLiveDanmuInfo(
+    data: Record<string, unknown>,
+  ): LiveDanmuInfo | null {
+    const lists = [data.host_list, data.host_server_list].filter(
+      Array.isArray,
+    ) as Array<Array<Record<string, unknown>>>;
+    const hosts = lists
+      .flat()
+      .map((item) => {
+        const host = String(item.host ?? item.host_server ?? "").trim();
+        const wssPort = Number(item.wss_port ?? 0);
+        const port = Number(item.port ?? 0);
+        const resolved =
+          wssPort > 0 ? wssPort : port === 443 || port === 2245 ? port : 0;
+        return { host, wssPort: resolved || 443 };
+      })
+      .filter(
+        (item) => item.host && (item.wssPort === 443 || item.wssPort === 2245),
+      );
+    const fallbackHost = String(data.host ?? "").trim();
+    if (fallbackHost && hosts.length === 0) {
+      hosts.push({
+        host: fallbackHost,
+        wssPort: Number(data.wss_port ?? 443) || 443,
+      });
+    }
+    if (hosts.length === 0) {
+      hosts.push({ host: "broadcastlv.chat.bilibili.com", wssPort: 443 });
+    }
+    return {
+      token: String(data.token ?? ""),
+      uid: Number(appStore.get("user")?.mid ?? 0) || 0,
+      buvid: appStore.get("cookies").buvid3 || "",
+      hosts,
+    };
+  }
+
+  async getLiveDanmuInfo(roomId: number): Promise<LiveDanmuInfo> {
+    await this.ensureBuvid3();
+    const attempts: Array<() => Promise<Record<string, unknown> | null>> = [
+      async () => {
+        const params = await signParams({
+          id: roomId,
+          type: 0,
+          web_location: "444.8",
+          dm_img_list: "[]",
+          dm_img_str: "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
+          dm_cover_img_str:
+            "QU5HTEUgKEludGVsLCBJbnRlbChSKSBVSEQgR3JhcGhpY3MgRGlyZWN0M0QxMSB2c181XzAgcHNfNV8wLCBEM0QxMSlHb29nbGUgSW5jLiAoSW50ZWw",
+          dm_img_inter: '{"ds":[],"wh":[0,0,0],"of":["","",""]}',
+        });
+        const res = await this.liveClient.get(
+          "/xlive/web-room/v1/index/getDanmuInfo",
+          {
+            params,
+            headers: { Referer: `https://live.bilibili.com/${roomId}` },
+            validateStatus: () => true,
+          },
+        );
+        return res.data?.code === 0 && res.data?.data
+          ? (res.data.data as Record<string, unknown>)
+          : null;
+      },
+      async () => {
+        const res = await this.liveClient.get("/room/v1/Danmu/getConf", {
+          params: { room_id: roomId, platform: "pc", player: "web" },
+          headers: { Referer: `https://live.bilibili.com/${roomId}` },
+          validateStatus: () => true,
+        });
+        return res.data?.code === 0 && res.data?.data
+          ? (res.data.data as Record<string, unknown>)
+          : null;
+      },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        const data = await attempt();
+        const parsed = data ? this.normalizeLiveDanmuInfo(data) : null;
+        if (parsed) return parsed;
+      } catch {
+        // 试下一个通道
+      }
+    }
+
+    throw new Error("弹幕通道被风控拦截，已改用历史弹幕轮询");
+  }
+
+  async getLiveDanmuHistory(roomId: number): Promise<LiveChatMessage[]> {
+    await this.ensureBuvid3();
+    const res = await this.liveClient.get("/xlive/web-room/v1/dM/gethistory", {
+      params: { roomid: roomId },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "获取历史弹幕失败");
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const room = [
+      ...this.asRecordArray(data.admin),
+      ...this.asRecordArray(data.room),
+      ...this.asRecordArray(data.list),
+    ];
+    const messages: LiveChatMessage[] = [];
+    room.forEach((item, index) => {
+      const text = String(item.text ?? item.msg ?? item.content ?? "").trim();
+      if (!text) return;
+      const uid = Number(item.uid ?? 0) || 0;
+      const timeline = Date.parse(
+        String(item.timeline ?? item.ts ?? item.time ?? ""),
+      );
+      let emotes: Record<string, string> = {};
+      try {
+        emotes = parseHistoryItemEmotes(item);
+      } catch {
+        emotes = {};
+      }
+      messages.push({
+        id: `hist-${roomId}-${uid}-${text}-${item.timeline ?? index}`,
+        kind: "danmu",
+        uid,
+        uname: String(item.nickname ?? item.uname ?? item.username ?? "用户"),
+        text,
+        emotes: Object.keys(emotes).length > 0 ? emotes : undefined,
+        time: Number.isFinite(timeline)
+          ? timeline
+          : Date.now() - (room.length - index) * 10,
+      });
+    });
+    return messages;
+  }
+
+  async getLiveEmotes(roomId: number): Promise<Record<string, string>> {
+    await this.ensureBuvid3();
+    const map: Record<string, string> = {};
+    const endpoints = [
+      {
+        url: "/xlive/web-ucenter/v2/emoticon/GetEmoticons",
+        params: { platform: "pc", room_id: roomId },
+      },
+      {
+        url: "/xlive/web-emoticons/index/GetEmoticon",
+        params: { room_id: roomId, platform: "pc" },
+      },
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const res = await this.liveClient.get(endpoint.url, {
+          params: endpoint.params,
+          headers: { Referer: `https://live.bilibili.com/${roomId}` },
+          validateStatus: () => true,
+        });
+        if (res.data?.code !== 0) continue;
+        const root = (res.data?.data ?? {}) as Record<string, unknown>;
+        const packs = (
+          Array.isArray(root.data)
+            ? root.data
+            : Array.isArray(root)
+              ? root
+              : Object.values(root).filter(
+                  (item) => item && typeof item === "object",
+                )
+        ) as Array<Record<string, unknown>>;
+        for (const pack of packs) {
+          const list = (pack.emoticons ??
+            pack.list ??
+            pack.emote ??
+            []) as Array<Record<string, unknown>>;
+          for (const item of list) {
+            addLiveEmote(
+              map,
+              item.emoji ?? item.text ?? item.emoticon_unique ?? item.name,
+              item.url ?? item.icon_url ?? item.gif_url,
+            );
+          }
+        }
+        if (Object.keys(map).length > 0) return map;
+      } catch {
+        // 试下一个表情接口
+      }
+    }
+    return map;
+  }
+
+  async sendLiveDanmu(roomId: number, message: string): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再发送弹幕");
+    const msg = message.trim();
+    if (!msg) throw new Error("弹幕内容不能为空");
+    if (msg.length > 80) throw new Error("直播弹幕最多 80 个字");
+
+    const body = new URLSearchParams({
+      bubble: "0",
+      msg,
+      color: "16777215",
+      mode: "1",
+      room_type: "0",
+      jumpfrom: "0",
+      fontsize: "25",
+      rnd: String(Math.floor(Date.now() / 1000)),
+      roomid: String(roomId),
+      csrf,
+      csrf_token: csrf,
+    });
+
+    const res = await this.liveClient.post("/msg/send", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: `https://live.bilibili.com/${roomId}`,
+      },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "发送弹幕失败");
+    }
+  }
+
   private normalizeLiveRoomItems(items: unknown[]): LiveRoomItem[] {
     return items
       .filter((item): item is Record<string, unknown> =>
@@ -1574,6 +1847,20 @@ class BiliApiService {
       )
       .map((item) => this.normalizeLiveRoomItem(item))
       .filter((item) => item.roomId > 0);
+  }
+
+  private asRecordArray(value: unknown): Array<Record<string, unknown>> {
+    if (typeof value === "string") {
+      try {
+        return this.asRecordArray(JSON.parse(value) as unknown);
+      } catch {
+        return [];
+      }
+    }
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === "object"),
+    );
   }
 
   /** 取第一个有效正数（跳过 hit_ab=true 时 roomid=0 这类占位） */

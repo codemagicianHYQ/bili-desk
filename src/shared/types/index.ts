@@ -711,6 +711,11 @@ export interface LiveRoomDetail {
   title: string;
   cover: string;
   online: number;
+  /** 看过人数（官网「xxx人看过」） */
+  watched?: number;
+  watchedText?: string;
+  /** 房间观众（官网右上角实时人数，不是人气） */
+  viewers?: number;
   areaName: string;
   parentAreaName?: string;
   liveStatus: number;
@@ -719,6 +724,33 @@ export interface LiveRoomDetail {
   uid: number;
   uname: string;
   face: string;
+}
+
+export interface LiveDanmuHost {
+  host: string;
+  wssPort: number;
+}
+
+export interface LiveDanmuInfo {
+  token: string;
+  uid: number;
+  buvid?: string;
+  hosts: LiveDanmuHost[];
+}
+
+export type LiveChatKind = "danmu" | "enter";
+
+export interface LiveChatMessage {
+  id: string;
+  kind: LiveChatKind;
+  uid: number;
+  uname: string;
+  text: string;
+  color?: string;
+  time: number;
+  /** `[喝彩]` → 图片，直播表情和评论区不是同一套 */
+  emotes?: Record<string, string>;
+  stickerUrl?: string;
 }
 
 export interface LivePlayInfo {
@@ -1303,6 +1335,11 @@ export interface BiliDeskApi {
     getFollowingLives: () => Promise<FollowingLivePage>;
     getLiveRoom: (roomId: number) => Promise<LiveRoomDetail>;
     getLivePlayUrl: (roomId: number, qn?: number) => Promise<LivePlayInfo>;
+    getLiveDanmuInfo: (roomId: number) => Promise<LiveDanmuInfo>;
+    getLiveDanmuHistory: (roomId: number) => Promise<LiveChatMessage[]>;
+    getLiveEmotes: (roomId: number) => Promise<Record<string, string>>;
+    sendLiveDanmu: (roomId: number, message: string) => Promise<void>;
+    getLiveRoomViewers: (roomId: number, uid?: number) => Promise<number>;
     getVideo: (bvid: string) => Promise<VideoDetail>;
     getRelatedVideos: (bvid: string) => Promise<VideoItem[]>;
     getVideoOnlineTotal: (

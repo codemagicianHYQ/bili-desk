@@ -151,6 +151,16 @@ const api = {
       qn == null
         ? ipcRenderer.invoke(IPC.BILI_LIVE_PLAY_URL, roomId)
         : ipcRenderer.invoke(IPC.BILI_LIVE_PLAY_URL, roomId, qn),
+    getLiveDanmuInfo: (roomId: number) =>
+      ipcRenderer.invoke(IPC.BILI_LIVE_DANMU_INFO, roomId),
+    getLiveDanmuHistory: (roomId: number) =>
+      ipcRenderer.invoke(IPC.BILI_LIVE_DANMU_HISTORY, roomId),
+    getLiveEmotes: (roomId: number) =>
+      ipcRenderer.invoke(IPC.BILI_LIVE_EMOTES, roomId),
+    sendLiveDanmu: (roomId: number, message: string) =>
+      ipcRenderer.invoke(IPC.BILI_LIVE_DANMU_SEND, roomId, message),
+    getLiveRoomViewers: (roomId: number, uid?: number) =>
+      ipcRenderer.invoke(IPC.BILI_LIVE_ROOM_VIEWERS, roomId, uid),
     getVideo: (bvid: string) => ipcRenderer.invoke(IPC.BILI_VIDEO, bvid),
     getRelatedVideos: (bvid: string) =>
       ipcRenderer.invoke(IPC.BILI_RELATED_VIDEOS, bvid),
