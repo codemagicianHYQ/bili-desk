@@ -386,8 +386,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
           ref={scrollRef}
           className="scrollbar-overlay h-full overflow-x-hidden overflow-y-auto"
         >
-          <div className="bili-watch-column mx-auto flex h-full w-full shrink-0 flex-col px-4 pt-3 lg:px-6">
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="bili-watch-column bili-watch-player-wrap mx-auto flex h-full w-full shrink-0 flex-col px-4 pt-3 lg:px-6">
+            <div className="bili-watch-player-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card">
               <div className="relative z-0 min-h-0 flex-1 bg-black">
                 {playInfo && selectedCid ? (
                   <VideoPlayer

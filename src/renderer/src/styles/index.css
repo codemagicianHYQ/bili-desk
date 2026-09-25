@@ -1414,6 +1414,24 @@ html[data-theme-preset="glass"] [data-app-main] > * {
   background: transparent !important;
 }
 
+/* 播放页：主区已有玻璃圆角框，去掉内层卡片边框和留白，画面贴满 */
+html[data-theme-preset="glass"] .bili-watch-player-wrap {
+  padding: 0 !important;
+  max-width: none !important;
+}
+
+html[data-theme-preset="glass"] .bili-watch-player-card,
+html[data-theme-preset="glass"]:not(.dark) .bili-watch-player-card.bg-card,
+html[data-theme-preset="glass"].dark .bili-watch-player-card.bg-card {
+  border: none !important;
+  border-radius: 0 !important;
+  background: #000 !important;
+  background-color: #000 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 /* 侧栏 / 顶栏 / 弹窗：与 ThemeCustomizer 同一配方 */
 html[data-theme-preset="glass"] [data-app-chrome],
 html[data-theme-preset="glass"] .bili-glass,
