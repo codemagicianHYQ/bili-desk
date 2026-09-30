@@ -12,6 +12,9 @@ import { VideoPage } from "@/features/video/VideoPage";
 import { LivePage } from "@/features/live/LivePage";
 import { WatchLaterPage } from "@/features/watch-later/WatchLaterPage";
 import { MyPage } from "@/features/me/MyPage";
+import { UpActivityPage } from "@/features/up-activity/UpActivityPage";
+import { IntegrityPage } from "@/features/integrity/IntegrityPage";
+import { SettingsPage } from "@/features/settings/SettingsPage";
 import { useNavigationStore } from "@/stores/navigation-store";
 import { useHomeSearchStore } from "@/stores/home-search-store";
 import { useHomeTabStore } from "@/stores/home-tab-store";
@@ -62,6 +65,15 @@ export function MainLayout() {
   );
   const popularKeepAlive = useNavigationStore(
     (state) => state.popularKeepAlive,
+  );
+  const upActivityKeepAlive = useNavigationStore(
+    (state) => state.upActivityKeepAlive,
+  );
+  const integrityKeepAlive = useNavigationStore(
+    (state) => state.integrityKeepAlive,
+  );
+  const settingsKeepAlive = useNavigationStore(
+    (state) => state.settingsKeepAlive,
   );
   const videoKeepAlive = useNavigationStore((state) => state.videoKeepAlive);
   const liveKeepAlive = useNavigationStore((state) => state.liveKeepAlive);
@@ -138,13 +150,7 @@ export function MainLayout() {
   const isSettings = path === "/settings";
   const isIntegrity = path === "/integrity";
   const isUpActivity = path === "/up-activity";
-  const showOutlet =
-    isUpSpace ||
-    isSettings ||
-    isIntegrity ||
-    isUpActivity ||
-    isDynamicDetail ||
-    isArticleDetail;
+  const showOutlet = isUpSpace || isDynamicDetail || isArticleDetail;
   const showVideo = isVideo && effectiveVideoBvid != null;
   const showLive = isLive && effectiveLiveRoomId != null;
 
@@ -214,6 +220,33 @@ export function MainLayout() {
           <div className={cn("h-full", !isMe && "hidden")} aria-hidden={!isMe}>
             <MyPage />
           </div>
+          {(upActivityKeepAlive || isUpActivity) && (
+            <div
+              className={cn(
+                "h-full overflow-hidden",
+                !isUpActivity && "hidden",
+              )}
+              aria-hidden={!isUpActivity}
+            >
+              <UpActivityPage />
+            </div>
+          )}
+          {(integrityKeepAlive || isIntegrity) && (
+            <div
+              className={cn("h-full overflow-hidden", !isIntegrity && "hidden")}
+              aria-hidden={!isIntegrity}
+            >
+              <IntegrityPage />
+            </div>
+          )}
+          {(settingsKeepAlive || isSettings) && (
+            <div
+              className={cn("h-full overflow-hidden", !isSettings && "hidden")}
+              aria-hidden={!isSettings}
+            >
+              <SettingsPage />
+            </div>
+          )}
           {(videoKeepAlive || showVideo) && effectiveVideoBvid && (
             <div
               className={cn("h-full", !showVideo && "hidden")}
@@ -231,14 +264,7 @@ export function MainLayout() {
             </div>
           )}
           {showOutlet && (
-            <div
-              className={cn(
-                "h-full",
-                isSettings || isIntegrity || isUpActivity
-                  ? "overflow-hidden"
-                  : "scrollbar-overlay overflow-y-auto",
-              )}
-            >
+            <div className="scrollbar-overlay h-full overflow-y-auto">
               <Outlet />
             </div>
           )}

@@ -53,6 +53,15 @@ export function Sidebar() {
   const popularKeepAlive = useNavigationStore(
     (state) => state.popularKeepAlive,
   );
+  const upActivityKeepAlive = useNavigationStore(
+    (state) => state.upActivityKeepAlive,
+  );
+  const integrityKeepAlive = useNavigationStore(
+    (state) => state.integrityKeepAlive,
+  );
+  const settingsKeepAlive = useNavigationStore(
+    (state) => state.settingsKeepAlive,
+  );
 
   const path = location.pathname;
   const inFollowingFlow =
@@ -103,6 +112,18 @@ export function Sidebar() {
       path.startsWith("/live/") ||
       path.startsWith("/article/") ||
       path.startsWith("/up/"));
+  const inDetailFlow =
+    path.startsWith("/up/") ||
+    path.startsWith("/video/") ||
+    path.startsWith("/live/") ||
+    path.startsWith("/article/") ||
+    path.startsWith("/dynamic/");
+  const inUpActivityFlow =
+    upActivityKeepAlive && (path === "/up-activity" || inDetailFlow);
+  const inIntegrityFlow =
+    integrityKeepAlive && (path === "/integrity" || inDetailFlow);
+  const inSettingsFlow =
+    settingsKeepAlive && (path === "/settings" || inDetailFlow);
 
   return (
     <aside
@@ -129,7 +150,10 @@ export function Sidebar() {
             (to === "/watch-later" && inWatchLaterFlow) ||
             (to === "/dynamics" && inDynamicsFlow) ||
             (to === "/history" && inHistoryFlow) ||
-            (to === "/popular" && inPopularFlow);
+            (to === "/popular" && inPopularFlow) ||
+            (to === "/up-activity" && inUpActivityFlow) ||
+            (to === "/integrity" && inIntegrityFlow) ||
+            (to === "/settings" && inSettingsFlow);
           return (
             <Link
               key={to}

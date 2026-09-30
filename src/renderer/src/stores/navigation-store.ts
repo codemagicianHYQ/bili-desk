@@ -7,6 +7,9 @@ interface NavigationState {
   dynamicsKeepAlive: boolean;
   historyKeepAlive: boolean;
   popularKeepAlive: boolean;
+  upActivityKeepAlive: boolean;
+  integrityKeepAlive: boolean;
+  settingsKeepAlive: boolean;
   videoKeepAlive: boolean;
   liveKeepAlive: boolean;
   activeVideoBvid: string | null;
@@ -24,6 +27,8 @@ const MAIN_SECTIONS = new Set([
   "/watch-later",
   "/me",
   "/settings",
+  "/up-activity",
+  "/integrity",
 ]);
 
 function isUpPath(path: string): boolean {
@@ -65,6 +70,9 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   dynamicsKeepAlive: false,
   historyKeepAlive: false,
   popularKeepAlive: false,
+  upActivityKeepAlive: false,
+  integrityKeepAlive: false,
+  settingsKeepAlive: false,
   videoKeepAlive: false,
   liveKeepAlive: false,
   activeVideoBvid: null,
@@ -77,6 +85,9 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
     let dynamicsKeepAlive = get().dynamicsKeepAlive;
     let historyKeepAlive = get().historyKeepAlive;
     let popularKeepAlive = get().popularKeepAlive;
+    let upActivityKeepAlive = get().upActivityKeepAlive;
+    let integrityKeepAlive = get().integrityKeepAlive;
+    let settingsKeepAlive = get().settingsKeepAlive;
     let videoKeepAlive = get().videoKeepAlive;
     let liveKeepAlive = get().liveKeepAlive;
     let activeVideoBvid = get().activeVideoBvid;
@@ -106,7 +117,15 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       activeLiveRoomId = null;
     }
 
-    if (path === "/following" || isUpPath(path)) {
+    if (path === "/following") {
+      followingKeepAlive = true;
+    } else if (
+      isUpPath(path) &&
+      prevPath !== "/up-activity" &&
+      prevPath !== "/integrity" &&
+      prevPath !== "/settings" &&
+      (prevPath === "/following" || followingKeepAlive)
+    ) {
       followingKeepAlive = true;
     } else if (
       (isVideoPath(path) || isLivePath(path)) &&
@@ -218,6 +237,40 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       popularKeepAlive = false;
     }
 
+    const drillIn =
+      isUpPath(path) ||
+      isVideoPath(path) ||
+      isLivePath(path) ||
+      isArticlePath(path) ||
+      isDynamicDetailPath(path);
+
+    if (path === "/up-activity") {
+      upActivityKeepAlive = true;
+    } else if (
+      drillIn &&
+      (prevPath === "/up-activity" || upActivityKeepAlive)
+    ) {
+      upActivityKeepAlive = true;
+    } else if (MAIN_SECTIONS.has(path) && path !== "/up-activity") {
+      upActivityKeepAlive = false;
+    }
+
+    if (path === "/integrity") {
+      integrityKeepAlive = true;
+    } else if (drillIn && (prevPath === "/integrity" || integrityKeepAlive)) {
+      integrityKeepAlive = true;
+    } else if (MAIN_SECTIONS.has(path) && path !== "/integrity") {
+      integrityKeepAlive = false;
+    }
+
+    if (path === "/settings") {
+      settingsKeepAlive = true;
+    } else if (drillIn && (prevPath === "/settings" || settingsKeepAlive)) {
+      settingsKeepAlive = true;
+    } else if (MAIN_SECTIONS.has(path) && path !== "/settings") {
+      settingsKeepAlive = false;
+    }
+
     const current = get();
     if (
       current.followingKeepAlive !== followingKeepAlive ||
@@ -226,6 +279,9 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       current.dynamicsKeepAlive !== dynamicsKeepAlive ||
       current.historyKeepAlive !== historyKeepAlive ||
       current.popularKeepAlive !== popularKeepAlive ||
+      current.upActivityKeepAlive !== upActivityKeepAlive ||
+      current.integrityKeepAlive !== integrityKeepAlive ||
+      current.settingsKeepAlive !== settingsKeepAlive ||
       current.videoKeepAlive !== videoKeepAlive ||
       current.liveKeepAlive !== liveKeepAlive ||
       current.activeVideoBvid !== activeVideoBvid ||
@@ -238,6 +294,9 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
         dynamicsKeepAlive,
         historyKeepAlive,
         popularKeepAlive,
+        upActivityKeepAlive,
+        integrityKeepAlive,
+        settingsKeepAlive,
         videoKeepAlive,
         liveKeepAlive,
         activeVideoBvid,
