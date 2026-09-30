@@ -527,14 +527,6 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               </div>
             )}
 
-            <VideoPlaylistPanel
-              bvid={video.bvid || bvid}
-              selectedCid={selectedCid}
-              pages={video.pages}
-              ugcSeason={video.ugcSeason}
-              onSelectPart={setSelectedCid}
-            />
-
             {video.honors && video.honors.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {video.honors.map((honor) => (
@@ -585,6 +577,15 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                   </span>
                 ))}
             </div>
+
+            <VideoPlaylistPanel
+              bvid={video.bvid || bvid}
+              selectedCid={selectedCid}
+              pages={video.pages}
+              ugcSeason={video.ugcSeason}
+              onSelectPart={setSelectedCid}
+            />
+
             <p className="text-sm leading-relaxed text-muted-foreground">
               {video.desc ? <BiliEmoteText text={video.desc} /> : "暂无简介"}
             </p>

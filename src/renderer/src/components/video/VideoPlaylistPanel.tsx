@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ListVideo, Volume2 } from "lucide-react";
+import { ChevronDown, ListVideo, Volume2 } from "lucide-react";
 import type { VideoPagePart, VideoUgcSeason } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
@@ -31,6 +31,8 @@ export function VideoPlaylistPanel({
   const [subBusy, setSubBusy] = useState(false);
   const [subError, setSubError] = useState("");
   const [showIntro, setShowIntro] = useState(false);
+  const [seasonOpen, setSeasonOpen] = useState(false);
+  const [pagesOpen, setPagesOpen] = useState(false);
   const statusSeqRef = useRef(0);
 
   const hasSeason = Boolean(ugcSeason && ugcSeason.episodes.length > 0);
@@ -58,11 +60,16 @@ export function VideoPlaylistPanel({
     } else if (elRect.bottom > listRect.bottom) {
       list.scrollTop += elRect.bottom - listRect.bottom;
     }
-  }, [bvid, selectedCid, hasSeason, hasPages]);
+  }, [bvid, selectedCid, hasSeason, hasPages, seasonOpen, pagesOpen]);
 
   useEffect(() => {
     setShowIntro(false);
+    setSeasonOpen(false);
+    setPagesOpen(false);
     setSubError("");
+  }, [ugcSeason?.id]);
+
+  useEffect(() => {
     if (!ugcSeason?.id || isOwnSeason || !selfMid) {
       setSubscribed(false);
       return;
@@ -125,8 +132,18 @@ export function VideoPlaylistPanel({
     >
       {hasSeason && ugcSeason && (
         <div className="border-b border-border last:border-b-0">
-          <header className="space-y-2 border-b border-border/60 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-sm">
+          <header
+            className={cn(
+              "space-y-2 px-3 py-2.5",
+              seasonOpen && "border-b border-border/60",
+            )}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 text-left text-sm"
+              aria-expanded={seasonOpen}
+              onClick={() => setSeasonOpen((open) => !open)}
+            >
               <ListVideo className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate font-medium">
                 {ugcSeason.title}
@@ -135,7 +152,13 @@ export function VideoPlaylistPanel({
                   {ugcSeason.epCount || ugcSeason.episodes.length})
                 </span>
               </span>
-            </div>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                  seasonOpen && "rotate-180",
+                )}
+              />
+            </button>
             <div className="flex items-center gap-2 pl-6">
               <div className="min-w-0 flex-1 text-xs text-muted-foreground">
                 {typeof ugcSeason.view === "number" && ugcSeason.view > 0 && (
@@ -178,103 +201,120 @@ export function VideoPlaylistPanel({
               <p className="pl-6 text-xs text-red-400">{subError}</p>
             )}
           </header>
-          <div
-            data-playlist-scroll
-            className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1 pt-1"
-          >
-            {ugcSeason.episodes.map((ep, index) => {
-              const active = ep.bvid === bvid;
-              return (
-                <button
-                  key={ep.bvid}
-                  ref={active ? activeRef : undefined}
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                    active
-                      ? "bg-primary/15 text-primary"
-                      : "text-foreground hover:bg-secondary/80",
-                  )}
-                  onClick={() => {
-                    if (active) return;
-                    navigate(`/video/${ep.bvid}`);
-                  }}
-                >
-                  <span className="flex w-5 shrink-0 justify-center">
-                    {active ? (
-                      <Volume2 className="h-3.5 w-3.5 animate-pulse" />
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        {index + 1}
+          {seasonOpen && (
+            <div
+              data-playlist-scroll
+              className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1 pt-1"
+            >
+              {ugcSeason.episodes.map((ep, index) => {
+                const active = ep.bvid === bvid;
+                return (
+                  <button
+                    key={ep.bvid}
+                    ref={active ? activeRef : undefined}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                      active
+                        ? "bg-primary/15 text-primary"
+                        : "text-foreground hover:bg-secondary/80",
+                    )}
+                    onClick={() => {
+                      if (active) return;
+                      navigate(`/video/${ep.bvid}`);
+                    }}
+                  >
+                    <span className="flex w-5 shrink-0 justify-center">
+                      {active ? (
+                        <Volume2 className="h-3.5 w-3.5 animate-pulse" />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {index + 1}
+                        </span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      ({index + 1}){ep.title}
+                    </span>
+                    {ep.duration > 0 && (
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {formatDuration(ep.duration)}
                       </span>
                     )}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    ({index + 1}){ep.title}
-                  </span>
-                  {ep.duration > 0 && (
-                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                      {formatDuration(ep.duration)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {hasPages && (
         <div>
-          <header className="flex items-center gap-2 px-3 py-2.5 text-sm">
-            <ListVideo className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate font-medium">
-              视频选集
-            </span>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              ({pageIndex >= 0 ? pageIndex + 1 : "-"}/{pages.length})
-            </span>
+          <header className="px-3 py-2.5">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 text-left text-sm"
+              aria-expanded={pagesOpen}
+              onClick={() => setPagesOpen((open) => !open)}
+            >
+              <ListVideo className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate font-medium">
+                视频选集
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                ({pageIndex >= 0 ? pageIndex + 1 : "-"}/{pages.length})
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                  pagesOpen && "rotate-180",
+                )}
+              />
+            </button>
           </header>
-          <div
-            data-playlist-scroll
-            className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1"
-          >
-            {pages.map((part) => {
-              const active = part.cid === selectedCid;
-              return (
-                <button
-                  key={part.cid}
-                  ref={active && !hasSeason ? activeRef : undefined}
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                    active
-                      ? "bg-primary/15 text-primary"
-                      : "text-foreground hover:bg-secondary/80",
-                  )}
-                  onClick={() => onSelectPart(part.cid)}
-                >
-                  <span className="flex w-5 shrink-0 justify-center">
-                    {active ? (
-                      <Volume2 className="h-3.5 w-3.5 animate-pulse" />
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        {part.page}
+          {pagesOpen && (
+            <div
+              data-playlist-scroll
+              className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1"
+            >
+              {pages.map((part) => {
+                const active = part.cid === selectedCid;
+                return (
+                  <button
+                    key={part.cid}
+                    ref={active && !hasSeason ? activeRef : undefined}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                      active
+                        ? "bg-primary/15 text-primary"
+                        : "text-foreground hover:bg-secondary/80",
+                    )}
+                    onClick={() => onSelectPart(part.cid)}
+                  >
+                    <span className="flex w-5 shrink-0 justify-center">
+                      {active ? (
+                        <Volume2 className="h-3.5 w-3.5 animate-pulse" />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {part.page}
+                        </span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      ({part.page}){part.part}
+                    </span>
+                    {part.duration > 0 && (
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {formatDuration(part.duration)}
                       </span>
                     )}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    ({part.page}){part.part}
-                  </span>
-                  {part.duration > 0 && (
-                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                      {formatDuration(part.duration)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </section>
