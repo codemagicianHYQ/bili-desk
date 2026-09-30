@@ -1,4 +1,4 @@
-import { BrowserWindow, shell, app, nativeImage } from "electron";
+import { BrowserWindow, shell, app, nativeImage, screen } from "electron";
 import { existsSync } from "fs";
 import { join } from "path";
 import { IPC } from "@shared/ipc-channels";
@@ -8,6 +8,70 @@ import {
   resolveInAppPathFromUrl,
 } from "@shared/utils/bili-app-link";
 import { appStore } from "./store/app-store";
+
+/** 液态玻璃要透桌面，Win 上必须透明窗。系统因此会禁用最大化，点击改由自己铺满工作区。 */
+const USE_TRANSPARENT_WINDOW = process.platform === "win32";
+
+let boundsBeforePseudoMax: Electron.Rectangle | null = null;
+
+function keepMaximizeButton(win: BrowserWindow): void {
+  if (win.isDestroyed() || process.platform !== "win32") return;
+  win.setResizable(true);
+  win.setMaximizable(true);
+}
+
+function applyPseudoMaximize(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  if (boundsBeforePseudoMax) {
+    const restore = boundsBeforePseudoMax;
+    boundsBeforePseudoMax = null;
+    win.setBounds(restore);
+    keepMaximizeButton(win);
+    return;
+  }
+  const current = win.getBounds();
+  boundsBeforePseudoMax = current;
+  win.setBounds(screen.getDisplayMatching(current).workArea);
+  keepMaximizeButton(win);
+}
+
+const WM_SYSCOMMAND = 0x0112;
+const WM_NCLBUTTONDOWN = 0x00a1;
+const WM_NCLBUTTONUP = 0x00a2;
+const WM_NCLBUTTONDBLCLK = 0x00a3;
+const SC_MAXIMIZE = 0xf030;
+const SC_RESTORE = 0xf120;
+const HTMAXBUTTON = 9;
+const HTCAPTION = 2;
+
+function readMessageWord(value: Buffer): number {
+  if (value.length >= 8) return Number(value.readBigUInt64LE(0));
+  if (value.length >= 4) return value.readUInt32LE(0);
+  return 0;
+}
+
+function hookCaptionMaximize(win: BrowserWindow): void {
+  let lastToggle = 0;
+  const toggle = () => {
+    const now = Date.now();
+    if (now - lastToggle < 300) return;
+    lastToggle = now;
+    setTimeout(() => applyPseudoMaximize(win), 0);
+  };
+  win.hookWindowMessage(WM_SYSCOMMAND, (wParam) => {
+    const cmd = readMessageWord(wParam) & 0xfff0;
+    if (cmd === SC_MAXIMIZE || cmd === SC_RESTORE) toggle();
+  });
+  win.hookWindowMessage(WM_NCLBUTTONDOWN, (wParam) => {
+    if (readMessageWord(wParam) === HTMAXBUTTON) toggle();
+  });
+  win.hookWindowMessage(WM_NCLBUTTONUP, (wParam) => {
+    if (readMessageWord(wParam) === HTMAXBUTTON) toggle();
+  });
+  win.hookWindowMessage(WM_NCLBUTTONDBLCLK, (wParam) => {
+    if (readMessageWord(wParam) === HTCAPTION) toggle();
+  });
+}
 
 function resolveAppIcon(): Electron.NativeImage | undefined {
   const candidates = app.isPackaged
@@ -57,6 +121,7 @@ export function applyWindowGlassEffect(
   if (!enabled) {
     setWinMaterial(win, "none");
     win.setBackgroundColor("#121212");
+    keepMaximizeButton(win);
     return false;
   }
 
@@ -65,7 +130,8 @@ export function applyWindowGlassEffect(
   } catch {
     setWinMaterial(win, "mica");
   }
-  win.setBackgroundColor("#121212");
+  win.setBackgroundColor("#00000000");
+  keepMaximizeButton(win);
   return true;
 }
 
@@ -87,8 +153,8 @@ export function createMainWindow(): BrowserWindow {
     title: "BiliDesk",
     maximizable: true,
     fullscreenable: true,
-    transparent: false,
-    backgroundColor: "#121212",
+    transparent: USE_TRANSPARENT_WINDOW,
+    backgroundColor: glassOn ? "#00000000" : "#121212",
     thickFrame: true,
     ...(process.platform === "win32"
       ? {
@@ -109,6 +175,7 @@ export function createMainWindow(): BrowserWindow {
 
   win.on("ready-to-show", () => {
     applyWindowGlassEffect(win, Boolean(appStore.get("windowGlass")));
+    keepMaximizeButton(win);
     win.show();
     if (appStore.get("windowGlass")) {
       setTimeout(() => {
@@ -118,7 +185,14 @@ export function createMainWindow(): BrowserWindow {
         if (!win.isDestroyed()) applyWindowGlassEffect(win, true);
       }, 300);
     }
+    setTimeout(() => keepMaximizeButton(win), 0);
+    setTimeout(() => keepMaximizeButton(win), 300);
   });
+
+  if (USE_TRANSPARENT_WINDOW) {
+    boundsBeforePseudoMax = null;
+    hookCaptionMaximize(win);
+  }
 
   win.on("enter-full-screen", () => {
     if (!win.isDestroyed()) {
@@ -175,6 +249,10 @@ export function createMainWindow(): BrowserWindow {
 
 export function toggleWindowMaximize(win: BrowserWindow): boolean {
   if (win.isDestroyed()) return false;
+  if (USE_TRANSPARENT_WINDOW) {
+    applyPseudoMaximize(win);
+    return Boolean(boundsBeforePseudoMax);
+  }
   if (win.isMaximized()) {
     win.unmaximize();
     return false;
