@@ -25,11 +25,13 @@ import { CreateFavFolderControl } from "@/components/favorites/CreateFavFolderCo
 import { EditFavFolderDialog } from "@/components/favorites/EditFavFolderDialog";
 import { FavFolderGroupedNav } from "@/components/favorites/FavFolderGroupedNav";
 import { FavMoveDialog } from "@/components/favorites/FavMoveDialog";
+import { Badge } from "@/components/ui/badge";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Link } from "react-router-dom";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { useFollowedMidSet } from "@/lib/use-followed-mids";
 import { cn, formatDuration } from "@/lib/utils";
 import {
   moveFavFolderIntoGroup,
@@ -83,6 +85,7 @@ function FavVideoCard({
   editing,
   selected,
   removing,
+  showFollowedBadge = false,
   onToggleSelect,
   onRemove,
 }: {
@@ -90,6 +93,7 @@ function FavVideoCard({
   editing: boolean;
   selected: boolean;
   removing: boolean;
+  showFollowedBadge?: boolean;
   onToggleSelect: () => void;
   onRemove: () => void;
 }) {
@@ -109,8 +113,23 @@ function FavVideoCard({
       <div className="min-w-0 flex-1 pr-6">
         <p className="line-clamp-2 text-sm font-medium">{item.title}</p>
         {item.upper.name && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {item.upper.name}
+          <p className="mt-1 flex min-w-0 items-center gap-1 overflow-hidden text-xs text-muted-foreground">
+            <span
+              className={cn(
+                "truncate",
+                showFollowedBadge && "font-medium text-primary",
+              )}
+            >
+              {item.upper.name}
+            </span>
+            {showFollowedBadge && (
+              <Badge
+                variant="default"
+                className="shrink-0 px-1.5 py-0 text-[10px] leading-4"
+              >
+                已关注
+              </Badge>
+            )}
           </p>
         )}
         {item.duration > 0 && (
@@ -195,6 +214,7 @@ function FavVideoCard({
 }
 
 export function FavoritesPage() {
+  const followedMidSet = useFollowedMidSet();
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const folderLoadSeqRef = useRef(0);
@@ -1360,6 +1380,9 @@ export function FavoritesPage() {
                   editing={!isLocalMode && editing}
                   selected={selectedIds.has(item.id)}
                   removing={removingId === item.id}
+                  showFollowedBadge={
+                    item.upper.mid > 0 && followedMidSet.has(item.upper.mid)
+                  }
                   onToggleSelect={() => toggleSelect(item.id)}
                   onRemove={() => void handleQuickRemove(item)}
                 />
