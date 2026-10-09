@@ -12,6 +12,7 @@ import { VideoPage } from "@/features/video/VideoPage";
 import { LivePage } from "@/features/live/LivePage";
 import { WatchLaterPage } from "@/features/watch-later/WatchLaterPage";
 import { MyPage } from "@/features/me/MyPage";
+import { CollectionsPage } from "@/features/collections/CollectionsPage";
 import { UpActivityPage } from "@/features/up-activity/UpActivityPage";
 import { IntegrityPage } from "@/features/integrity/IntegrityPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
@@ -27,6 +28,7 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
   "/dynamics": { title: "动态", subtitle: "关注 UP 的最新更新" },
   "/history": { title: "历史记录", subtitle: "与官方账号同步" },
   "/favorites": { title: "收藏夹", subtitle: "本地二级分类管理" },
+  "/collections": { title: "合集", subtitle: "订阅与自建视频合集" },
   "/following": { title: "关注", subtitle: "AI 与规则智能分组" },
   "/watch-later": { title: "稍后再看", subtitle: "官方列表 + 本地溢出" },
   "/me": { title: "我的", subtitle: "个人主页" },
@@ -53,6 +55,9 @@ export function MainLayout() {
   );
   const favoritesKeepAlive = useNavigationStore(
     (state) => state.favoritesKeepAlive,
+  );
+  const collectionsKeepAlive = useNavigationStore(
+    (state) => state.collectionsKeepAlive,
   );
   const watchLaterKeepAlive = useNavigationStore(
     (state) => state.watchLaterKeepAlive,
@@ -137,6 +142,7 @@ export function MainLayout() {
   const isHome = path === "/";
   const isFollowing = path === "/following";
   const isFavorites = path === "/favorites";
+  const isCollections = path === "/collections";
   const isWatchLater = path === "/watch-later";
   const isDynamics = path === "/dynamics";
   const isHistory = path === "/history";
@@ -207,6 +213,17 @@ export function MainLayout() {
               aria-hidden={!isFavorites}
             >
               <FavoritesPage />
+            </div>
+          )}
+          {(collectionsKeepAlive || isCollections) && (
+            <div
+              className={cn(
+                "h-full overflow-hidden",
+                !isCollections && "hidden",
+              )}
+              aria-hidden={!isCollections}
+            >
+              <CollectionsPage />
             </div>
           )}
           {(watchLaterKeepAlive || isWatchLater) && (

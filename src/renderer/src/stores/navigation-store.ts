@@ -3,6 +3,7 @@ import { create } from "zustand";
 interface NavigationState {
   followingKeepAlive: boolean;
   favoritesKeepAlive: boolean;
+  collectionsKeepAlive: boolean;
   watchLaterKeepAlive: boolean;
   dynamicsKeepAlive: boolean;
   historyKeepAlive: boolean;
@@ -23,6 +24,7 @@ const MAIN_SECTIONS = new Set([
   "/history",
   "/popular",
   "/favorites",
+  "/collections",
   "/following",
   "/watch-later",
   "/me",
@@ -66,6 +68,7 @@ function getLiveRoomId(path: string): number | null {
 export const useNavigationStore = create<NavigationState>((set, get) => ({
   followingKeepAlive: false,
   favoritesKeepAlive: false,
+  collectionsKeepAlive: false,
   watchLaterKeepAlive: false,
   dynamicsKeepAlive: false,
   historyKeepAlive: false,
@@ -81,6 +84,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   syncKeepAlive: (path, prevPath) => {
     let followingKeepAlive = get().followingKeepAlive;
     let favoritesKeepAlive = get().favoritesKeepAlive;
+    let collectionsKeepAlive = get().collectionsKeepAlive;
     let watchLaterKeepAlive = get().watchLaterKeepAlive;
     let dynamicsKeepAlive = get().dynamicsKeepAlive;
     let historyKeepAlive = get().historyKeepAlive;
@@ -124,6 +128,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       prevPath !== "/up-activity" &&
       prevPath !== "/integrity" &&
       prevPath !== "/settings" &&
+      prevPath !== "/collections" &&
       (prevPath === "/following" || followingKeepAlive)
     ) {
       followingKeepAlive = true;
@@ -152,6 +157,17 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       favoritesKeepAlive = true;
     } else if (MAIN_SECTIONS.has(path) && path !== "/favorites") {
       favoritesKeepAlive = false;
+    }
+
+    if (path === "/collections") {
+      collectionsKeepAlive = true;
+    } else if (
+      (isVideoPath(path) || isLivePath(path) || isUpPath(path)) &&
+      (prevPath === "/collections" || collectionsKeepAlive)
+    ) {
+      collectionsKeepAlive = true;
+    } else if (MAIN_SECTIONS.has(path) && path !== "/collections") {
+      collectionsKeepAlive = false;
     }
 
     if (path === "/watch-later") {
@@ -275,6 +291,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
     if (
       current.followingKeepAlive !== followingKeepAlive ||
       current.favoritesKeepAlive !== favoritesKeepAlive ||
+      current.collectionsKeepAlive !== collectionsKeepAlive ||
       current.watchLaterKeepAlive !== watchLaterKeepAlive ||
       current.dynamicsKeepAlive !== dynamicsKeepAlive ||
       current.historyKeepAlive !== historyKeepAlive ||
@@ -290,6 +307,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       set({
         followingKeepAlive,
         favoritesKeepAlive,
+        collectionsKeepAlive,
         watchLaterKeepAlive,
         dynamicsKeepAlive,
         historyKeepAlive,

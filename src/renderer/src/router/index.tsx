@@ -12,6 +12,7 @@ export const router = createHashRouter([
       { index: true, element: null },
       { path: "popular", element: null },
       { path: "favorites", element: null },
+      { path: "collections", element: null },
       { path: "following", element: null },
       { path: "dynamics", element: null },
       { path: "dynamic/:id", element: <DynamicDetailPage /> },

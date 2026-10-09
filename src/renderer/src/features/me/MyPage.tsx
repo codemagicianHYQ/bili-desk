@@ -439,7 +439,7 @@ export function MyPage() {
 
           {visitedTabs.has("collections") && (
             <div className={tab === "collections" ? undefined : "hidden"}>
-              <MyCollectionsPanel mid={mid} />
+              <MyCollectionsPanel mid={mid} layout="embedded" />
             </div>
           )}
 

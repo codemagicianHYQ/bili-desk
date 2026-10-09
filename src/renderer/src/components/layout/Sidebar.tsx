@@ -12,6 +12,7 @@ import {
   Flame,
   ShieldAlert,
   Activity,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -24,6 +25,7 @@ const navItems = [
   { to: "/dynamics", icon: Radio, label: "动态" },
   { to: "/me", icon: UserCircle2, label: "我的" },
   { to: "/favorites", icon: Bookmark, label: "收藏" },
+  { to: "/collections", icon: Layers, label: "合集" },
   { to: "/following", icon: Users, label: "关注" },
   { to: "/history", icon: History, label: "历史记录" },
   { to: "/watch-later", icon: Clock, label: "稍后再看" },
@@ -40,6 +42,9 @@ export function Sidebar() {
   );
   const favoritesKeepAlive = useNavigationStore(
     (state) => state.favoritesKeepAlive,
+  );
+  const collectionsKeepAlive = useNavigationStore(
+    (state) => state.collectionsKeepAlive,
   );
   const watchLaterKeepAlive = useNavigationStore(
     (state) => state.watchLaterKeepAlive,
@@ -79,6 +84,13 @@ export function Sidebar() {
   const inFavoritesFlow =
     favoritesKeepAlive &&
     (path === "/favorites" ||
+      path.startsWith("/video/") ||
+      path.startsWith("/live/") ||
+      path.startsWith("/article/") ||
+      path.startsWith("/up/"));
+  const inCollectionsFlow =
+    collectionsKeepAlive &&
+    (path === "/collections" ||
       path.startsWith("/video/") ||
       path.startsWith("/live/") ||
       path.startsWith("/article/") ||
@@ -147,6 +159,7 @@ export function Sidebar() {
             (to !== "/" && location.pathname.startsWith(to)) ||
             (to === "/following" && inFollowingFlow) ||
             (to === "/favorites" && inFavoritesFlow) ||
+            (to === "/collections" && inCollectionsFlow) ||
             (to === "/watch-later" && inWatchLaterFlow) ||
             (to === "/dynamics" && inDynamicsFlow) ||
             (to === "/history" && inHistoryFlow) ||

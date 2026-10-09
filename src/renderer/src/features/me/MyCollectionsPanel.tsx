@@ -4,7 +4,9 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { VideoCard } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { cn } from "@/lib/utils";
+import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { cn, formatCount } from "@/lib/utils";
+import { useAppStore } from "@/stores/app-store";
 import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
@@ -16,7 +18,7 @@ import {
 const VIDEO_PAGE_SIZE = 30;
 
 function formatError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "加载失败";
+  const message = extractIpcErrorMessage(err) || "加载失败";
   if (message.includes("412") || message.includes("安全策略")) {
     return "请求被 B 站安全策略拦截，请稍后重试";
   }
@@ -29,7 +31,17 @@ function formatError(err: unknown): string {
 type CollectionTab = "created" | "subscribed";
 type VideoSortOrder = "desc" | "asc";
 
-export function MyCollectionsPanel({ mid }: { mid: number }) {
+interface MyCollectionsPanelProps {
+  mid: number;
+  /** page：侧栏独立页满高；embedded：嵌在「我的」里 */
+  layout?: "page" | "embedded";
+}
+
+export function MyCollectionsPanel({
+  mid,
+  layout = "embedded",
+}: MyCollectionsPanelProps) {
+  const selfMid = useAppStore((s) => s.user?.mid) ?? 0;
   const listScrollRef = useRef<HTMLDivElement>(null);
   const listSentinelRef = useRef<HTMLDivElement>(null);
 
@@ -49,6 +61,11 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
   const [videosLoading, setVideosLoading] = useState(false);
   const [videosError, setVideosError] = useState("");
   const [sortOrder, setSortOrder] = useState<VideoSortOrder>("desc");
+  const [subscribedIds, setSubscribedIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [subBusy, setSubBusy] = useState(false);
+  const [subError, setSubError] = useState("");
 
   const loadList = useCallback(
     async (kind: CollectionTab, nextPage: number, append: boolean) => {
@@ -60,6 +77,7 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
         setVideos([]);
         setVideoPage(1);
         setVideoTotal(0);
+        setSubError("");
       }
 
       try {
@@ -136,9 +154,27 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
       setSelected(collection);
       setSortOrder("desc");
       setVideoPage(1);
+      setSubError("");
       void loadVideos(collection, 1);
+      if (
+        collection.kind === "season" &&
+        collection.source !== "subscribed" &&
+        Number(collection.ownerMid ?? mid) !== Number(selfMid)
+      ) {
+        void window.biliDesk.bili
+          .getUgcSeasonSubscribed(collection.id)
+          .then((value) => {
+            setSubscribedIds((prev) => {
+              const next = new Set(prev);
+              if (value) next.add(collection.id);
+              else next.delete(collection.id);
+              return next;
+            });
+          })
+          .catch(() => {});
+      }
     },
-    [loadVideos],
+    [loadVideos, mid, selfMid],
   );
 
   const goToVideoPage = useCallback(
@@ -152,14 +188,87 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
     [selected, videosLoading, videoTotal, loadVideos],
   );
 
+  const isOwnSelected = Boolean(
+    selected &&
+    (tab === "created" ||
+      selected.source === "created" ||
+      Number(selected.ownerMid ?? 0) === Number(selfMid)),
+  );
+  const canSubscribeSelected = Boolean(
+    selected && selected.kind === "season" && !isOwnSelected,
+  );
+  const selectedSubscribed = Boolean(
+    selected && subscribedIds.has(selected.id),
+  );
+
+  const handleToggleSubscribe = async () => {
+    if (!selected || selected.kind !== "season" || subBusy) return;
+    if (!selfMid) {
+      setSubError("请先登录后再订阅合集");
+      return;
+    }
+    const next = !selectedSubscribed;
+    setSubBusy(true);
+    setSubError("");
+    setSubscribedIds((prev) => {
+      const copy = new Set(prev);
+      if (next) copy.add(selected.id);
+      else copy.delete(selected.id);
+      return copy;
+    });
+    const snapshot = selected;
+    try {
+      await window.biliDesk.bili.setUgcSeasonSubscribe(selected.id, next);
+      if (!next && tab === "subscribed") {
+        setSubscribed((prev) => prev.filter((item) => item.id !== selected.id));
+        setSelected(null);
+        setVideos([]);
+        setVideoTotal(0);
+      }
+    } catch (err) {
+      setSubscribedIds((prev) => {
+        const copy = new Set(prev);
+        if (next) copy.delete(selected.id);
+        else copy.add(selected.id);
+        return copy;
+      });
+      if (!next && tab === "subscribed") {
+        setSubscribed((prev) =>
+          prev.some((item) => item.id === snapshot.id)
+            ? prev
+            : [snapshot, ...prev],
+        );
+      }
+      const message = formatError(err);
+      if (
+        next &&
+        (message.includes("已订阅") ||
+          message.includes("已经收藏") ||
+          message.includes("重复"))
+      ) {
+        setSubscribedIds((prev) => new Set(prev).add(selected.id));
+      } else {
+        setSubError(message);
+      }
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
   useEffect(() => {
     setSeasons([]);
     setSeries([]);
     setSubscribed([]);
+    setSubscribedIds(new Set());
     setPage(1);
     setHasMore(false);
     void loadList(tab, 1, false);
-  }, [tab, loadList]);
+  }, [tab, mid, loadList]);
+
+  useEffect(() => {
+    if (tab !== "subscribed") return;
+    setSubscribedIds(new Set(subscribed.map((item) => item.id)));
+  }, [tab, subscribed]);
 
   useEffect(() => {
     const root = listScrollRef.current;
@@ -197,6 +306,11 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
   const allCollections =
     tab === "created" ? createdCollections : subscribedCollections;
 
+  const shellClass =
+    layout === "page"
+      ? "flex h-full min-h-0 flex-col gap-4"
+      : "flex flex-col space-y-4";
+
   if (loading && allCollections.length === 0) {
     return (
       <p className="flex items-center text-sm text-muted-foreground">
@@ -207,7 +321,7 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
   }
 
   return (
-    <div className="flex flex-col space-y-4">
+    <div className={shellClass}>
       <div className="flex shrink-0 gap-2">
         <Button
           size="sm"
@@ -232,48 +346,62 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
           {tab === "created" ? "暂无自建合集或系列" : "暂无收藏/订阅的合集"}
         </p>
       ) : (
-        <div className="grid h-[calc(100vh-15rem)] min-h-[480px] gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card/20">
+        <div
+          className={cn(
+            "grid min-h-0 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]",
+            layout === "page"
+              ? "h-full"
+              : "h-[calc(100vh-15rem)] min-h-[480px]",
+          )}
+        >
+          <div className="bili-glass flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/25">
             <div
               ref={listScrollRef}
-              className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1 pr-0.5"
+              className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2"
             >
-              {allCollections.map((item) => (
-                <button
-                  key={`${item.source ?? tab}-${item.kind}-${item.id}`}
-                  type="button"
-                  onClick={() => selectCollection(item)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-secondary",
-                    selected?.kind === item.kind &&
-                      selected?.id === item.id &&
-                      selected?.source === item.source &&
-                      "bg-secondary",
-                  )}
-                >
-                  {item.cover ? (
-                    <BiliImage
-                      src={item.cover}
-                      alt=""
-                      className="h-10 w-16 shrink-0 rounded object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-10 w-16 shrink-0 items-center justify-center rounded bg-muted">
-                      {item.kind === "season" ? (
-                        <Folder className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Layers className="h-4 w-4 text-muted-foreground" />
-                      )}
+              {allCollections.map((item) => {
+                const active =
+                  selected?.kind === item.kind &&
+                  selected?.id === item.id &&
+                  selected?.source === item.source;
+                return (
+                  <button
+                    key={`${item.source ?? tab}-${item.kind}-${item.id}`}
+                    type="button"
+                    onClick={() => selectCollection(item)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors",
+                      active
+                        ? "bg-primary/15 ring-1 ring-primary/35"
+                        : "hover:bg-secondary/70",
+                    )}
+                  >
+                    {item.cover ? (
+                      <BiliImage
+                        src={item.cover}
+                        alt=""
+                        className="h-12 w-[4.5rem] shrink-0 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-12 w-[4.5rem] shrink-0 items-center justify-center rounded-lg bg-muted">
+                        {item.kind === "season" ? (
+                          <Folder className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Layers className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {item.title}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {item.label} · {formatCount(item.total)} 个内容
+                      </p>
                     </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{item.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.label} · {item.total} 个内容
-                    </p>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
               <div
                 ref={listSentinelRef}
                 className="py-3 text-center text-xs text-muted-foreground"
@@ -284,57 +412,120 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
                     ? "继续下滑加载更多"
                     : "已经到底啦"}
               </div>
-              {error && <p className="text-sm text-red-400">{error}</p>}
+              {error && <p className="px-2 text-sm text-red-400">{error}</p>}
             </div>
           </div>
 
-          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+          <div className="bili-glass flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/20">
             {!selected ? (
-              <p className="text-sm text-muted-foreground">
-                选择左侧合集查看视频
-              </p>
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+                <Layers className="h-8 w-8 opacity-40" />
+                <p>选择左侧合集查看视频</p>
+              </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
-                  <p className="truncate text-sm font-medium">
-                    {selected.title}
-                  </p>
-                  {videoTotal > 0 && (
-                    <div className="flex shrink-0 gap-1.5">
-                      <Button
-                        size="sm"
-                        variant={sortOrder === "desc" ? "default" : "outline"}
-                        className="gap-1"
-                        onClick={() => setSortOrder("desc")}
-                      >
-                        <ArrowDownWideNarrow className="h-3.5 w-3.5" />
-                        最新优先
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={sortOrder === "asc" ? "default" : "outline"}
-                        className="gap-1"
-                        onClick={() => setSortOrder("asc")}
-                      >
-                        <ArrowUpWideNarrow className="h-3.5 w-3.5" />
-                        最早优先
-                      </Button>
+                <div className="relative shrink-0 overflow-hidden border-b border-border/60">
+                  {selected.cover ? (
+                    <BiliImage
+                      src={selected.cover}
+                      alt=""
+                      className="absolute inset-0 h-full w-full scale-110 object-cover opacity-25 blur-2xl"
+                    />
+                  ) : null}
+                  <div className="relative flex flex-wrap items-start gap-4 px-4 py-4">
+                    {selected.cover ? (
+                      <BiliImage
+                        src={selected.cover}
+                        alt=""
+                        className="h-20 w-[7.5rem] shrink-0 rounded-xl object-cover shadow-lg"
+                      />
+                    ) : (
+                      <div className="flex h-20 w-[7.5rem] shrink-0 items-center justify-center rounded-xl bg-muted">
+                        <Folder className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-lg font-semibold tracking-tight">
+                            {selected.title}
+                          </h3>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {selected.kind === "season" ? "合集" : "系列"} ·{" "}
+                            {formatCount(selected.total || videoTotal)} 个内容
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          {canSubscribeSelected && (
+                            <Button
+                              size="sm"
+                              variant={
+                                selectedSubscribed ? "outline" : "default"
+                              }
+                              disabled={subBusy}
+                              onClick={() => void handleToggleSubscribe()}
+                            >
+                              {subBusy
+                                ? "处理中..."
+                                : selectedSubscribed
+                                  ? "取消订阅"
+                                  : "订阅合集"}
+                            </Button>
+                          )}
+                          {videoTotal > 0 && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant={
+                                  sortOrder === "desc" ? "default" : "outline"
+                                }
+                                className="gap-1"
+                                onClick={() => setSortOrder("desc")}
+                              >
+                                <ArrowDownWideNarrow className="h-3.5 w-3.5" />
+                                最新
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={
+                                  sortOrder === "asc" ? "default" : "outline"
+                                }
+                                className="gap-1"
+                                onClick={() => setSortOrder("asc")}
+                              >
+                                <ArrowUpWideNarrow className="h-3.5 w-3.5" />
+                                最早
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {selected.description ? (
+                        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                          {selected.description}
+                        </p>
+                      ) : null}
+                      {subError ? (
+                        <p className="text-xs text-red-400">{subError}</p>
+                      ) : null}
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 {videosLoading && videos.length === 0 ? (
-                  <p className="flex items-center text-sm text-muted-foreground">
+                  <p className="flex items-center px-4 py-8 text-sm text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     加载视频中...
                   </p>
                 ) : videosError && videos.length === 0 ? (
-                  <p className="text-sm text-red-400">{videosError}</p>
+                  <p className="px-4 py-8 text-sm text-red-400">
+                    {videosError}
+                  </p>
                 ) : sortedVideos.length > 0 ? (
                   <>
                     <div
                       className={cn(
-                        "min-h-0 flex-1 overflow-y-auto pr-1",
+                        "min-h-0 flex-1 overflow-y-auto px-4 pt-4",
                         videosLoading && "pointer-events-none opacity-60",
                       )}
                     >
@@ -366,7 +557,7 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
                         totalPages={videoTotalPages}
                         disabled={videosLoading}
                         onPageChange={goToVideoPage}
-                        className="mt-auto shrink-0 border-t border-border bg-background px-0 pt-3"
+                        className="mt-auto shrink-0 border-t border-border/60 bg-transparent px-4 py-3"
                         info={
                           <>
                             共 {videoTotal} 个视频 · 第 {videoPage} /{" "}
@@ -377,7 +568,7 @@ export function MyCollectionsPanel({ mid }: { mid: number }) {
                     )}
                   </>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="px-4 py-8 text-sm text-muted-foreground">
                     该合集暂无视频
                   </p>
                 )}
