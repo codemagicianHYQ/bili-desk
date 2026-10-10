@@ -5,6 +5,11 @@ import flvjs from "flv.js";
 import dashjs from "dashjs";
 import type { VideoPlayInfo, VideoSubtitleTrack } from "@shared/types";
 import { attachBiliDash } from "@/components/video/dash-mse";
+import {
+  readPlaybackRate,
+  readPlaybackVolume,
+  writePlaybackVolume,
+} from "@/components/video/playback-pref";
 import { createPlaybackRateControl } from "@/components/video/playback-rate-setting";
 import {
   bindPlayerResize,
@@ -24,6 +29,10 @@ import {
   createSubtitleControl,
   pickSubtitleTrack,
 } from "@/components/video/subtitle-control";
+import {
+  matchSubtitleTrack,
+  resolveSubtitleChoice,
+} from "@/components/video/subtitle-pref";
 import {
   attachPlayerHotkeys,
   createSeekStepSetting,
@@ -290,7 +299,13 @@ export function VideoPlayer({
       onErrorRef.current?.(message, "stall", detail);
     };
 
-    const preferredSubtitle = pickSubtitleTrack(subtitleTracks);
+    const subtitleChoice = resolveSubtitleChoice(bvid);
+    const preferredSubtitle = matchSubtitleTrack(
+      subtitleTracks,
+      subtitleChoice,
+      pickSubtitleTrack,
+    );
+    const showSubtitle = subtitleChoice.enabled && Boolean(preferredSubtitle);
     let subtitleBlobUrl = "";
     if (preferredSubtitle) {
       subtitleBlobUrl = createSubtitleBlobUrl(preferredSubtitle.vtt);
@@ -317,7 +332,7 @@ export function VideoPlayer({
       hotkey: false,
       controls: [
         ...(subtitleTracks.length > 0
-          ? [createSubtitleControl(subtitleTracks, subtitleTrackUrls)]
+          ? [createSubtitleControl(subtitleTracks, subtitleTrackUrls, bvid)]
           : []),
         createQualityControl(playInfo, selectedQn, (qn) => {
           saveCurrentProgress();
@@ -330,7 +345,7 @@ export function VideoPlayer({
       theme: playerThemeColor(),
       lang: "zh-cn",
       type: resolvePlayerType(playInfo.format),
-      ...(preferredSubtitle
+      ...(preferredSubtitle && showSubtitle
         ? {
             subtitle: {
               url: subtitleBlobUrl,
@@ -588,6 +603,25 @@ export function VideoPlayer({
     });
 
     artRef.current = art;
+    const applySavedPlayback = () => {
+      const rate = readPlaybackRate();
+      if (Math.abs((art.playbackRate || 1) - rate) > 0.001) {
+        art.playbackRate = rate;
+      }
+      const savedVolume = readPlaybackVolume();
+      if (
+        savedVolume != null &&
+        Math.abs((art.volume ?? 1) - savedVolume) > 0.001
+      ) {
+        art.volume = savedVolume;
+      }
+    };
+    applySavedPlayback();
+    art.on("ready", applySavedPlayback);
+    art.on("video:loadedmetadata", applySavedPlayback);
+    art.on("video:volume", () => {
+      writePlaybackVolume(art.volume);
+    });
     art.on("artplayerPluginDanmuku:config", (option) => {
       writeDanmakuPref(option);
     });
@@ -670,14 +704,19 @@ export function VideoPlayer({
         trackUrls.set(track.id, url);
       }
 
-      art.controls.add(createSubtitleControl(subtitleTracks, trackUrls));
+      art.controls.add(createSubtitleControl(subtitleTracks, trackUrls, bvid));
 
-      const preferred = pickSubtitleTrack(subtitleTracks);
-      if (!preferred) return;
+      const choice = resolveSubtitleChoice(bvid);
+      const preferred = matchSubtitleTrack(
+        subtitleTracks,
+        choice,
+        pickSubtitleTrack,
+      );
+      if (!preferred || !choice.enabled) return;
       const url = trackUrls.get(preferred.id);
       if (!url) return;
       try {
-        await applyArtSubtitle(art, preferred, url);
+        await applyArtSubtitle(art, preferred, url, true);
       } catch {
         // ignore
       }
@@ -688,7 +727,7 @@ export function VideoPlayer({
     return () => {
       for (const url of createdUrls) URL.revokeObjectURL(url);
     };
-  }, [subtitleTracks, cid, reloadKey]);
+  }, [subtitleTracks, cid, bvid, reloadKey]);
 
   useEffect(() => {
     const art = artRef.current;

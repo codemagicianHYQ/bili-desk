@@ -1,5 +1,6 @@
 import type Artplayer from "artplayer";
 import type { ComponentOption } from "artplayer/types/component";
+import { writePlaybackRate } from "@/components/video/playback-pref";
 
 const PRESETS = [0.5, 0.8, 1, 1.3, 1.5, 2] as const;
 const MIN_RATE = 0.25;
@@ -111,7 +112,9 @@ function triggerSnapFeedback(panel: HTMLElement, snapped: number) {
 }
 
 function applyRate(art: Artplayer, rate: number) {
-  art.playbackRate = clampRate(rate);
+  const next = clampRate(rate);
+  art.playbackRate = next;
+  writePlaybackRate(next);
 }
 
 function updatePresetActive(panel: HTMLElement, rate: number) {
