@@ -1076,6 +1076,133 @@ export interface HistoryPage {
   hasMore: boolean;
 }
 
+export type MessageSessionFilter =
+  | "all"
+  | "followed"
+  | "unfollowed"
+  | "group"
+  | "intercepted";
+
+export type MessageFeedKind = "reply" | "at" | "like";
+
+export interface MessageUnread {
+  reply: number;
+  at: number;
+  like: number;
+  sys: number;
+  chat: number;
+  group: number;
+  dustbin: number;
+}
+
+export interface MessageSession {
+  talkerId: string;
+  sessionType: number;
+  name: string;
+  face: string;
+  unread: number;
+  pinned: boolean;
+  muted: boolean;
+  followed: boolean;
+  live: boolean;
+  systemType: number;
+  preview: string;
+  time: number;
+  sessionTs: number;
+  maxSeqno: string;
+}
+
+export interface MessageSessionPage {
+  items: MessageSession[];
+  hasMore: boolean;
+  endTs: number;
+}
+
+export interface ChatEmote {
+  text: string;
+  url: string;
+}
+
+export interface ChatMessage {
+  seqno: string;
+  msgKey: string;
+  senderUid: number;
+  msgType: number;
+  status: number;
+  time: number;
+  text: string;
+  imageUrl: string;
+  title: string;
+  jumpUrl: string;
+  cover: string;
+  source: number;
+  mine: boolean;
+}
+
+export interface ChatPage {
+  messages: ChatMessage[];
+  emotes: ChatEmote[];
+  hasMore: boolean;
+  minSeqno: string;
+  maxSeqno: string;
+}
+
+export interface MessageFeedUser {
+  mid: number;
+  name: string;
+  face: string;
+}
+
+export interface MessageFeedItem {
+  id: string;
+  time: number;
+  users: MessageFeedUser[];
+  counts: number;
+  business: string;
+  title: string;
+  content: string;
+  quote: string;
+  cover: string;
+  uri: string;
+  subjectId: number;
+  businessId: number;
+  rootId: number;
+  sourceId: number;
+}
+
+export interface MessageFeedPage {
+  items: MessageFeedItem[];
+  cursorId: number;
+  cursorTime: number;
+  isEnd: boolean;
+}
+
+export interface SystemNotice {
+  id: string;
+  cursor: string;
+  title: string;
+  content: string;
+  timeText: string;
+  time: number;
+  cover: string;
+  uri: string;
+  sourceName: string;
+}
+
+export interface SystemNoticePage {
+  items: SystemNotice[];
+  cursor: string;
+  isEnd: boolean;
+}
+
+export interface MessageSettings {
+  msgNotify: boolean;
+  showUnfollowed: boolean;
+  foldUnfollowed: boolean;
+  foldGroup: boolean;
+  blockWords: string[];
+}
+
 export interface UserCollectionItem {
   id: number;
   kind: "season" | "series";
@@ -1374,6 +1501,7 @@ export interface BiliDeskApi {
       page?: number,
       sort?: 0 | 1 | 2,
       offset?: string,
+      seekRpid?: number,
     ) => Promise<CommentPage>;
     getCommentReplies: (
       aid: number,
@@ -1536,6 +1664,7 @@ export interface BiliDeskApi {
       page?: number,
       sort?: 0 | 1 | 2,
       offset?: string,
+      seekRpid?: number,
     ) => Promise<CommentPage>;
     getTargetCommentReplies: (
       oid: string,
@@ -1600,6 +1729,65 @@ export interface BiliDeskApi {
       mid?: number,
     ) => Promise<CheeseCoursePage>;
     getUpowerPaidList: () => Promise<ChargeRecordResult>;
+    getMessageUnread: () => Promise<MessageUnread>;
+    getMessageSessions: (
+      filter?: MessageSessionFilter,
+      endTs?: number,
+    ) => Promise<MessageSessionPage>;
+    getChatMessages: (
+      talkerId: string,
+      sessionType: number,
+      endSeqno?: string,
+    ) => Promise<ChatPage>;
+    sendChatMessage: (
+      talkerId: string,
+      sessionType: number,
+      text: string,
+    ) => Promise<void>;
+    markChatRead: (
+      talkerId: string,
+      sessionType: number,
+      ackSeqno?: string,
+    ) => Promise<void>;
+    setChatPinned: (
+      talkerId: string,
+      sessionType: number,
+      pinned: boolean,
+    ) => Promise<void>;
+    setChatMuted: (
+      talkerId: string,
+      sessionType: number,
+      muted: boolean,
+    ) => Promise<void>;
+    removeChatSession: (talkerId: string, sessionType: number) => Promise<void>;
+    recallChatMessage: (
+      talkerId: string,
+      sessionType: number,
+      msgKey: string,
+    ) => Promise<void>;
+    getMessageFeed: (
+      kind: MessageFeedKind,
+      cursorId?: number,
+      cursorTime?: number,
+    ) => Promise<MessageFeedPage>;
+    deleteMessageFeed: (kind: MessageFeedKind, id: string) => Promise<void>;
+    getMyReplies: (
+      cursorId?: number,
+      cursorTime?: number,
+      keyword?: string,
+    ) => Promise<MessageFeedPage>;
+    getSystemNotices: (cursor?: string) => Promise<SystemNoticePage>;
+    getMessageSettings: () => Promise<MessageSettings>;
+    setMessageSettings: (
+      patch: Partial<
+        Pick<
+          MessageSettings,
+          "msgNotify" | "showUnfollowed" | "foldUnfollowed" | "foldGroup"
+        >
+      >,
+    ) => Promise<MessageSettings>;
+    addMessageBlockWord: (word: string) => Promise<string[]>;
+    removeMessageBlockWord: (word: string) => Promise<string[]>;
   };
   taxonomy: {
     getTree: () => Promise<CategoryTreeNode[]>;

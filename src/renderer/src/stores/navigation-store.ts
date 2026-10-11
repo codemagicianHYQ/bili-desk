@@ -11,6 +11,7 @@ interface NavigationState {
   upActivityKeepAlive: boolean;
   integrityKeepAlive: boolean;
   settingsKeepAlive: boolean;
+  messagesKeepAlive: boolean;
   videoKeepAlive: boolean;
   liveKeepAlive: boolean;
   activeVideoBvid: string | null;
@@ -31,6 +32,7 @@ const MAIN_SECTIONS = new Set([
   "/settings",
   "/up-activity",
   "/integrity",
+  "/messages",
 ]);
 
 function isUpPath(path: string): boolean {
@@ -76,6 +78,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   upActivityKeepAlive: false,
   integrityKeepAlive: false,
   settingsKeepAlive: false,
+  messagesKeepAlive: false,
   videoKeepAlive: false,
   liveKeepAlive: false,
   activeVideoBvid: null,
@@ -92,6 +95,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
     let upActivityKeepAlive = get().upActivityKeepAlive;
     let integrityKeepAlive = get().integrityKeepAlive;
     let settingsKeepAlive = get().settingsKeepAlive;
+    let messagesKeepAlive = get().messagesKeepAlive;
     let videoKeepAlive = get().videoKeepAlive;
     let liveKeepAlive = get().liveKeepAlive;
     let activeVideoBvid = get().activeVideoBvid;
@@ -129,6 +133,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       prevPath !== "/integrity" &&
       prevPath !== "/settings" &&
       prevPath !== "/collections" &&
+      prevPath !== "/messages" &&
       (prevPath === "/following" || followingKeepAlive)
     ) {
       followingKeepAlive = true;
@@ -287,6 +292,14 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       settingsKeepAlive = false;
     }
 
+    if (path === "/messages") {
+      messagesKeepAlive = true;
+    } else if (drillIn && (prevPath === "/messages" || messagesKeepAlive)) {
+      messagesKeepAlive = true;
+    } else if (MAIN_SECTIONS.has(path) && path !== "/messages") {
+      messagesKeepAlive = false;
+    }
+
     const current = get();
     if (
       current.followingKeepAlive !== followingKeepAlive ||
@@ -299,6 +312,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       current.upActivityKeepAlive !== upActivityKeepAlive ||
       current.integrityKeepAlive !== integrityKeepAlive ||
       current.settingsKeepAlive !== settingsKeepAlive ||
+      current.messagesKeepAlive !== messagesKeepAlive ||
       current.videoKeepAlive !== videoKeepAlive ||
       current.liveKeepAlive !== liveKeepAlive ||
       current.activeVideoBvid !== activeVideoBvid ||
@@ -315,6 +329,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
         upActivityKeepAlive,
         integrityKeepAlive,
         settingsKeepAlive,
+        messagesKeepAlive,
         videoKeepAlive,
         liveKeepAlive,
         activeVideoBvid,

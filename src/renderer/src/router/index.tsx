@@ -27,6 +27,7 @@ export const router = createHashRouter([
       { path: "integrity", element: null },
       { path: "up-activity", element: null },
       { path: "settings", element: null },
+      { path: "messages", element: null },
     ],
   },
   { path: "/login", element: <LoginPage /> },

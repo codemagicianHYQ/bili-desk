@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
 import {
   ForwardedOrigEmbed,
@@ -29,6 +29,9 @@ function formatPubTime(ts: number, label?: string): string {
 
 export function DynamicDetailPage() {
   const { id = "" } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const focusRpid = Number(searchParams.get("rpid")) || 0;
+  const focusRoot = Number(searchParams.get("root")) || 0;
   const [item, setItem] = useState<SpaceDynamicItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -243,6 +246,8 @@ export function DynamicDetailPage() {
                   type={commentType}
                   replyCount={item.stats?.reply ?? 0}
                   ownerMid={item.authorMid}
+                  focusRpid={focusRpid}
+                  focusRoot={focusRoot}
                 />
               </div>
             </div>

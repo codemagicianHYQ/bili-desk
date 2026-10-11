@@ -24,6 +24,9 @@ import type {
   UpGroupTreeNode,
   UpVideosOrder,
   VideoItem,
+  MessageFeedKind,
+  MessageSessionFilter,
+  MessageSettings,
 } from "@shared/types";
 
 const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
@@ -198,6 +201,7 @@ const api = {
       page?: number,
       sort?: 0 | 1 | 2,
       offset?: string,
+      seekRpid?: number,
     ) =>
       ipcRenderer.invoke(
         IPC.BILI_COMMENT_LIST,
@@ -205,6 +209,7 @@ const api = {
         page ?? 1,
         sort ?? 0,
         offset ?? "",
+        seekRpid ?? 0,
       ),
     getCommentReplies: (aid: number, root: number, page?: number) =>
       ipcRenderer.invoke(IPC.BILI_COMMENT_REPLIES, aid, root, page ?? 1),
@@ -454,6 +459,7 @@ const api = {
       page?: number,
       sort?: 0 | 1 | 2,
       offset?: string,
+      seekRpid?: number,
     ) =>
       ipcRenderer.invoke(
         IPC.BILI_TARGET_COMMENT_LIST,
@@ -462,6 +468,7 @@ const api = {
         page ?? 1,
         sort ?? 0,
         offset ?? "",
+        seekRpid ?? 0,
       ),
     getTargetCommentReplies: (
       oid: string,
@@ -543,6 +550,85 @@ const api = {
     getCheeseFollowList: (page?: number, mid?: number) =>
       ipcRenderer.invoke(IPC.BILI_CHEESE_FOLLOW, page ?? 1, mid),
     getUpowerPaidList: () => ipcRenderer.invoke(IPC.BILI_UPOWER_PAID),
+    getMessageUnread: () => ipcRenderer.invoke(IPC.BILI_MSG_UNREAD),
+    getMessageSessions: (filter?: MessageSessionFilter, endTs?: number) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_SESSIONS, filter ?? "all", endTs ?? 0),
+    getChatMessages: (
+      talkerId: string,
+      sessionType: number,
+      endSeqno?: string,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_MSG_CHAT,
+        talkerId,
+        sessionType,
+        endSeqno ?? "",
+      ),
+    sendChatMessage: (talkerId: string, sessionType: number, text: string) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_SEND, talkerId, sessionType, text),
+    markChatRead: (talkerId: string, sessionType: number, ackSeqno?: string) =>
+      ipcRenderer.invoke(
+        IPC.BILI_MSG_READ,
+        talkerId,
+        sessionType,
+        ackSeqno ?? "",
+      ),
+    setChatPinned: (talkerId: string, sessionType: number, pinned: boolean) =>
+      ipcRenderer.invoke(
+        IPC.BILI_MSG_SESSION_TOP,
+        talkerId,
+        sessionType,
+        pinned,
+      ),
+    setChatMuted: (talkerId: string, sessionType: number, muted: boolean) =>
+      ipcRenderer.invoke(
+        IPC.BILI_MSG_SESSION_DND,
+        talkerId,
+        sessionType,
+        muted,
+      ),
+    removeChatSession: (talkerId: string, sessionType: number) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_SESSION_REMOVE, talkerId, sessionType),
+    recallChatMessage: (
+      talkerId: string,
+      sessionType: number,
+      msgKey: string,
+    ) => ipcRenderer.invoke(IPC.BILI_MSG_RECALL, talkerId, sessionType, msgKey),
+    getMessageFeed: (
+      kind: MessageFeedKind,
+      cursorId?: number,
+      cursorTime?: number,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_MSG_FEED,
+        kind,
+        cursorId ?? 0,
+        cursorTime ?? 0,
+      ),
+    deleteMessageFeed: (kind: MessageFeedKind, id: string) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_FEED_DELETE, kind, id),
+    getMyReplies: (cursorId?: number, cursorTime?: number, keyword?: string) =>
+      ipcRenderer.invoke(
+        IPC.BILI_MSG_MY_REPLIES,
+        cursorId ?? 0,
+        cursorTime ?? 0,
+        keyword ?? "",
+      ),
+    getSystemNotices: (cursor?: string) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_NOTICES, cursor ?? ""),
+    getMessageSettings: () => ipcRenderer.invoke(IPC.BILI_MSG_SETTINGS_GET),
+    setMessageSettings: (
+      patch: Partial<
+        Pick<
+          MessageSettings,
+          "msgNotify" | "showUnfollowed" | "foldUnfollowed" | "foldGroup"
+        >
+      >,
+    ) => ipcRenderer.invoke(IPC.BILI_MSG_SETTINGS_SET, patch),
+    addMessageBlockWord: (word: string) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_BLOCK_ADD, word),
+    removeMessageBlockWord: (word: string) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_BLOCK_DEL, word),
   },
   taxonomy: {
     getTree: () => ipcRenderer.invoke(IPC.TAXONOMY_TREE),

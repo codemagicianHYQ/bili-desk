@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { CommentItem } from "@shared/types";
 import { CommentThread } from "@/components/comment/CommentThread";
+import { useFocusComment } from "@/components/comment/focus-comment";
 import { commentRpid, stripComment } from "@/components/comment/comment-tree";
 import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,8 @@ interface VideoCommentSectionProps {
   ownerMid?: number;
   replyCount?: number;
   scrollRootRef?: RefObject<HTMLElement | null>;
+  focusRpid?: number;
+  focusRoot?: number;
 }
 
 type CommentSort = 0 | 2;
@@ -51,6 +54,8 @@ export function VideoCommentSection({
   ownerMid,
   replyCount = 0,
   scrollRootRef,
+  focusRpid = 0,
+  focusRoot = 0,
 }: VideoCommentSectionProps) {
   const selfMid = useAppStore((state) => state.user?.mid);
   const loadingMoreRef = useRef(false);
@@ -132,6 +137,7 @@ export function VideoCommentSection({
           nextPage,
           nextSort,
           reset ? "" : nextOffsetRef.current,
+          reset ? focusRpid : 0,
         );
 
         const prev = reset ? [] : commentsRef.current;
@@ -194,10 +200,30 @@ export function VideoCommentSection({
         loadingMoreRef.current = false;
       }
     },
-    [aid, replyCount],
+    [aid, focusRpid, replyCount],
   );
 
+  const loadFocusedReplies = useCallback(
+    async (root: number) => {
+      const page = await window.biliDesk.bili.getCommentReplies(aid, root, 1);
+      return page.comments;
+    },
+    [aid],
+  );
+  useFocusComment({
+    comments,
+    setComments,
+    focusRpid,
+    focusRoot,
+    loadReplies: loadFocusedReplies,
+  });
+
   useEffect(() => {
+    if (focusRpid > 0) {
+      nextOffsetRef.current = "";
+      void loadComments(1, sort, true);
+      return;
+    }
     const cached = commentsCache.get(commentsCacheKey(aid, sort));
     if (cached) {
       commentsRef.current = cached.comments;
@@ -215,7 +241,7 @@ export function VideoCommentSection({
     }
     nextOffsetRef.current = "";
     void loadComments(1, sort, true);
-  }, [aid, sort, loadComments]);
+  }, [aid, focusRpid, sort, loadComments]);
 
   const handleLoadMore = useCallback(() => {
     if (loading || loadingMoreRef.current || !hasMore) return;
@@ -355,6 +381,7 @@ export function VideoCommentSection({
           estimateSize={estimateCommentSize}
           overscan={8}
           getItemKey={(item) => item.rpid}
+          scrollToKey={focusRoot || focusRpid || null}
           onEndReached={handleLoadMore}
           renderItem={(item) => (
             <div className="pb-5">
@@ -363,6 +390,7 @@ export function VideoCommentSection({
                 ownerMid={ownerMid}
                 selfMid={selfMid}
                 handlers={handlers}
+                highlightRpid={focusRpid}
                 onChanged={() => void loadComments(1, sort, true)}
                 onDeleted={handleDeleted}
               />

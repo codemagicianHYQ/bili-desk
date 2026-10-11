@@ -25,6 +25,8 @@ interface VirtualListProps<T> {
   onEndReached?: () => void;
   endReachedOffset?: number;
   footer?: ReactNode;
+  /** 把这一项滚进滚动容器，虚拟列表会跟着挂载它 */
+  scrollToKey?: string | number | null;
 }
 
 function resolveEstimate<T>(
@@ -64,6 +66,7 @@ export function VirtualList<T>({
   onEndReached,
   endReachedOffset = 800,
   footer,
+  scrollToKey,
 }: VirtualListProps<T>) {
   const anchorRef = useRef<HTMLDivElement>(null);
   const onEndReachedRef = useRef(onEndReached);
@@ -176,6 +179,27 @@ export function VirtualList<T>({
   useLayoutEffect(() => {
     updateRange();
   }, [items.length, sizeVersion, updateRange]);
+
+  const scrolledKeyRef = useRef<string | number | null>(null);
+  useEffect(() => {
+    if (scrollToKey == null || scrollToKey === "") return;
+    if (scrolledKeyRef.current === scrollToKey) return;
+    const index = items.findIndex(
+      (item, itemIndex) => getItemKey(item, itemIndex) === scrollToKey,
+    );
+    if (index < 0) return;
+    const root = scrollRootRef?.current;
+    const anchor = anchorRef.current;
+    if (!root || !anchor) return;
+    const rootRect = root.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const listOffset = root.scrollTop + (anchorRect.top - rootRect.top);
+    root.scrollTo({
+      top: Math.max(0, listOffset + (offsets[index] ?? 0) - 72),
+      behavior: "smooth",
+    });
+    scrolledKeyRef.current = scrollToKey;
+  }, [scrollToKey, items, offsets, getItemKey, scrollRootRef]);
 
   const start = Math.min(range.start, items.length);
   const end = Math.min(Math.max(range.end, start), items.length);

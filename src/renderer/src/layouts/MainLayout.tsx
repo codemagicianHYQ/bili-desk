@@ -16,6 +16,7 @@ import { CollectionsPage } from "@/features/collections/CollectionsPage";
 import { UpActivityPage } from "@/features/up-activity/UpActivityPage";
 import { IntegrityPage } from "@/features/integrity/IntegrityPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { MessagesPage } from "@/features/messages/MessagesPage";
 import { useNavigationStore } from "@/stores/navigation-store";
 import { useHomeSearchStore } from "@/stores/home-search-store";
 import { useHomeTabStore } from "@/stores/home-tab-store";
@@ -41,6 +42,7 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
     subtitle: "按稿件 / 动态筛活跃与停更",
   },
   "/settings": { title: "设置", subtitle: "外观、隐私、黑名单与 AI" },
+  "/messages": { title: "消息", subtitle: "私信、回复、@、赞与系统通知" },
   "/login": { title: "登录", subtitle: "扫码登录 B 站账号" },
 };
 
@@ -79,6 +81,9 @@ export function MainLayout() {
   );
   const settingsKeepAlive = useNavigationStore(
     (state) => state.settingsKeepAlive,
+  );
+  const messagesKeepAlive = useNavigationStore(
+    (state) => state.messagesKeepAlive,
   );
   const videoKeepAlive = useNavigationStore((state) => state.videoKeepAlive);
   const liveKeepAlive = useNavigationStore((state) => state.liveKeepAlive);
@@ -154,6 +159,7 @@ export function MainLayout() {
   const isVideo = path.startsWith("/video/");
   const isLive = path.startsWith("/live/");
   const isSettings = path === "/settings";
+  const isMessages = path === "/messages";
   const isIntegrity = path === "/integrity";
   const isUpActivity = path === "/up-activity";
   const showOutlet = isUpSpace || isDynamicDetail || isArticleDetail;
@@ -254,6 +260,17 @@ export function MainLayout() {
               aria-hidden={!isIntegrity}
             >
               <IntegrityPage />
+            </div>
+          )}
+          {(messagesKeepAlive || isMessages) && (
+            <div
+              className={cn(
+                "h-full overflow-hidden",
+                !isMessages && "hidden",
+              )}
+              aria-hidden={!isMessages}
+            >
+              <MessagesPage />
             </div>
           )}
           {(settingsKeepAlive || isSettings) && (

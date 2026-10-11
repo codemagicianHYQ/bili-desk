@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import type { ArticleDetail } from "@shared/types";
 import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -19,6 +24,9 @@ function formatPubTime(ts: number): string {
 export function ArticleDetailPage() {
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusRpid = Number(searchParams.get("rpid")) || 0;
+  const focusRoot = Number(searchParams.get("root")) || 0;
   const cvid = Number(id);
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -202,6 +210,8 @@ export function ArticleDetailPage() {
                   type={ARTICLE_COMMENT_TYPE}
                   replyCount={article.reply}
                   ownerMid={article.mid}
+                  focusRpid={focusRpid}
+                  focusRoot={focusRoot}
                 />
               </div>
             </div>

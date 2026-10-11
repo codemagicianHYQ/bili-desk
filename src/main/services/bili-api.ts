@@ -3062,6 +3062,7 @@ class BiliApiService {
     sort: 0 | 1 | 2,
     page: number,
     offset = "",
+    seekRpid = 0,
   ): Promise<CommentPage> {
     await this.ensureBuvid3();
     const pageSize = 20;
@@ -3075,6 +3076,7 @@ class BiliApiService {
       pagination_str: JSON.stringify({ offset: offset || "" }),
     };
     if (isFirst) params.next = 0;
+    if (isFirst && seekRpid > 0) params.seek_rpid = String(seekRpid);
 
     const headers = { Referer: "https://www.bilibili.com/" };
     let res = await this.client.get("/x/v2/reply/wbi/main", {
@@ -3107,8 +3109,9 @@ class BiliApiService {
     page = 1,
     sort: 0 | 1 | 2 = 0,
     offset = "",
+    seekRpid = 0,
   ): Promise<CommentPage> {
-    return this.fetchReplyMainPage(aid, 1, sort, page, offset);
+    return this.fetchReplyMainPage(aid, 1, sort, page, offset, seekRpid);
   }
 
   /** 拉少量热评原文，给收藏整理/推荐夹用 */
@@ -7968,8 +7971,9 @@ class BiliApiService {
     page = 1,
     sort: 0 | 1 | 2 = 0,
     offset = "",
+    seekRpid = 0,
   ): Promise<CommentPage> {
-    return this.fetchReplyMainPage(oid, type, sort, page, offset);
+    return this.fetchReplyMainPage(oid, type, sort, page, offset, seekRpid);
   }
 
   async getTargetCommentReplies(

@@ -37,6 +37,7 @@ interface CommentThreadProps {
   handlers: CommentThreadHandlers;
   onChanged: () => void;
   onDeleted: (rpid: number) => void;
+  highlightRpid?: number;
 }
 
 export function CommentThread({
@@ -47,6 +48,7 @@ export function CommentThread({
   handlers,
   onChanged,
   onDeleted,
+  highlightRpid = 0,
 }: CommentThreadProps) {
   const emotes = useReplyEmotes(item.emotes);
   const [liked, setLiked] = useState(item.action === 1);
@@ -203,10 +205,13 @@ export function CommentThread({
 
   return (
     <div
+      data-comment-rpid={item.rpid}
       className={cn(
         "bili-cmt-node",
         nested && "is-nested",
         hasKids && "has-kids",
+        highlightRpid === item.rpid &&
+          "rounded-xl bg-primary/10 ring-2 ring-primary/50",
       )}
     >
       <div className="bili-cmt-rail">
@@ -405,6 +410,7 @@ export function CommentThread({
                     handlers={handlers}
                     onChanged={onChanged}
                     onDeleted={bubbleDeleted}
+                    highlightRpid={highlightRpid}
                   />
                 )}
               </div>

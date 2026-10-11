@@ -7,6 +7,8 @@ import type {
   SearchUserTypeFilter,
   SearchMediaKind,
   SearchLiveOrder,
+  MessageFeedKind,
+  MessageSessionFilter,
   SuggestFavFolderPayload,
   ToViewAddResult,
   UpVideosOrder,
@@ -14,6 +16,7 @@ import type {
   VideoItem,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
+import { messageApi } from "../services/message-api";
 import { localToViewRepo } from "../db/repositories/local-toview";
 import {
   buildFavClassifyText,
@@ -132,8 +135,14 @@ export function registerBiliIpc(): void {
   );
   ipcMain.handle(
     IPC.BILI_COMMENT_LIST,
-    (_e, aid: number, page?: number, sort?: 0 | 1 | 2, offset?: string) =>
-      biliApi.getComments(aid, page, sort, offset ?? ""),
+    (
+      _e,
+      aid: number,
+      page?: number,
+      sort?: 0 | 1 | 2,
+      offset?: string,
+      seekRpid?: number,
+    ) => biliApi.getComments(aid, page, sort, offset ?? "", seekRpid ?? 0),
   );
   ipcMain.handle(
     IPC.BILI_COMMENT_REPLIES,
@@ -472,8 +481,16 @@ export function registerBiliIpc(): void {
       page?: number,
       sort?: 0 | 1 | 2,
       offset?: string,
+      seekRpid?: number,
     ) =>
-      biliApi.getTargetComments(oid, type, page ?? 1, sort ?? 0, offset ?? ""),
+      biliApi.getTargetComments(
+        oid,
+        type,
+        page ?? 1,
+        sort ?? 0,
+        offset ?? "",
+        seekRpid ?? 0,
+      ),
   );
   handleIpc(
     IPC.BILI_TARGET_COMMENT_REPLIES,
@@ -559,4 +576,71 @@ export function registerBiliIpc(): void {
     biliApi.getCheeseFollowList(page, mid),
   );
   handleIpc(IPC.BILI_UPOWER_PAID, () => biliApi.getUpowerPaidList());
+  handleIpc(IPC.BILI_MSG_UNREAD, () => messageApi.getUnread());
+  handleIpc(
+    IPC.BILI_MSG_SESSIONS,
+    (_e, filter?: MessageSessionFilter, endTs?: number) =>
+      messageApi.getSessions(filter ?? "all", endTs ?? 0),
+  );
+  handleIpc(
+    IPC.BILI_MSG_CHAT,
+    (_e, talkerId: string, sessionType: number, endSeqno?: string) =>
+      messageApi.getChat(talkerId, sessionType, endSeqno ?? ""),
+  );
+  handleIpc(
+    IPC.BILI_MSG_SEND,
+    (_e, talkerId: string, sessionType: number, text: string) =>
+      messageApi.sendChat(talkerId, sessionType, text),
+  );
+  handleIpc(
+    IPC.BILI_MSG_READ,
+    (_e, talkerId: string, sessionType: number, ackSeqno?: string) =>
+      messageApi.markRead(talkerId, sessionType, ackSeqno ?? ""),
+  );
+  handleIpc(
+    IPC.BILI_MSG_SESSION_TOP,
+    (_e, talkerId: string, sessionType: number, pinned: boolean) =>
+      messageApi.setPinned(talkerId, sessionType, pinned),
+  );
+  handleIpc(
+    IPC.BILI_MSG_SESSION_DND,
+    (_e, talkerId: string, sessionType: number, muted: boolean) =>
+      messageApi.setMuted(talkerId, sessionType, muted),
+  );
+  handleIpc(
+    IPC.BILI_MSG_SESSION_REMOVE,
+    (_e, talkerId: string, sessionType: number) =>
+      messageApi.removeSession(talkerId, sessionType),
+  );
+  handleIpc(
+    IPC.BILI_MSG_RECALL,
+    (_e, talkerId: string, sessionType: number, msgKey: string) =>
+      messageApi.recall(talkerId, sessionType, msgKey),
+  );
+  handleIpc(
+    IPC.BILI_MSG_FEED,
+    (_e, kind: MessageFeedKind, cursorId?: number, cursorTime?: number) =>
+      messageApi.getFeed(kind, cursorId ?? 0, cursorTime ?? 0),
+  );
+  handleIpc(IPC.BILI_MSG_FEED_DELETE, (_e, kind: MessageFeedKind, id: string) =>
+    messageApi.deleteFeed(kind, id),
+  );
+  handleIpc(
+    IPC.BILI_MSG_MY_REPLIES,
+    (_e, cursorId?: number, cursorTime?: number, keyword?: string) =>
+      messageApi.getMyReplies(cursorId ?? 0, cursorTime ?? 0, keyword ?? ""),
+  );
+  handleIpc(IPC.BILI_MSG_NOTICES, (_e, cursor?: string) =>
+    messageApi.getNotices(cursor ?? ""),
+  );
+  handleIpc(IPC.BILI_MSG_SETTINGS_GET, () => messageApi.getSettings());
+  handleIpc(IPC.BILI_MSG_SETTINGS_SET, (_e, patch) =>
+    messageApi.setSettings(patch ?? {}),
+  );
+  handleIpc(IPC.BILI_MSG_BLOCK_ADD, (_e, word: string) =>
+    messageApi.addBlockWord(word),
+  );
+  handleIpc(IPC.BILI_MSG_BLOCK_DEL, (_e, word: string) =>
+    messageApi.removeBlockWord(word),
+  );
 }

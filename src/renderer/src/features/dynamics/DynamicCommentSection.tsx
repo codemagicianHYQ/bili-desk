@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CommentItem } from "@shared/types";
 import { CommentThread } from "@/components/comment/CommentThread";
+import { useFocusComment } from "@/components/comment/focus-comment";
 import { commentRpid, stripComment } from "@/components/comment/comment-tree";
 import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,8 @@ interface DynamicCommentSectionProps {
   type: number;
   replyCount?: number;
   ownerMid?: number;
+  focusRpid?: number;
+  focusRoot?: number;
 }
 
 function closestScrollRoot(start: HTMLElement | null): Element | null {
@@ -37,6 +40,8 @@ export function DynamicCommentSection({
   type,
   replyCount = 0,
   ownerMid,
+  focusRpid = 0,
+  focusRoot = 0,
 }: DynamicCommentSectionProps) {
   const selfMid = useAppStore((state) => state.user?.mid);
   const [sort, setSort] = useState<CommentSort>(0);
@@ -136,6 +141,7 @@ export function DynamicCommentSection({
           nextPage,
           nextSort,
           reset ? "" : nextOffsetRef.current,
+          reset ? focusRpid : 0,
         );
         const pending = pendingRef.current;
         let mergedLength = 0;
@@ -187,8 +193,28 @@ export function DynamicCommentSection({
         loadingMoreRef.current = false;
       }
     },
-    [oid, type, replyCount],
+    [focusRpid, oid, type, replyCount],
   );
+
+  const loadFocusedReplies = useCallback(
+    async (root: number) => {
+      const page = await window.biliDesk.bili.getTargetCommentReplies(
+        oid,
+        type,
+        root,
+        1,
+      );
+      return page.comments;
+    },
+    [oid, type],
+  );
+  useFocusComment({
+    comments,
+    setComments,
+    focusRpid,
+    focusRoot,
+    loadReplies: loadFocusedReplies,
+  });
 
   useEffect(() => {
     nextOffsetRef.current = "";
@@ -343,6 +369,7 @@ export function DynamicCommentSection({
               ownerMid={ownerMid}
               selfMid={selfMid}
               handlers={handlers}
+              highlightRpid={focusRpid}
               onChanged={() => setReloadToken((token) => token + 1)}
               onDeleted={handleDeleted}
             />

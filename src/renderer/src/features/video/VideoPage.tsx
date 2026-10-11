@@ -75,6 +75,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     () => parsePositiveInt(searchParams.get("cid")),
     [searchParams],
   );
+  const focusRpid = parsePositiveInt(searchParams.get("rpid")) ?? 0;
+  const focusRoot = parsePositiveInt(searchParams.get("root")) ?? 0;
   const resumeTimeRaw = useMemo(() => {
     const t = Number(searchParams.get("t"));
     return Number.isFinite(t) && t >= 5 ? t : undefined;
@@ -331,6 +333,10 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
       setShowBackToTop(false);
     }
   }, [bvid]);
+
+  useEffect(() => {
+    if (focusRpid > 0) setBelowTab("comments");
+  }, [focusRpid]);
 
   useEffect(() => {
     if (!video?.aid || !selectedCid || !active) {
@@ -672,6 +678,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     ownerMid={video.owner.mid}
                     replyCount={video.stat.reply}
                     scrollRootRef={scrollRef}
+                    focusRpid={focusRpid}
+                    focusRoot={focusRoot}
                   />
                 </div>
                 <div

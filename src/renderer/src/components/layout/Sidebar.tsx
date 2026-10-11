@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   Home,
@@ -13,6 +14,7 @@ import {
   ShieldAlert,
   Activity,
   Layers,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -23,6 +25,7 @@ const navItems = [
   { to: "/", icon: Home, label: "首页" },
   { to: "/popular", icon: Flame, label: "热门" },
   { to: "/dynamics", icon: Radio, label: "动态" },
+  { to: "/messages", icon: MessageCircle, label: "消息" },
   { to: "/me", icon: UserCircle2, label: "我的" },
   { to: "/favorites", icon: Bookmark, label: "收藏" },
   { to: "/collections", icon: Layers, label: "合集" },
@@ -67,6 +70,10 @@ export function Sidebar() {
   const settingsKeepAlive = useNavigationStore(
     (state) => state.settingsKeepAlive,
   );
+  const messagesKeepAlive = useNavigationStore(
+    (state) => state.messagesKeepAlive,
+  );
+  const [messageUnread, setMessageUnread] = useState(0);
 
   const path = location.pathname;
   const inFollowingFlow =
@@ -136,6 +143,41 @@ export function Sidebar() {
     integrityKeepAlive && (path === "/integrity" || inDetailFlow);
   const inSettingsFlow =
     settingsKeepAlive && (path === "/settings" || inDetailFlow);
+  const inMessagesFlow =
+    messagesKeepAlive && (path === "/messages" || inDetailFlow);
+
+  useEffect(() => {
+    if (!user?.isLogin) {
+      setMessageUnread(0);
+      return;
+    }
+    let stop = false;
+    const load = () => {
+      void window.biliDesk.bili
+        .getMessageUnread()
+        .then((data) => {
+          if (stop) return;
+          setMessageUnread(
+            data.reply +
+              data.at +
+              data.like +
+              data.sys +
+              data.chat +
+              data.group +
+              data.dustbin,
+          );
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(load, 60000);
+    window.addEventListener("bilidesk:msg-unread", load);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+      window.removeEventListener("bilidesk:msg-unread", load);
+    };
+  }, [user?.isLogin]);
 
   return (
     <aside
@@ -166,7 +208,8 @@ export function Sidebar() {
             (to === "/popular" && inPopularFlow) ||
             (to === "/up-activity" && inUpActivityFlow) ||
             (to === "/integrity" && inIntegrityFlow) ||
-            (to === "/settings" && inSettingsFlow);
+            (to === "/settings" && inSettingsFlow) ||
+            (to === "/messages" && inMessagesFlow);
           return (
             <Link
               key={to}
@@ -179,7 +222,12 @@ export function Sidebar() {
               )}
             >
               <Icon className="h-4 w-4" />
-              {label}
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              {to === "/messages" && messageUnread > 0 && (
+                <span className="rounded-full bg-primary px-1.5 text-[10px] font-medium leading-4 text-primary-foreground">
+                  {messageUnread > 99 ? "99+" : messageUnread}
+                </span>
+              )}
             </Link>
           );
         })}
