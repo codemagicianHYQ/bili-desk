@@ -593,6 +593,15 @@ export function registerBiliIpc(): void {
       messageApi.sendChat(talkerId, sessionType, text),
   );
   handleIpc(
+    IPC.BILI_MSG_SEND_IMAGE,
+    (
+      _e,
+      talkerId: string,
+      sessionType: number,
+      file: { name: string; mime: string; data: Uint8Array },
+    ) => messageApi.sendChatImage(talkerId, sessionType, file),
+  );
+  handleIpc(
     IPC.BILI_MSG_READ,
     (_e, talkerId: string, sessionType: number, ackSeqno?: string) =>
       messageApi.markRead(talkerId, sessionType, ackSeqno ?? ""),

@@ -139,10 +139,51 @@ function parseContent(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string" || !raw) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return asRecord(parsed) ?? {};
+    const record = asRecord(parsed);
+    if (record) return record;
+    if (Array.isArray(parsed)) return { content: parsed };
+    return {};
   } catch {
     return { content: raw };
   }
+}
+
+/** 系统提示的正文是 `[{text,color_day,color_nig}]`，不是普通字符串 */
+function notifySegments(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const parts: string[] = [];
+  for (const item of value) {
+    const row = asRecord(item);
+    if (!row || typeof row.text !== "string") return null;
+    parts.push(row.text);
+  }
+  return parts.join("");
+}
+
+function messageBody(content: Record<string, unknown>): string {
+  for (const field of [
+    content.content,
+    content.text,
+    content.desc,
+    content.summary,
+  ]) {
+    if (Array.isArray(field)) {
+      const plain = notifySegments(field);
+      if (plain !== null) return plain;
+    }
+    const text = textOf(field);
+    if (!text) continue;
+    if (text.trim().startsWith("[")) {
+      try {
+        const plain = notifySegments(JSON.parse(text) as unknown);
+        if (plain !== null) return plain;
+      } catch {
+        // 普通文本里碰巧以 [ 开头
+      }
+    }
+    return text;
+  }
+  return "";
 }
 
 function jumpOf(content: Record<string, unknown>): string {
@@ -155,6 +196,44 @@ function jumpOf(content: Record<string, unknown>): string {
   );
 }
 
+function cardDate(value: unknown): string {
+  if (
+    typeof value === "string" &&
+    value.trim() &&
+    !/^\d+$/.test(value.trim())
+  ) {
+    return value.trim();
+  }
+  const stamp = numOf(value);
+  if (!stamp) return "";
+  const date = new Date(stamp > 1e12 ? stamp : stamp * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+function shareJump(msgType: number, content: Record<string, unknown>): string {
+  const direct = jumpOf(content);
+  if (direct) return direct;
+  const bvid = textOf(content.bvid);
+  if (/^BV/i.test(bvid)) return `https://www.bilibili.com/video/${bvid}`;
+  const rid = numOf(content.rid ?? content.id);
+  if (!rid) return "";
+  if (msgType === 11) return `https://www.bilibili.com/video/av${rid}`;
+  if (msgType === 13) return `https://www.bilibili.com/opus/${rid}`;
+  if (msgType === 12 || msgType === 14) {
+    return `https://www.bilibili.com/read/cv${rid}`;
+  }
+  return "";
+}
+
+function imageTypeOf(name: string, mime: string): string {
+  const lower = `${name} ${mime}`.toLowerCase();
+  if (lower.includes("png")) return "png";
+  if (lower.includes("gif")) return "gif";
+  if (lower.includes("webp")) return "webp";
+  return "jpeg";
+}
+
 function previewOf(msg: Record<string, unknown> | null): string {
   if (!msg) return "";
   if (numOf(msg.msg_status) === 1 || numOf(msg.msg_type) === 5) {
@@ -162,7 +241,7 @@ function previewOf(msg: Record<string, unknown> | null): string {
   }
   const content = parseContent(msg.content);
   const title = textOf(content.title) || textOf(content.headline);
-  const body = textOf(content.content) || textOf(content.text);
+  const body = messageBody(content);
   switch (numOf(msg.msg_type)) {
     case 1:
     case 18:
@@ -192,19 +271,20 @@ function toChatMessage(
     msgType,
     status,
     time: numOf(raw.timestamp),
-    text: recalled
-      ? "撤回了一条消息"
-      : textOf(content.content) || textOf(content.text) || textOf(content.desc),
+    text: recalled ? "撤回了一条消息" : messageBody(content),
     imageUrl: recalled ? "" : httpsUrl(content.url) || httpsUrl(content.thumb),
     title: recalled ? "" : textOf(content.title) || textOf(content.headline),
-    jumpUrl: recalled ? "" : jumpOf(content),
+    jumpUrl: recalled ? "" : shareJump(msgType, content),
     cover: recalled
       ? ""
       : httpsUrl(content.cover) ||
+        httpsUrl(asArray(content.image_urls)[0]) ||
         httpsUrl(content.image) ||
         httpsUrl(content.thumb),
     source: numOf(raw.msg_source),
     mine: numOf(raw.sender_uid) === mineId,
+    views: numOf(content.view ?? content.view_count),
+    pubDate: cardDate(content.pub_date ?? content.pubdate ?? content.ctime),
   };
 }
 
@@ -632,13 +712,12 @@ class MessageApiService {
     };
   }
 
-  async sendChat(
+  private async postChat(
     talkerId: string,
     sessionType: number,
-    text: string,
+    msgType: number,
+    content: Record<string, unknown>,
   ): Promise<void> {
-    const content = text.trim();
-    if (!content) throw new Error("消息不能为空");
     const sender = selfMid();
     if (!sender) throw new Error("请先登录后再发送消息");
     const query = await signParams({
@@ -651,12 +730,12 @@ class MessageApiService {
       "msg[sender_uid]": String(sender),
       "msg[receiver_id]": talkerId,
       "msg[receiver_type]": String(sessionType || 1),
-      "msg[msg_type]": "1",
+      "msg[msg_type]": String(msgType),
       "msg[msg_status]": "0",
       "msg[dev_id]": this.devId,
       "msg[timestamp]": String(Math.floor(Date.now() / 1000)),
       "msg[new_face_version]": "1",
-      "msg[content]": JSON.stringify({ content }),
+      "msg[content]": JSON.stringify(content),
       csrf,
       csrf_token: csrf,
       build: "0",
@@ -668,6 +747,54 @@ class MessageApiService {
       validateStatus: () => true,
     });
     assertOk(res.data, "发送失败");
+  }
+
+  async sendChat(
+    talkerId: string,
+    sessionType: number,
+    text: string,
+  ): Promise<void> {
+    const content = text.trim();
+    if (!content) throw new Error("消息不能为空");
+    if (content.length > 500) throw new Error("消息不能超过 500 字");
+    await this.postChat(talkerId, sessionType, 1, { content });
+  }
+
+  async sendChatImage(
+    talkerId: string,
+    sessionType: number,
+    file: { name: string; mime: string; data: Uint8Array },
+  ): Promise<void> {
+    const bytes = Buffer.from(file.data);
+    if (bytes.length === 0) throw new Error("图片是空的");
+    if (bytes.length > 20 * 1024 * 1024) throw new Error("图片不能超过 20MB");
+    const imageType = imageTypeOf(file.name, file.mime);
+    const csrf = requireCsrf();
+    const form = new FormData();
+    form.append(
+      "file_up",
+      new Blob([Uint8Array.from(bytes)], { type: file.mime || "image/jpeg" }),
+      file.name || `image.${imageType}`,
+    );
+    form.append("biz", "im");
+    form.append("csrf", csrf);
+    form.append("csrf_token", csrf);
+    const uploaded = await this.client.post(
+      "/x/dynamic/feed/draw/upload_bfs",
+      form,
+      { validateStatus: () => true },
+    );
+    const data = assertOk(uploaded.data, "图片上传失败");
+    const url = httpsUrl(data.image_url);
+    if (!url) throw new Error("图片上传失败");
+    await this.postChat(talkerId, sessionType, 2, {
+      url,
+      width: numOf(data.image_width),
+      height: numOf(data.image_height),
+      imageType,
+      size: numOf(data.img_size),
+      original: 1,
+    });
   }
 
   async markRead(

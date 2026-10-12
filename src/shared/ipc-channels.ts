@@ -123,6 +123,7 @@ export const IPC = {
   BILI_MSG_SESSIONS: "bili:msg-sessions",
   BILI_MSG_CHAT: "bili:msg-chat",
   BILI_MSG_SEND: "bili:msg-send",
+  BILI_MSG_SEND_IMAGE: "bili:msg-send-image",
   BILI_MSG_READ: "bili:msg-read",
   BILI_MSG_SESSION_TOP: "bili:msg-session-top",
   BILI_MSG_SESSION_DND: "bili:msg-session-dnd",

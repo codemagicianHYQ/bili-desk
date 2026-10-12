@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AtSign,
   Bell,
   BellOff,
+  Eye,
   Heart,
+  ImageIcon,
   Loader2,
   MapPin,
   MessageCircle,
@@ -29,13 +39,17 @@ import type {
   SystemNotice,
 } from "@shared/types";
 import { parseBiliAppPath } from "@shared/utils/bili-app-link";
+import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
+import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { useReplyEmotes } from "@/hooks/use-reply-emotes";
+import { normalizeBiliImage } from "@/lib/bili-image";
 import { openBiliHref } from "@/lib/open-bili-href";
-import { cn } from "@/lib/utils";
+import { cn, formatCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 
 type MessageTab = "chat" | MessageFeedKind | "sent" | "sys" | "settings";
@@ -114,6 +128,24 @@ function formatMessageTime(seconds: number, fallback = ""): string {
     return `${date.getMonth() + 1}月${date.getDate()}日 ${hm}`;
   }
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function formatChatStamp(seconds: number): string {
+  if (!seconds) return "";
+  const date = new Date(seconds * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function needsChatStamp(
+  previous: ChatMessage | undefined,
+  current: ChatMessage,
+): boolean {
+  if (!previous) return true;
+  if (current.time - previous.time >= 5 * 60) return true;
+  const prevDate = new Date(previous.time * 1000);
+  const nextDate = new Date(current.time * 1000);
+  return prevDate.toDateString() !== nextDate.toDateString();
 }
 
 function unreadOf(tab: MessageTab, unread: MessageUnread): number {
@@ -249,32 +281,40 @@ function rememberLocalSent(item: MessageFeedItem): void {
 
 function sourceNote(source: number): string {
   if (source >= 8 && source <= 11) return "自动回复";
-  if (source === 18) return "系统提示";
   return "";
 }
 
+/** 系统提示正文是一段 JSON，界面上只显示里面的 text */
+function systemHintText(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("[")) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const parts: string[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object" || !("text" in item)) return null;
+      const value = (item as { text?: unknown }).text;
+      if (typeof value !== "string") return null;
+      parts.push(value);
+    }
+    return parts.join("") || null;
+  } catch {
+    return null;
+  }
+}
+
+function isSystemHint(message: ChatMessage): boolean {
+  return message.source === 18 || systemHintText(message.text) !== null;
+}
+
 function RichText({ text, emotes }: { text: string; emotes: ChatEmote[] }) {
-  const parts = useMemo(() => text.split(/(\[[^[\]]+\])/g), [text]);
-  const map = useMemo(
-    () => new Map(emotes.map((item) => [item.text, item.url])),
-    [emotes],
-  );
-  return (
-    <>
-      {parts.map((part, index) => {
-        const url = map.get(part);
-        if (!url) return <span key={`${part}-${index}`}>{part}</span>;
-        return (
-          <img
-            key={`${part}-${index}`}
-            src={url}
-            alt={part}
-            className="mx-0.5 inline-block h-5 w-5 align-text-bottom"
-          />
-        );
-      })}
-    </>
-  );
+  const extra = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const item of emotes) map[item.text] = item.url;
+    return map;
+  }, [emotes]);
+  return <BiliEmoteText text={text} emotes={extra} />;
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
@@ -425,6 +465,12 @@ function ChatDesk({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState("");
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    session: MessageSession;
+  } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<MessageSession | null>(null);
 
   const load = useCallback(
     async (append: boolean, cursor: number) => {
@@ -473,6 +519,65 @@ function ChatDesk({
   useEffect(() => {
     void load(false, 0);
   }, [load]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
+
+  const dropSession = (session: MessageSession) => {
+    const key = `${session.sessionType}:${session.talkerId}`;
+    setSessions((current) => {
+      const next = current.filter(
+        (item) => `${item.sessionType}:${item.talkerId}` !== key,
+      );
+      setSelectedId((currentId) => {
+        if (currentId !== key) return currentId;
+        const fallback = next[0];
+        return fallback ? `${fallback.sessionType}:${fallback.talkerId}` : "";
+      });
+      return next;
+    });
+  };
+
+  const runSessionAction = async (
+    session: MessageSession,
+    action: "pin" | "mute",
+  ) => {
+    setMenu(null);
+    try {
+      if (action === "pin") {
+        const next = !session.pinned;
+        await window.biliDesk.bili.setChatPinned(
+          session.talkerId,
+          session.sessionType,
+          next,
+        );
+        patchSession(session.talkerId, session.sessionType, { pinned: next });
+      } else {
+        const next = !session.muted;
+        await window.biliDesk.bili.setChatMuted(
+          session.talkerId,
+          session.sessionType,
+          next,
+        );
+        patchSession(session.talkerId, session.sessionType, { muted: next });
+      }
+    } catch (err) {
+      setError(tidyError(err));
+    }
+  };
 
   const visibleSessions = sessions.filter((item) =>
     includesTerm(`${item.name} ${item.preview}`, keyword),
@@ -541,6 +646,15 @@ function ChatDesk({
                 key={key}
                 type="button"
                 onClick={() => setSelectedId(key)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setSelectedId(key);
+                  setMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    session: item,
+                  });
+                }}
                 className={cn(
                   "flex w-full items-start gap-3 px-3 py-3 text-left transition-colors",
                   key === selectedId
@@ -604,18 +718,109 @@ function ChatDesk({
         onChanged={onChanged}
         onPatch={patchSession}
         onRemoved={(talkerId, sessionType) => {
-          setSessions((current) =>
-            current.filter(
-              (item) =>
-                !(
-                  item.talkerId === talkerId && item.sessionType === sessionType
-                ),
-            ),
+          const target = sessions.find(
+            (item) =>
+              item.talkerId === talkerId && item.sessionType === sessionType,
           );
-          setSelectedId("");
+          if (target) dropSession(target);
+          else setSelectedId("");
+        }}
+      />
+      {menu &&
+        createPortal(
+          <SessionContextMenu
+            x={menu.x}
+            y={menu.y}
+            session={menu.session}
+            onClose={() => setMenu(null)}
+            onPin={() => void runSessionAction(menu.session, "pin")}
+            onMute={() => void runSessionAction(menu.session, "mute")}
+            onRemove={() => {
+              setRemoveTarget(menu.session);
+              setMenu(null);
+            }}
+          />,
+          document.body,
+        )}
+      <ConfirmDialog
+        open={Boolean(removeTarget)}
+        title="移除这个会话？"
+        description="只从列表里拿掉，聊天记录还在。之后有新消息会再出现。"
+        confirmLabel="移除"
+        destructive
+        onCancel={() => setRemoveTarget(null)}
+        onConfirm={() => {
+          const target = removeTarget;
+          setRemoveTarget(null);
+          if (!target) return;
+          void window.biliDesk.bili
+            .removeChatSession(target.talkerId, target.sessionType)
+            .then(() => dropSession(target))
+            .catch((err) => setError(tidyError(err)));
         }}
       />
     </div>
+  );
+}
+
+function SessionContextMenu({
+  x,
+  y,
+  session,
+  onClose,
+  onPin,
+  onMute,
+  onRemove,
+}: {
+  x: number;
+  y: number;
+  session: MessageSession;
+  onClose: () => void;
+  onPin: () => void;
+  onMute: () => void;
+  onRemove: () => void;
+}) {
+  const width = 168;
+  const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - 140));
+  const itemClass =
+    "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-secondary";
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-[20000] cursor-default"
+        aria-label="关闭菜单"
+        onClick={onClose}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onClose();
+        }}
+      />
+      <div
+        className="fixed z-[20001] w-[168px] overflow-hidden rounded-xl border border-border bg-card py-1 shadow-2xl"
+        style={{ left, top }}
+        onContextMenu={(event) => event.preventDefault()}
+      >
+        <button type="button" className={itemClass} onClick={onPin}>
+          <Pin className="h-4 w-4 text-muted-foreground" />
+          {session.pinned ? "取消置顶" : "置顶"}
+        </button>
+        <button type="button" className={itemClass} onClick={onMute}>
+          <BellOff className="h-4 w-4 text-muted-foreground" />
+          {session.muted ? "取消免打扰" : "免打扰"}
+        </button>
+        <div className="my-1 border-t border-border/70" />
+        <button
+          type="button"
+          className={cn(itemClass, "text-destructive")}
+          onClick={onRemove}
+        >
+          <Trash2 className="h-4 w-4" />
+          移除会话
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -633,6 +838,210 @@ function Avatar({ name, face }: { name: string; face: string }) {
     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-medium">
       {(name || "消").slice(0, 1)}
     </span>
+  );
+}
+
+function editorText(root: HTMLElement): string {
+  const parts: string[] = [];
+  const walk = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parts.push(node.textContent ?? "");
+      return;
+    }
+    if (!(node instanceof HTMLElement)) return;
+    if (node.dataset.emote) {
+      parts.push(node.dataset.emote);
+      return;
+    }
+    if (node.tagName === "BR") {
+      parts.push("\n");
+      return;
+    }
+    const block = node.tagName === "DIV" || node.tagName === "P";
+    if (block && parts.length > 0 && !parts[parts.length - 1]?.endsWith("\n")) {
+      parts.push("\n");
+    }
+    node.childNodes.forEach(walk);
+  };
+  root.childNodes.forEach(walk);
+  const text = parts.join("").replace(/\u00a0/g, " ");
+  return text === "\n" ? "" : text;
+}
+
+function placeCaretAtEnd(root: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function insertAtCaret(root: HTMLElement, node: Node) {
+  root.focus();
+  const selection = window.getSelection();
+  const range =
+    selection && selection.rangeCount > 0 && root.contains(selection.anchorNode)
+      ? selection.getRangeAt(0)
+      : null;
+  if (!range) {
+    root.appendChild(node);
+    placeCaretAtEnd(root);
+    return;
+  }
+  range.deleteContents();
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+function ChatComposer({
+  sending,
+  onSend,
+  onSendImage,
+}: {
+  sending: boolean;
+  onSend: (text: string) => Promise<boolean>;
+  onSendImage: (file: File | undefined) => void;
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const snapshot = useRef("");
+  const [draft, setDraft] = useState("");
+  const emoteMap = useReplyEmotes();
+
+  const commit = () => {
+    const root = editorRef.current;
+    if (!root) return;
+    const text = editorText(root);
+    if (text.length > 500) {
+      root.innerHTML = snapshot.current;
+      placeCaretAtEnd(root);
+      return;
+    }
+    snapshot.current = root.innerHTML;
+    setDraft(text);
+  };
+
+  const insertEmote = (token: string, imageUrl?: string) => {
+    const root = editorRef.current;
+    if (!root || sending) return;
+    const url = imageUrl || emoteMap[token];
+    if (url) {
+      const image = document.createElement("img");
+      image.src = normalizeBiliImage(url);
+      image.alt = token;
+      image.dataset.emote = token;
+      image.draggable = false;
+      image.contentEditable = "false";
+      image.className = "mx-0.5 inline-block h-5 w-5 align-text-bottom";
+      insertAtCaret(root, image);
+    } else {
+      insertAtCaret(root, document.createTextNode(token));
+    }
+    commit();
+  };
+
+  const submit = async () => {
+    const text = editorRef.current
+      ? editorText(editorRef.current).trim()
+      : draft.trim();
+    if (!text || sending) return;
+    const ok = await onSend(text);
+    if (!ok || !editorRef.current) return;
+    editorRef.current.innerHTML = "";
+    snapshot.current = "";
+    setDraft("");
+  };
+
+  return (
+    <form
+      className="border-t border-border/60 px-4 py-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <div className="flex items-center gap-1">
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            onSendImage(file);
+          }}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
+          title="发送图片"
+          disabled={sending}
+          onClick={() => imageInputRef.current?.click()}
+        >
+          <ImageIcon className="h-4 w-4" />
+        </Button>
+        <EmotePickerButton
+          variant="popover"
+          onPick={(emote, imageUrl) => insertEmote(emote, imageUrl)}
+        />
+      </div>
+      <div className="relative">
+        {draft.length === 0 && (
+          <span className="pointer-events-none absolute left-1 top-1 text-sm text-muted-foreground">
+            请输入消息内容
+          </span>
+        )}
+        <div
+          ref={editorRef}
+          contentEditable={!sending}
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline="true"
+          spellCheck={false}
+          className="min-h-[52px] w-full whitespace-pre-wrap break-words px-1 py-1 text-sm outline-none"
+          onInput={commit}
+          onPaste={(event) => {
+            event.preventDefault();
+            const root = editorRef.current;
+            const text = event.clipboardData.getData("text/plain");
+            if (!root || !text) return;
+            insertAtCaret(root, document.createTextNode(text));
+            commit();
+          }}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              void submit();
+            }
+          }}
+        />
+      </div>
+      <div className="flex items-center justify-end gap-3 pb-1">
+        <span className="text-[11px] text-muted-foreground">
+          {draft.length}/500
+        </span>
+        <Button type="submit" disabled={sending || !draft.trim()}>
+          {sending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4" />
+          )}
+          发送
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -660,7 +1069,6 @@ function ChatPane({
   const [minSeqno, setMinSeqno] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [preview, setPreview] = useState("");
@@ -714,7 +1122,6 @@ function ChatPane({
   useEffect(() => {
     setMessages([]);
     setEmotes([]);
-    setDraft("");
     setError("");
     if (!talkerId) return;
     void loadLatest();
@@ -770,21 +1177,53 @@ function ChatPane({
     }
   };
 
-  const send = async () => {
-    if (!session || sending) return;
-    const text = draft.trim();
-    if (!text) return;
+  const send = async (text: string): Promise<boolean> => {
+    if (!session || sending) return false;
+    const content = text.trim();
+    if (!content) return false;
     setSending(true);
     setError("");
     try {
       await window.biliDesk.bili.sendChatMessage(
         session.talkerId,
         session.sessionType,
-        text,
+        content,
       );
-      setDraft("");
       onPatch(session.talkerId, session.sessionType, {
-        preview: text,
+        preview: content,
+        time: Math.floor(Date.now() / 1000),
+      });
+      await loadLatest();
+      return true;
+    } catch (err) {
+      setError(tidyError(err));
+      return false;
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendImage = async (file: File | undefined) => {
+    if (!session || !file || sending) return;
+    if (!file.type.startsWith("image/")) {
+      setError("只能发送图片");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setError("图片不能超过 20MB");
+      return;
+    }
+    setSending(true);
+    setError("");
+    try {
+      const data = new Uint8Array(await file.arrayBuffer());
+      await window.biliDesk.bili.sendChatImage(
+        session.talkerId,
+        session.sessionType,
+        { name: file.name, mime: file.type, data },
+      );
+      onPatch(session.talkerId, session.sessionType, {
+        preview: "[图片]",
         time: Math.floor(Date.now() / 1000),
       });
       await loadLatest();
@@ -893,61 +1332,59 @@ function ChatPane({
           </p>
         )}
         {messages
-          .filter((item) => includesTerm(`${item.text} ${item.title}`, keyword))
-          .map((item) => (
-            <Bubble
-              key={item.seqno || item.msgKey}
-              message={item}
-              emotes={emotes}
-              onOpen={(url) => void openTarget(url, navigate)}
-              onPreview={setPreview}
-              onRecall={() => {
-                void window.biliDesk.bili
-                  .recallChatMessage(
-                    session.talkerId,
-                    session.sessionType,
-                    item.msgKey,
-                  )
-                  .then(() => loadLatest())
-                  .catch((err) => setError(tidyError(err)));
-              }}
-            />
-          ))}
+          .filter((item) =>
+            includesTerm(
+              `${systemHintText(item.text) ?? item.text} ${item.title}`,
+              keyword,
+            ),
+          )
+          .map((item, index, list) => {
+            const hint = systemHintText(item.text);
+            const text = hint ?? item.text;
+            return (
+              <Fragment key={item.seqno || item.msgKey}>
+                {needsChatStamp(list[index - 1], item) && (
+                  <p className="py-2 text-center text-xs text-muted-foreground">
+                    {formatChatStamp(item.time)}
+                  </p>
+                )}
+                {isSystemHint(item) ? (
+                  <p className="px-10 py-1 text-center text-xs leading-5 text-muted-foreground">
+                    {text || "系统提示"}
+                  </p>
+                ) : (
+                  <Bubble
+                    message={{ ...item, text }}
+                    emotes={emotes}
+                    onOpen={(url) => void openTarget(url, navigate)}
+                    onPreview={setPreview}
+                    onRecall={() => {
+                      void window.biliDesk.bili
+                        .recallChatMessage(
+                          session.talkerId,
+                          session.sessionType,
+                          item.msgKey,
+                        )
+                        .then(() => loadLatest())
+                        .catch((err) => setError(tidyError(err)));
+                    }}
+                  />
+                )}
+              </Fragment>
+            );
+          })}
         {!loading && messages.length === 0 && !error && (
           <EmptyState title="还没有消息" detail="发一条消息开始聊天。" />
         )}
       </div>
       {error && <p className="px-4 pb-1 text-xs text-destructive">{error}</p>}
       {canSend ? (
-        <form
-          className="flex items-end gap-2 border-t border-border/60 px-4 py-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send();
-          }}
-        >
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void send();
-              }
-            }}
-            rows={2}
-            placeholder="发一条消息，Enter 发送"
-            className="min-h-[44px] flex-1 resize-none rounded-xl border border-border bg-background/60 px-3 py-2 text-sm outline-none ring-primary/30 placeholder:text-muted-foreground focus:ring-2"
-          />
-          <Button type="submit" disabled={sending || !draft.trim()}>
-            {sending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-            发送
-          </Button>
-        </form>
+        <ChatComposer
+          key={`${session.talkerId}:${session.sessionType}`}
+          sending={sending}
+          onSend={send}
+          onSendImage={(file) => void sendImage(file)}
+        />
       ) : (
         <p className="border-t border-border/60 px-4 py-3 text-center text-xs text-muted-foreground">
           官方会话只接收通知，不能回复
@@ -1003,31 +1440,34 @@ function Bubble({
     !recalled &&
     Boolean(message.msgKey) &&
     Date.now() / 1000 - message.time < 120;
+  const picture = message.msgType === 2 || message.msgType === 6;
   const card =
-    !recalled && (message.title || message.jumpUrl) && message.msgType !== 1;
+    !recalled &&
+    !picture &&
+    message.msgType !== 1 &&
+    Boolean(message.title || message.jumpUrl || message.cover);
   return (
     <div className={cn("flex", message.mine ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[72%]",
-          message.mine ? "items-end" : "items-start",
-        )}
-      >
+      <div className={cn("max-w-[78%]", card && "max-w-[320px]")}>
         <div
           className={cn(
-            "rounded-2xl px-3 py-2 text-sm leading-6",
-            recalled
-              ? "bg-secondary/60 text-muted-foreground"
-              : message.mine
-                ? "bg-primary/15 text-foreground"
-                : "bg-card text-foreground shadow-sm ring-1 ring-border/60",
+            "text-sm leading-6",
+            card
+              ? "rounded-xl bg-card p-1 text-foreground shadow-sm ring-1 ring-border/60"
+              : "rounded-2xl px-3 py-2",
+            !card &&
+              (recalled
+                ? "bg-secondary/60 text-muted-foreground"
+                : message.mine
+                  ? "bg-primary/15 text-foreground"
+                  : "bg-card text-foreground shadow-sm ring-1 ring-border/60"),
           )}
         >
           {recalled ? (
             message.text
           ) : (
             <>
-              {message.imageUrl && message.msgType === 2 && (
+              {message.imageUrl && picture && (
                 <button
                   type="button"
                   onClick={() => onPreview(message.imageUrl)}
@@ -1035,31 +1475,43 @@ function Bubble({
                   <BiliImage
                     src={message.imageUrl}
                     alt=""
-                    className="mb-1 max-h-52 rounded-lg object-cover"
+                    className="max-h-52 rounded-lg object-cover"
                   />
                 </button>
               )}
               {card ? (
                 <button
                   type="button"
-                  className="block text-left"
+                  className="flex w-full gap-2.5 rounded-lg p-2 text-left transition-colors hover:bg-secondary/70"
                   onClick={() => message.jumpUrl && onOpen(message.jumpUrl)}
                 >
-                  {message.cover && (
+                  {message.cover ? (
                     <BiliImage
                       src={message.cover}
                       alt=""
-                      className="mb-2 h-24 w-full rounded-lg object-cover"
+                      className="h-16 w-[108px] shrink-0 rounded-md object-cover"
                     />
+                  ) : (
+                    message.text && (
+                      <span className="line-clamp-3 h-16 w-[108px] shrink-0 overflow-hidden rounded-md bg-secondary/80 p-1.5 text-[10px] leading-4 text-muted-foreground">
+                        {message.text}
+                      </span>
+                    )
                   )}
-                  {message.title && (
-                    <span className="block font-medium">{message.title}</span>
-                  )}
-                  {message.text && (
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      <RichText text={message.text} emotes={emotes} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="line-clamp-2 text-sm font-medium leading-5">
+                      {message.title || "打开内容"}
                     </span>
-                  )}
+                    <span className="mt-auto flex items-center gap-3 pt-1 text-[11px] text-muted-foreground">
+                      {message.pubDate && <span>{message.pubDate}</span>}
+                      {message.views > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                          <Eye className="h-3 w-3" />
+                          {formatCount(message.views)}
+                        </span>
+                      )}
+                    </span>
+                  </span>
                 </button>
               ) : (
                 message.text && <RichText text={message.text} emotes={emotes} />
@@ -1067,24 +1519,25 @@ function Bubble({
             </>
           )}
         </div>
-        <div
-          className={cn(
-            "mt-1 flex items-center gap-2 text-[10px] text-muted-foreground",
-            message.mine && "justify-end",
-          )}
-        >
-          <span>{formatMessageTime(message.time)}</span>
-          {note && <span>{note}</span>}
-          {canRecall && (
-            <button
-              type="button"
-              className="hover:text-foreground"
-              onClick={onRecall}
-            >
-              撤回
-            </button>
-          )}
-        </div>
+        {(note || canRecall) && (
+          <div
+            className={cn(
+              "mt-1 flex items-center gap-2 text-[10px] text-muted-foreground",
+              message.mine && "justify-end",
+            )}
+          >
+            {note && <span>{note}</span>}
+            {canRecall && (
+              <button
+                type="button"
+                className="hover:text-foreground"
+                onClick={onRecall}
+              >
+                撤回
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ReplyEmoteItem, ReplyEmotePackage } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -9,8 +9,10 @@ import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Loader2, Smile, X } from "lucide-react";
 
 interface EmotePickerProps {
-  onPick: (emoteText: string) => void;
+  onPick: (emoteText: string, imageUrl?: string) => void;
   className?: string;
+  /** dialog 是评论区弹层；popover 贴在按钮上方，底部是表情包分类 */
+  variant?: "dialog" | "popover";
 }
 
 let lastPackId = 0;
@@ -19,8 +21,14 @@ function isKaomoji(item: ReplyEmoteItem, packType: number): boolean {
   return item.type === 4 || packType === 4;
 }
 
-export function EmotePickerButton({ onPick, className }: EmotePickerProps) {
+export function EmotePickerButton({
+  onPick,
+  className,
+  variant = "dialog",
+}: EmotePickerProps) {
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const [popoverBox, setPopoverBox] = useState({ left: 8, bottom: 8 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [packs, setPacks] = useState<ReplyEmotePackage[]>([]);
@@ -67,6 +75,18 @@ export function EmotePickerButton({ onPick, className }: EmotePickerProps) {
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!open || variant !== "popover") return;
+    const rect = anchorRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 420;
+    const left = Math.min(
+      Math.max(8, rect.left),
+      window.innerWidth - width - 8,
+    );
+    setPopoverBox({ left, bottom: window.innerHeight - rect.top + 8 });
+  }, [open, variant]);
+
   const active = packs.find((pack) => pack.id === activeId) ?? packs[0];
   const large = active?.emotes.some((item) => item.size === 2) ?? false;
 
@@ -99,13 +119,33 @@ export function EmotePickerButton({ onPick, className }: EmotePickerProps) {
   const dialog = open
     ? createPortal(
         <div
-          className={`fixed inset-0 flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`}
-          data-glass-scrim
-          onClick={() => setOpen(false)}
+          className={
+            variant === "popover"
+              ? "contents"
+              : `fixed inset-0 flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm sm:items-center ${APP_OVERLAY_ZCLASS}`
+          }
+          data-glass-scrim={variant === "dialog" ? "" : undefined}
+          onClick={variant === "popover" ? undefined : () => setOpen(false)}
         >
+          {variant === "popover" && (
+            <button
+              type="button"
+              className={`fixed inset-0 cursor-default ${APP_OVERLAY_ZCLASS}`}
+              aria-label="关闭表情"
+              onClick={() => setOpen(false)}
+            />
+          )}
           <div
             data-glass-panel
-            className="bili-glass relative z-[10000] flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-border bg-card/40 shadow-2xl"
+            className={cn(
+              "bili-glass relative z-[20001] flex flex-col overflow-hidden rounded-2xl border border-border bg-card/95 shadow-2xl",
+              variant === "popover" ? "fixed w-[420px]" : "w-full max-w-xl",
+            )}
+            style={
+              variant === "popover"
+                ? { left: popoverBox.left, bottom: popoverBox.bottom }
+                : undefined
+            }
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -114,7 +154,9 @@ export function EmotePickerButton({ onPick, className }: EmotePickerProps) {
                   {active?.name || "插入表情"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  点击表情会插入到评论输入框
+                  {variant === "popover"
+                    ? "和评论区同一套表情，点一下插入到输入框"
+                    : "点击表情会插入到评论输入框"}
                 </p>
               </div>
               <button
@@ -160,8 +202,8 @@ export function EmotePickerButton({ onPick, className }: EmotePickerProps) {
                         type="button"
                         title={item.text}
                         onClick={() => {
-                          onPick(item.text);
-                          setOpen(false);
+                          onPick(item.text, kaomoji ? undefined : item.url);
+                          if (variant !== "popover") setOpen(false);
                         }}
                         className={cn(
                           "flex items-center justify-center rounded-lg transition-colors hover:bg-secondary",
@@ -256,15 +298,20 @@ export function EmotePickerButton({ onPick, className }: EmotePickerProps) {
   return (
     <>
       <Button
+        ref={anchorRef}
         type="button"
-        size="sm"
+        size={variant === "popover" ? "icon" : "sm"}
         variant="ghost"
-        className={cn("gap-1.5 text-muted-foreground", className)}
-        onClick={() => setOpen(true)}
-        title="插入表情"
+        className={cn(
+          "text-muted-foreground",
+          variant === "popover" ? "h-8 w-8" : "gap-1.5",
+          className,
+        )}
+        onClick={() => setOpen((value) => !value)}
+        title="表情"
       >
         <Smile className="h-4 w-4" />
-        表情
+        {variant === "popover" ? null : "表情"}
       </Button>
       {dialog}
     </>

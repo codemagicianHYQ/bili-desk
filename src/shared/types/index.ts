@@ -1137,6 +1137,8 @@ export interface ChatMessage {
   cover: string;
   source: number;
   mine: boolean;
+  views: number;
+  pubDate: string;
 }
 
 export interface ChatPage {
@@ -1743,6 +1745,11 @@ export interface BiliDeskApi {
       talkerId: string,
       sessionType: number,
       text: string,
+    ) => Promise<void>;
+    sendChatImage: (
+      talkerId: string,
+      sessionType: number,
+      file: { name: string; mime: string; data: Uint8Array },
     ) => Promise<void>;
     markChatRead: (
       talkerId: string,

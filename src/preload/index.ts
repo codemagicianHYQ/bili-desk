@@ -566,6 +566,12 @@ const api = {
       ),
     sendChatMessage: (talkerId: string, sessionType: number, text: string) =>
       ipcRenderer.invoke(IPC.BILI_MSG_SEND, talkerId, sessionType, text),
+    sendChatImage: (
+      talkerId: string,
+      sessionType: number,
+      file: { name: string; mime: string; data: Uint8Array },
+    ) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_SEND_IMAGE, talkerId, sessionType, file),
     markChatRead: (talkerId: string, sessionType: number, ackSeqno?: string) =>
       ipcRenderer.invoke(
         IPC.BILI_MSG_READ,
