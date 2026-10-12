@@ -468,6 +468,9 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_DYNAMIC_LIKE, (_e, id: string, like: boolean) =>
     biliApi.likeDynamic(id, like),
   );
+  handleIpc(IPC.BILI_DYNAMIC_FAV, (_e, id: string, favorite: boolean) =>
+    biliApi.favoriteDynamic(id, favorite),
+  );
   handleIpc(IPC.BILI_ARTICLE_VIEW, (_e, id: number) => biliApi.getArticle(id));
   handleIpc(IPC.BILI_ARTICLE_LIKE, (_e, id: number, like: boolean) =>
     biliApi.likeArticle(id, like),

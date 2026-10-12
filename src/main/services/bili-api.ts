@@ -7790,32 +7790,35 @@ class BiliApiService {
     if (!item) throw new Error("动态不存在或已失效");
     item = this.mergeDynamicMeta(item, rawItem);
 
-    if (!item.ipLocation || !item.cvId) {
-      const opusItem = await this.fetchPolymerDynamicItem(
-        "/x/polymer/web-dynamic/v1/opus/detail",
+    const opusItem = await this.fetchPolymerDynamicItem(
+      "/x/polymer/web-dynamic/v1/opus/detail",
+      {
+        id: dynamicId,
+        timezone_offset: -480,
+        features:
+          "onlyfansVote,onlyfansAssetsV2,decorationCard,htmlNewStyle,ugcDelete,htmlOpusStyle,commentsNewVersion,avatarTypeOpus",
+      },
+      referer,
+    );
+    if (opusItem) {
+      const parsed = this.normalizeSpaceDynamicItem(opusItem);
+      item = this.mergeDynamicMeta(
         {
-          id: dynamicId,
-          timezone_offset: -480,
-          features:
-            "onlyfansVote,onlyfansAssetsV2,decorationCard,htmlNewStyle,ugcDelete,htmlOpusStyle,commentsNewVersion,avatarTypeOpus",
-        },
-        referer,
-      );
-      if (opusItem) {
-        const parsed = this.normalizeSpaceDynamicItem(opusItem);
-        item = this.mergeDynamicMeta(
-          {
-            ...item,
-            title: item.title || parsed?.title,
-            text: item.text || parsed?.text || item.text,
-            images: item.images?.length ? item.images : parsed?.images,
-            cover: item.cover || parsed?.cover,
-            cvId: item.cvId || parsed?.cvId,
-            ipLocation: item.ipLocation || parsed?.ipLocation,
+          ...item,
+          title: item.title || parsed?.title,
+          text: item.text || parsed?.text || item.text,
+          images: item.images?.length ? item.images : parsed?.images,
+          cover: item.cover || parsed?.cover,
+          cvId: item.cvId || parsed?.cvId,
+          ipLocation: item.ipLocation || parsed?.ipLocation,
+          favorited: parsed?.favorited ?? item.favorited,
+          stats: {
+            ...item.stats,
+            favorite: parsed?.stats?.favorite ?? item.stats?.favorite ?? 0,
           },
-          opusItem,
-        );
-      }
+        },
+        opusItem,
+      );
     }
 
     return this.enrichDynamicDetail(item);
@@ -7962,6 +7965,43 @@ class BiliApiService {
     }
     if (res.data?.code !== 0) {
       throw new Error((res.data?.message as string) || "动态点赞失败");
+    }
+  }
+
+  async favoriteDynamic(id: string, favorite: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再收藏");
+    const dynId = String(id || "").trim();
+    if (!dynId) throw new Error("动态 ID 无效");
+
+    const res = await this.client.post(
+      "/x/community/cosmo/interface/simple_action",
+      {
+        action: favorite ? 3 : 4,
+        entity: {
+          object_id_str: dynId,
+          type: { biz: 2 },
+        },
+        meta: {
+          spmid: "333.1368.0.0",
+          from_spmid: "333.1368.0.0",
+        },
+      },
+      {
+        params: { csrf, gaia_source: "main_web" },
+        headers: {
+          "Content-Type": "application/json",
+          Referer: `https://www.bilibili.com/opus/${dynId}`,
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "收藏失败");
     }
   }
 
@@ -10016,7 +10056,10 @@ class BiliApiService {
     const replyCount =
       Number((moduleStat?.comment as Record<string, unknown>)?.count) || 0;
     const forwardCount = Number(forwardStat.count) || 0;
+    const favStat = (moduleStat?.favorite ?? {}) as Record<string, unknown>;
+    const favCount = Number(favStat.count) || 0;
     const liked = Boolean(likeStat.status);
+    const favorited = Boolean(favStat.status);
     const origRaw =
       item.orig ??
       item.origin ??
@@ -10051,6 +10094,7 @@ class BiliApiService {
       commentId,
       commentType,
       liked,
+      favorited,
       exclusiveTag,
       mentions,
       emotes,
@@ -10067,7 +10111,12 @@ class BiliApiService {
         text,
         title: undefined,
         orig: this.normalizeOrigDynamic(origRaw, depth + 1),
-        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+        stats: {
+          like: likeCount,
+          reply: replyCount,
+          forward: forwardCount,
+          favorite: favCount,
+        },
       };
     }
 
@@ -10094,6 +10143,7 @@ class BiliApiService {
           like: Number(stat?.like) || likeCount,
           reply: Number(stat?.reply) || replyCount,
           forward: forwardCount,
+          favorite: favCount,
         },
       };
     }
@@ -10127,6 +10177,7 @@ class BiliApiService {
           like: likeCount,
           reply: replyCount,
           forward: forwardCount,
+          favorite: favCount,
         },
       };
     }
@@ -10153,7 +10204,12 @@ class BiliApiService {
         cvId: base.cvId || this.asCvId(article.id),
         commentId: String(article.id || commentId),
         commentType: 12,
-        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+        stats: {
+          like: likeCount,
+          reply: replyCount,
+          forward: forwardCount,
+          favorite: favCount,
+        },
       };
     }
 
@@ -10168,7 +10224,12 @@ class BiliApiService {
         liveRoomId: liveInfo.roomId,
         liveUrl: liveInfo.url,
         liveState: liveInfo.state,
-        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+        stats: {
+          like: likeCount,
+          reply: replyCount,
+          forward: forwardCount,
+          favorite: favCount,
+        },
       };
     }
 
@@ -10185,7 +10246,12 @@ class BiliApiService {
           authorMid || Number(upowerPreview.upMid) || 0,
         ),
         exclusiveTag: exclusiveTag || "充电专属",
-        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+        stats: {
+          like: likeCount,
+          reply: replyCount,
+          forward: forwardCount,
+          favorite: favCount,
+        },
       };
     }
 
@@ -10208,7 +10274,12 @@ class BiliApiService {
         cover: images[0],
         images,
         cvId: base.cvId || this.asCvId(opus.jump_url),
-        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+        stats: {
+          like: likeCount,
+          reply: replyCount,
+          forward: forwardCount,
+          favorite: favCount,
+        },
       };
     }
 
@@ -10236,7 +10307,12 @@ class BiliApiService {
         chargeButton: "去充电",
         chargeUrl: this.normalizeChargeJumpUrl("", authorMid),
         exclusiveTag,
-        stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+        stats: {
+          like: likeCount,
+          reply: replyCount,
+          forward: forwardCount,
+          favorite: favCount,
+        },
       };
     }
 
@@ -10247,7 +10323,12 @@ class BiliApiService {
       title: undefined,
       cover: images[0],
       images,
-      stats: { like: likeCount, reply: replyCount, forward: forwardCount },
+      stats: {
+        like: likeCount,
+        reply: replyCount,
+        forward: forwardCount,
+        favorite: favCount,
+      },
     };
   }
 

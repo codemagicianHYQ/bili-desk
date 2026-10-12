@@ -986,6 +986,8 @@ export interface SpaceDynamicItem {
   commentType?: number;
   /** 当前用户是否已点赞该动态 */
   liked?: boolean;
+  /** 当前用户是否已收藏该图文 */
+  favorited?: boolean;
   /** 直播间号 / 跳转 */
   liveRoomId?: number;
   liveUrl?: string;
@@ -1002,6 +1004,7 @@ export interface SpaceDynamicItem {
     reply?: number;
     danmaku?: number;
     forward?: number;
+    favorite?: number;
   };
   /** 转发动态里被转的原内容 */
   orig?: SpaceDynamicItem;
@@ -1658,6 +1661,7 @@ export interface BiliDeskApi {
     ) => Promise<SpaceDynamicPage>;
     getDynamicDetail: (id: string) => Promise<SpaceDynamicItem>;
     likeDynamic: (id: string, like: boolean) => Promise<void>;
+    favoriteDynamic: (id: string, favorite: boolean) => Promise<void>;
     getArticle: (id: number) => Promise<ArticleDetail>;
     likeArticle: (id: number, like: boolean) => Promise<void>;
     getTargetComments: (

@@ -13,7 +13,7 @@ import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { cn, formatCount } from "@/lib/utils";
-import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
+import { Loader2, MessageCircle, Share2, Star, ThumbsUp } from "lucide-react";
 
 function formatPubTime(ts: number, label?: string): string {
   if (label) return label;
@@ -38,6 +38,9 @@ export function DynamicDetailPage() {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [liking, setLiking] = useState(false);
+  const [favorited, setFavorited] = useState(false);
+  const [favCount, setFavCount] = useState(0);
+  const [favoriting, setFavoriting] = useState(false);
   const [tip, setTip] = useState("");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
@@ -53,6 +56,8 @@ export function DynamicDetailPage() {
         setItem(detail);
         setLiked(Boolean(detail.liked));
         setLikeCount(detail.stats?.like ?? 0);
+        setFavorited(Boolean(detail.favorited));
+        setFavCount(detail.stats?.favorite ?? 0);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -90,6 +95,22 @@ export function DynamicDetailPage() {
       showTip(err instanceof Error ? err.message : "点赞失败");
     } finally {
       setLiking(false);
+    }
+  };
+
+  const handleFavorite = async () => {
+    if (!item || favoriting) return;
+    const next = !favorited;
+    setFavoriting(true);
+    try {
+      await window.biliDesk.bili.favoriteDynamic(item.id, next);
+      setFavorited(next);
+      setFavCount((prev) => Math.max(0, prev + (next ? 1 : -1)));
+      showTip(next ? "已收藏" : "已取消收藏");
+    } catch (err) {
+      showTip(err instanceof Error ? err.message : "收藏失败");
+    } finally {
+      setFavoriting(false);
     }
   };
 
@@ -285,6 +306,24 @@ export function DynamicDetailPage() {
                   <Share2 className="h-4 w-4" />
                 </span>
                 {formatCount(item.stats?.forward ?? 0)}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleFavorite()}
+                disabled={favoriting}
+                className={cn(
+                  "flex flex-col items-center gap-1 text-xs transition-colors",
+                  favorited
+                    ? "text-amber-400"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary/60">
+                  <Star
+                    className={cn("h-4 w-4", favorited && "fill-current")}
+                  />
+                </span>
+                {formatCount(favCount)}
               </button>
               <div className="flex flex-col items-center gap-1 text-xs text-muted-foreground">
                 <span className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary/60">
