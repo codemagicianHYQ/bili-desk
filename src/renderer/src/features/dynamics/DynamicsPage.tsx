@@ -6,6 +6,7 @@ import type {
   SpaceDynamicItem,
 } from "@shared/types";
 import { DynamicFeedCard } from "@/components/dynamic/DynamicFeedCard";
+import { PublishDynamicDialog } from "@/components/dynamic/PublishDynamicDialog";
 import { FollowingLiveList } from "@/components/live/FollowingLiveList";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -53,6 +54,19 @@ function apiTypeForTab(tab: UiTab): DynamicFeedType {
   return "all";
 }
 
+function rewriteDynamicsCache(
+  mutate: (items: SpaceDynamicItem[]) => SpaceDynamicItem[],
+) {
+  for (const key of dynamicsTabCache.keys()) {
+    const cached = dynamicsTabCache.get(key);
+    if (!cached) continue;
+    dynamicsTabCache.set(key, {
+      ...cached,
+      items: mutate(cached.items),
+    });
+  }
+}
+
 export function DynamicsPage() {
   const user = useAppStore((state) => state.user);
   const location = useLocation();
@@ -64,6 +78,7 @@ export function DynamicsPage() {
   const tabRef = useRef<UiTab>("all");
   const wasActiveRef = useRef(isActive);
   const [tab, setTab] = useState<UiTab>("all");
+  const [publishOpen, setPublishOpen] = useState(false);
   const [items, setItems] = useState<SpaceDynamicItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -281,7 +296,7 @@ export function DynamicsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 gap-2 border-b border-border px-6 py-3">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
         {TABS.map((option) => (
           <button
             key={option.id}
@@ -297,6 +312,18 @@ export function DynamicsPage() {
             {option.label}
           </button>
         ))}
+        <button
+          type="button"
+          className="ml-auto rounded-full bg-primary/15 px-3 py-1.5 text-sm text-primary"
+          onClick={() => setPublishOpen(true)}
+        >
+          发动态
+        </button>
+        <PublishDynamicDialog
+          open={publishOpen}
+          onClose={() => setPublishOpen(false)}
+          onPublished={() => void load(tab, false)}
+        />
       </div>
 
       <div ref={scrollRef} className="scrollbar-overlay flex-1 overflow-y-auto">
@@ -351,7 +378,26 @@ export function DynamicsPage() {
             ) : (
               <>
                 {items.map((item) => (
-                  <DynamicFeedCard key={item.id} item={item} />
+                  <DynamicFeedCard
+                    key={item.id}
+                    item={item}
+                    onRemoved={(id) => {
+                      setItems((prev) =>
+                        prev.filter((entry) => entry.id !== id),
+                      );
+                      rewriteDynamicsCache((list) =>
+                        list.filter((entry) => entry.id !== id),
+                      );
+                    }}
+                    onUnfollowed={(mid) => {
+                      setItems((prev) =>
+                        prev.filter((entry) => entry.authorMid !== mid),
+                      );
+                      rewriteDynamicsCache((list) =>
+                        list.filter((entry) => entry.authorMid !== mid),
+                      );
+                    }}
+                  />
                 ))}
                 <div
                   ref={sentinelRef}

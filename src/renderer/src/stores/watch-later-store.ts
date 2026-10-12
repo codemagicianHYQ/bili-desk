@@ -19,6 +19,7 @@ interface WatchLaterState {
   refresh: () => Promise<void>;
   add: (aid: number, bvid: string, video?: VideoItem) => Promise<ToViewSource>;
   remove: (aid: number, bvid: string) => Promise<void>;
+  clearOfficial: () => Promise<void>;
   removeMany: (items: Array<{ aid: number; bvid: string }>) => Promise<void>;
   toggle: (
     aid: number,
@@ -197,6 +198,11 @@ export const useWatchLaterStore = create<WatchLaterState>((set, get) => ({
         };
       });
     }
+  },
+
+  clearOfficial: async () => {
+    await window.biliDesk.bili.clearToView();
+    set({ videos: [], bvids: new Set(), count: 0 });
   },
 
   removeMany: async (items) => {

@@ -41,7 +41,35 @@ export function VideoTagList({ tags }: { tags?: VideoTag[] }) {
               "hover:bg-secondary/80 hover:text-foreground",
             )}
             title={tag.name}
-            onClick={() => void openBiliHref(resolveTagHref(tag), navigate)}
+            onClick={() => {
+              if (tag.kind === "topic" && tag.id > 0) {
+                navigate(
+                  `/topic/${tag.id}?name=${encodeURIComponent(tag.name)}`,
+                );
+                return;
+              }
+              if (tag.kind === "channel") {
+                const fromUrl = tag.jumpUrl?.match(/channel(?:\/|%2F|id=)(\d+)/i)?.[1];
+                const channelId = Number(fromUrl || tag.id);
+                if (channelId > 0) {
+                  navigate(
+                    `/channel/${channelId}?name=${encodeURIComponent(tag.name)}`,
+                  );
+                  return;
+                }
+              }
+              if (tag.kind === "bgm") {
+                const fromUrl =
+                  tag.jumpUrl?.match(/au(\d+)/i)?.[1] ||
+                  tag.jumpUrl?.match(/music-detail\/(\d+)/)?.[1];
+                const sid = Number(fromUrl || tag.id);
+                if (sid > 0) {
+                  navigate(`/audio/${sid}`);
+                  return;
+                }
+              }
+              void openBiliHref(resolveTagHref(tag), navigate);
+            }}
           >
             <TagIcon kind={tag.kind} />
             <span className="truncate">{tag.name}</span>

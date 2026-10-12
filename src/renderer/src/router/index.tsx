@@ -4,6 +4,10 @@ import { LoginPage } from "@/features/login/LoginPage";
 import { UpSpacePage } from "@/features/up/UpSpacePage";
 import { DynamicDetailPage } from "@/features/dynamics/DynamicDetailPage";
 import { ArticleDetailPage } from "@/features/article/ArticleDetailPage";
+import { TopicPage } from "@/features/topic/TopicPage";
+import { SeasonPage } from "@/features/season/SeasonPage";
+import { ChannelPage } from "@/features/channel/ChannelPage";
+import { AudioPage } from "@/features/audio/AudioPage";
 export const router = createHashRouter([
   {
     path: "/",
@@ -16,6 +20,10 @@ export const router = createHashRouter([
       { path: "following", element: null },
       { path: "dynamics", element: null },
       { path: "dynamic/:id", element: <DynamicDetailPage /> },
+      { path: "topic/:id", element: <TopicPage /> },
+      { path: "season/:kind/:id", element: <SeasonPage /> },
+      { path: "channel/:id", element: <ChannelPage /> },
+      { path: "audio/:id", element: <AudioPage /> },
       { path: "article/:id", element: <ArticleDetailPage /> },
       { path: "history", element: null },
       { path: "watch-later", element: null },

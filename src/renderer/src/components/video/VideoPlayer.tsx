@@ -38,6 +38,7 @@ import {
   createSeekStepSetting,
 } from "@/components/video/player-hotkeys";
 import { BILI_AUTO_QN } from "@shared/utils/bilibili-quality";
+import { danmakuBlocked } from "@/components/video/danmaku-match";
 import {
   clearPlaybackProgress,
   getPlaybackProgress,
@@ -76,6 +77,8 @@ interface VideoPlayerProps {
   ) => void;
   /** 用户选择从头观看时回调（用于清掉 URL 续播参数） */
   onWatchFromStart?: () => void;
+  /** 章节跳转：time 为秒，nonce 用来重复点同一章节 */
+  seekAt?: { time: number; nonce: number } | null;
   className?: string;
 }
 
@@ -126,6 +129,7 @@ export function VideoPlayer({
   onQualityChange,
   onError,
   onWatchFromStart,
+  seekAt = null,
   className,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -476,7 +480,12 @@ export function VideoPlayer({
             // 先让视频抢带宽开播，弹幕稍后再拉
             await new Promise((resolve) => window.setTimeout(resolve, 1200));
             try {
-              return await window.biliDesk.bili.getDanmakuList(cid);
+              const [list, filters] = await Promise.all([
+                window.biliDesk.bili.getDanmakuList(cid),
+                window.biliDesk.bili.getDanmakuFilters().catch(() => []),
+              ]);
+              if (filters.length === 0) return list;
+              return list.filter((item) => !danmakuBlocked(item, filters));
             } catch {
               // 弹幕失败不打断播放
               return [];
@@ -674,6 +683,17 @@ export function VideoPlayer({
     initialTime,
     reloadKey,
   ]);
+
+  useEffect(() => {
+    const art = artRef.current;
+    if (!art || !seekAt) return;
+    try {
+      art.currentTime = seekAt.time;
+      void art.play();
+    } catch {
+      // 播放器还没就绪
+    }
+  }, [seekAt]);
 
   useEffect(() => {
     const art = artRef.current;

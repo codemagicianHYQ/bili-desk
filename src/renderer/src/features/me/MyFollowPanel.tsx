@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { BangumiFollowItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ function formatError(err: unknown): string {
 type FollowTab = "bangumi" | "cinema";
 
 export function MyFollowPanel({ mid }: { mid: number }) {
+  const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [followTab, setFollowTab] = useState<FollowTab>("bangumi");
@@ -110,12 +112,11 @@ export function MyFollowPanel({ mid }: { mid: number }) {
           className="max-h-[60vh] space-y-2 overflow-y-auto pr-1"
         >
           {items.map((item) => (
-            <a
+            <button
               key={item.seasonId}
-              href={item.url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-secondary/50"
+              type="button"
+              onClick={() => navigate(`/season/bangumi/${item.seasonId}`)}
+              className="flex w-full gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-secondary/50"
             >
               {item.cover ? (
                 <BiliImage
@@ -139,7 +140,7 @@ export function MyFollowPanel({ mid }: { mid: number }) {
                   </p>
                 )}
               </div>
-            </a>
+            </button>
           ))}
           <div
             ref={sentinelRef}

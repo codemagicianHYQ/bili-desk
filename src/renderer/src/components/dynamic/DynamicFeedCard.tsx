@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -10,12 +10,16 @@ import {
   ExternalLink,
   Lock,
   MessageCircle,
+  MoreHorizontal,
   Radio,
   Share2,
   ThumbsUp,
   Zap,
 } from "lucide-react";
 import { openBiliHref } from "@/lib/open-bili-href";
+import { DynamicMoreSheet } from "@/components/dynamic/DynamicMoreSheet";
+import { RepostDialog } from "@/components/dynamic/RepostDialog";
+import { useAppStore } from "@/stores/app-store";
 
 function DynamicActionBar({
   item,
@@ -30,6 +34,7 @@ function DynamicActionBar({
   const [likeCount, setLikeCount] = useState(item.stats?.like ?? 0);
   const [liking, setLiking] = useState(false);
   const [tip, setTip] = useState("");
+  const [repostOpen, setRepostOpen] = useState(false);
   const reply = item.stats?.reply ?? 0;
   const forward = item.stats?.forward ?? 0;
 
@@ -38,16 +43,10 @@ function DynamicActionBar({
     window.setTimeout(() => setTip(""), 1800);
   };
 
-  const handleForward = async (event: MouseEvent) => {
+  const handleForward = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    const url = `https://www.bilibili.com/opus/${item.id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      showTip("链接已复制");
-    } catch {
-      showTip("复制失败");
-    }
+    setRepostOpen(true);
   };
 
   const handleComment = (event: MouseEvent) => {
@@ -112,6 +111,12 @@ function DynamicActionBar({
         <ThumbsUp className={cn("h-4 w-4", liked && "fill-current")} />
         {likeCount > 0 ? formatCount(likeCount) : "点赞"}
       </button>
+      <RepostDialog
+        open={repostOpen}
+        dynId={item.id}
+        preview={item.text}
+        onClose={() => setRepostOpen(false)}
+      />
     </div>
   );
 }
@@ -625,12 +630,20 @@ export function DynamicFeedCard({
   item,
   fallbackName = "用户",
   fallbackFace = "",
+  onRemoved,
+  onUnfollowed,
 }: {
   item: SpaceDynamicItem;
   fallbackName?: string;
   fallbackFace?: string;
+  onRemoved?: (id: string) => void;
+  onUnfollowed?: (mid: number) => void;
 }) {
   const navigate = useNavigate();
+  const myMid = useAppStore((state) => state.user?.mid ?? 0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuTip, setMenuTip] = useState("");
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
   const authorName = item.authorName || fallbackName;
   const authorFace = item.authorFace || fallbackFace;
   const canOpenDetail =
@@ -645,6 +658,13 @@ export function DynamicFeedCard({
     openDynamicTarget(item, navigate);
   };
 
+  const isOwn = myMid > 0 && item.authorMid === myMid;
+
+  const showMenuTip = (message: string) => {
+    setMenuTip(message);
+    window.setTimeout(() => setMenuTip(""), 1800);
+  };
+
   const authorLink = item.authorMid ? (
     <Link
       to={`/up/${item.authorMid}`}
@@ -657,7 +677,12 @@ export function DynamicFeedCard({
   );
 
   const authorBlock = (
-    <div className="flex items-start gap-3 px-5 pb-1 pt-5">
+    <div className="relative flex items-start gap-3 px-5 pb-1 pt-5">
+      {menuTip && (
+        <span className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full bg-black/80 px-2.5 py-1 text-xs text-white">
+          {menuTip}
+        </span>
+      )}
       {item.authorMid ? (
         <Link to={`/up/${item.authorMid}`} className="shrink-0">
           {authorFace ? (
@@ -699,9 +724,24 @@ export function DynamicFeedCard({
           {item.exclusiveTag && <ExclusiveTag text={item.exclusiveTag} />}
         </p>
       </div>
-      {item.kind === "live" && !item.liveRoomId && item.liveUrl && (
-        <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-      )}
+      <div className="ml-1 flex shrink-0 items-center gap-1 pt-0.5">
+        {item.kind === "live" && !item.liveRoomId && item.liveUrl && (
+          <ExternalLink className="h-4 w-4 text-muted-foreground" />
+        )}
+        <button
+          ref={menuAnchorRef}
+          type="button"
+          aria-label="动态设置"
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setMenuOpen(true);
+          }}
+        >
+          <MoreHorizontal className="h-5 w-5" />
+        </button>
+      </div>
     </div>
   );
 
@@ -729,6 +769,17 @@ export function DynamicFeedCard({
       </div>
 
       <DynamicActionBar item={item} onOpenDetail={openDetail} />
+      <DynamicMoreSheet
+        open={menuOpen}
+        anchorRef={menuAnchorRef}
+        item={item}
+        isOwn={isOwn}
+        authorName={authorName}
+        onClose={() => setMenuOpen(false)}
+        onTip={showMenuTip}
+        onRemoved={onRemoved}
+        onUnfollowed={onUnfollowed}
+      />
     </article>
   );
 }

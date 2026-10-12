@@ -797,6 +797,63 @@ class MessageApiService {
     });
   }
 
+  async sendChatShare(
+    talkerId: string,
+    sessionType: number,
+    card: {
+      kind: "video" | "article" | "dynamic" | "live";
+      title: string;
+      cover?: string;
+      bvid?: string;
+      aid?: number;
+      cvid?: number;
+      dynId?: string;
+      roomId?: number;
+      views?: number;
+    },
+  ): Promise<void> {
+    if (card.kind === "dynamic") {
+      if (!card.dynId) throw new Error("缺少动态 ID");
+      await this.postChat(talkerId, sessionType, 13, {
+        rid: card.dynId,
+        title: card.title,
+        cover: card.cover ?? "",
+        jump_uri: `https://www.bilibili.com/opus/${card.dynId}`,
+      });
+      return;
+    }
+    if (card.kind === "live") {
+      if (!card.roomId) throw new Error("缺少直播间号");
+      await this.postChat(talkerId, sessionType, 14, {
+        title: card.title,
+        cover: card.cover ?? "",
+        source: "直播",
+        url: `https://live.bilibili.com/${card.roomId}`,
+        jump_uri: `https://live.bilibili.com/${card.roomId}`,
+        rid: card.roomId,
+      });
+      return;
+    }
+    if (card.kind === "video") {
+      if (!card.bvid) throw new Error("缺少视频 BV 号");
+      await this.postChat(talkerId, sessionType, 11, {
+        bvid: card.bvid,
+        title: card.title,
+        cover: card.cover ?? "",
+        rid: card.aid ?? 0,
+        view: card.views ?? 0,
+      });
+      return;
+    }
+    if (!card.cvid) throw new Error("缺少专栏 cv 号");
+    await this.postChat(talkerId, sessionType, 12, {
+      rid: card.cvid,
+      title: card.title,
+      image_urls: card.cover ? [card.cover] : [],
+      view: card.views ?? 0,
+    });
+  }
+
   async markRead(
     talkerId: string,
     sessionType: number,

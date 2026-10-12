@@ -1,3 +1,5 @@
+import { createWriteStream } from "fs";
+import { pipeline } from "stream/promises";
 import axios, {
   AxiosHeaders,
   type AxiosInstance,
@@ -71,6 +73,21 @@ import type {
   CommentItem,
   CommentMember,
   CommentPage,
+  BinaryImageFile,
+  HotSearchItem,
+  DanmakuFilter,
+  DanmakuFilterKind,
+  DynamicPublishOptions,
+  TopicHead,
+  TopicSuggest,
+  VideoChapter,
+  SeasonDetail,
+  SeasonEpisode,
+  ChannelVideoPage,
+  AudioSong,
+  ArchiveNote,
+  WalletBalance,
+  CreatedDynamic,
   ReplyEmotePanel,
   UpVideosPage,
   UpVideosOrder,
@@ -272,12 +289,17 @@ function parseDanmakuXml(xml: string): DanmakuItem[] {
     const text = decodeXmlEntities(match[2] ?? "").trim();
     if (!text || !Number.isFinite(time)) continue;
 
-    items.push({
+    const id = (attrs[7] ?? "").trim();
+    const midHash = (attrs[6] ?? "").trim();
+    const item: DanmakuItem = {
       text,
       time,
       color: colorIntToHex(Number.isFinite(color) ? color : 16777215),
       mode: modeNum === 5 ? 1 : modeNum === 4 ? 2 : 0,
-    });
+    };
+    if (id) item.id = id;
+    if (midHash) item.midHash = midHash;
+    items.push(item);
   }
 
   return items;
@@ -2423,7 +2445,35 @@ class BiliApiService {
       coined: coin > 0,
       coin,
       favorited: Number(data.favorite) === 1,
+      disliked: Number(data.dislike) === 1 || data.dislike === true,
     };
+  }
+
+  async dislikeVideo(aid: number, dislike: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再点踩");
+    const body = new URLSearchParams({
+      aid: String(aid),
+      dislike: dislike ? "1" : "0",
+      csrf,
+    });
+    const res = await this.client.post(
+      "/x/web-interface/archive/dislike",
+      body,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "点踩失败"));
+    }
   }
 
   async likeVideo(aid: number, like: boolean): Promise<void> {
@@ -2995,6 +3045,418 @@ class BiliApiService {
     );
   }
 
+  async getVideoHeatmap(bvid: string, cid: number): Promise<number[]> {
+    const res = await this.client.get("/x/player/pbp", {
+      params: { bvid, cid },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) return [];
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const events = data.events;
+    let raw: unknown[] = [];
+    if (Array.isArray(events)) raw = events;
+    else if (events && typeof events === "object") {
+      const bucket = (events as Record<string, unknown>).default;
+      if (Array.isArray(bucket)) raw = bucket;
+    }
+    const values = raw
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item >= 0);
+    const max = values.reduce((peak, item) => Math.max(peak, item), 0);
+    if (max <= 0) return [];
+    return values.map((item) => (max <= 1 ? item : item / max));
+  }
+
+  async getArchiveNotes(aid: number): Promise<ArchiveNote[]> {
+    const res = await this.client.get("/x/note/list/archive", {
+      params: { oid: aid, oid_type: 0, pn: 1, ps: 20 },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) return [];
+    const data = res.data?.data as
+      | { list?: unknown[]; notes?: unknown[] }
+      | undefined;
+    const list = data?.list ?? data?.notes ?? [];
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((entry) => {
+        const item = entry as Record<string, unknown>;
+        const id = Number(item.note_id ?? item.cvid ?? item.id) || 0;
+        const title = String(item.title ?? "").trim();
+        const summary = String(item.summary ?? item.desc ?? "").trim();
+        if (!id) return null;
+        return { id, title: title || "未命名笔记", summary };
+      })
+      .filter((item): item is ArchiveNote => item != null);
+  }
+
+  async addArchiveNote(
+    aid: number,
+    title: string,
+    text: string,
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再写笔记");
+    const bodyText = text.trim();
+    const noteTitle = title.trim() || bodyText.slice(0, 20) || "笔记";
+    if (!bodyText) throw new Error("笔记内容不能为空");
+    const body = new URLSearchParams({
+      csrf,
+      oid: String(aid),
+      oid_type: "0",
+      title: noteTitle,
+      summary: bodyText.slice(0, 200),
+      content: JSON.stringify([{ insert: `${bodyText}\n` }]),
+      publish: "0",
+    });
+    const res = await this.client.post("/x/note/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "保存笔记失败");
+    }
+  }
+
+  async downloadVideoFile(
+    bvid: string,
+    cid: number,
+    dest: string,
+    qn?: number,
+  ): Promise<void> {
+    const info = await this.getPlayUrl(bvid, cid, qn, { preferMp4: true });
+    if (info.format === "dash" || !info.url) {
+      throw new Error("当前是分段画质，请先把清晰度调到 720P 或更低再下载");
+    }
+    const res = await axios.get(info.url, {
+      responseType: "stream",
+      headers: {
+        ...defaultHeaders(),
+        Cookie: getCookieString(),
+        Referer: `https://www.bilibili.com/video/${bvid}`,
+      },
+      validateStatus: () => true,
+      timeout: 0,
+    });
+    if (res.status >= 400) {
+      throw new Error(`下载失败（${res.status}）`);
+    }
+    await pipeline(res.data, createWriteStream(dest));
+  }
+
+  async getSeason(
+    kind: "bangumi" | "cheese",
+    id: number,
+    by: "season" | "ep" = "season",
+  ): Promise<SeasonDetail> {
+    const path =
+      kind === "cheese" ? "/pugv/view/web/season" : "/pgc/view/web/season";
+    const res = await this.client.get(path, {
+      params: by === "ep" ? { ep_id: id } : { season_id: id },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    const result = (res.data?.result ?? res.data?.data) as
+      | Record<string, unknown>
+      | undefined;
+    const seasonCode = res.data?.code;
+    if (
+      (seasonCode !== undefined && seasonCode !== 0 && seasonCode !== "0") ||
+      !result
+    ) {
+      throw new Error((res.data?.message as string) || "剧集加载失败");
+    }
+    const status = (result.user_status ?? {}) as Record<string, unknown>;
+    const rating = (result.rating ?? {}) as Record<string, unknown>;
+    const rawEps = (result.episodes ?? result.ep_list ?? []) as unknown[];
+    const episodes: SeasonEpisode[] = [];
+    if (Array.isArray(rawEps)) {
+      for (const entry of rawEps) {
+        if (!entry || typeof entry !== "object") continue;
+        const ep = entry as Record<string, unknown>;
+        const epId = Number(ep.id ?? ep.ep_id) || 0;
+        const cid = Number(ep.cid) || 0;
+        if (!epId || !cid) continue;
+        const title =
+          String(ep.long_title ?? ep.title ?? ep.index_title ?? "").trim() ||
+          `第 ${episodes.length + 1} 集`;
+        episodes.push({
+          epId,
+          aid: Number(ep.aid) || 0,
+          cid,
+          bvid: String(ep.bvid ?? ""),
+          title,
+          cover: String(ep.cover ?? "").replace(/^http:/, "https:"),
+          duration: Number(ep.duration) || 0,
+          badge: String(ep.badge ?? "").trim(),
+        });
+      }
+    }
+    return {
+      kind,
+      seasonId: Number(result.season_id) || (by === "season" ? id : 0),
+      title: String(result.title ?? result.season_title ?? "剧集"),
+      cover: String(result.cover ?? "").replace(/^http:/, "https:"),
+      evaluate: String(result.evaluate ?? result.subtitle ?? "").trim(),
+      score: Number(rating.score) || 0,
+      followed:
+        Number(status.follow) === 1 ||
+        status.follow === true ||
+        Number(status.favored) === 1 ||
+        status.favored === true,
+      episodes,
+    };
+  }
+
+  async getSeasonPlayUrl(
+    kind: "bangumi" | "cheese",
+    epId: number,
+    cid: number,
+    qn?: number,
+  ): Promise<VideoPlayInfo> {
+    const requestedQn = resolvePlayQn(qn);
+    const path =
+      kind === "cheese"
+        ? "/pugv/player/web/playurl"
+        : "/pgc/player/web/playurl";
+    const referer =
+      kind === "cheese"
+        ? `https://www.bilibili.com/cheese/play/ep${epId}`
+        : `https://www.bilibili.com/bangumi/play/ep${epId}`;
+    const params = await signParams({
+      ep_id: epId,
+      cid,
+      qn: requestedQn,
+      fnver: 0,
+      fnval: 16,
+      fourk: requestedQn >= 80 ? 1 : 0,
+    });
+    const res = await this.client.get(path, {
+      params,
+      headers: { Referer: referer },
+      validateStatus: () => true,
+    });
+    const payload = (res.data?.result ?? res.data?.data) as
+      | Record<string, unknown>
+      | undefined;
+    const playCode = res.data?.code;
+    if (
+      (playCode !== undefined && playCode !== 0 && playCode !== "0") ||
+      !payload
+    ) {
+      throw new Error(
+        (res.data?.message as string) || "该剧集暂不支持在线播放",
+      );
+    }
+    const privilege = mergePlayPrivilege(
+      parsePlayPrivilegeFromPayload(payload),
+    );
+    const dash = this.buildPlayInfoFromDash(
+      payload,
+      requestedQn,
+      referer,
+      privilege,
+      "web",
+    );
+    if (dash) return this.attachPlayMeta(dash, privilege, requestedQn);
+    const durl = (payload.durl as Array<{ url?: string }> | undefined)?.[0];
+    if (durl?.url) {
+      return this.attachPlayMeta(
+        this.buildPlayInfoFromDurl(
+          payload,
+          { url: wrapMediaUrl(durl.url, referer), format: "mp4" },
+          requestedQn,
+        ),
+        privilege,
+        requestedQn,
+      );
+    }
+    throw new Error((res.data?.message as string) || "该剧集暂不支持在线播放");
+  }
+
+  async setSeasonFollow(
+    kind: "bangumi" | "cheese",
+    seasonId: number,
+    follow: boolean,
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再追番");
+    const path =
+      kind === "cheese"
+        ? follow
+          ? "/pugv/pay/web/favorite/add"
+          : "/pugv/pay/web/favorite/del"
+        : follow
+          ? "/pgc/web/follow/add"
+          : "/pgc/web/follow/del";
+    const body = new URLSearchParams({
+      season_id: String(seasonId),
+      csrf,
+    });
+    const res = await this.client.post(path, body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "更新追番状态失败");
+    }
+  }
+
+  async getChannelVideos(
+    channelId: number,
+    page = 1,
+  ): Promise<ChannelVideoPage> {
+    const res = await this.client.get(
+      "/x/web-interface/web/channel/category/channel_arc/list",
+      {
+        params: { channel_id: channelId, pn: page, ps: 20 },
+        validateStatus: () => true,
+      },
+    );
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "频道加载失败");
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const archives = (data.archives ?? data.list ?? []) as unknown[];
+    const videos = Array.isArray(archives)
+      ? archives
+          .filter((item): item is Record<string, unknown> =>
+            Boolean(
+              item &&
+              typeof item === "object" &&
+              (item as Record<string, unknown>).bvid,
+            ),
+          )
+          .map((item) => this.normalizeVideo(item))
+      : [];
+    const pageInfo = (data.page ?? {}) as Record<string, unknown>;
+    const total = Number(pageInfo.count ?? data.total) || 0;
+    const name = String(
+      data.name ??
+        (data.channel as Record<string, unknown> | undefined)?.name ??
+        "",
+    ).trim();
+    return {
+      id: channelId,
+      name: name || "频道",
+      videos,
+      page,
+      hasMore: total > 0 ? page * 20 < total : videos.length >= 20,
+    };
+  }
+
+  async getAudioSong(sid: number): Promise<AudioSong> {
+    const infoRes = await axios.get(
+      "https://www.bilibili.com/audio/music-service-c/web/song/info",
+      {
+        params: { sid },
+        headers: { ...defaultHeaders(), Cookie: getCookieString() },
+        validateStatus: () => true,
+      },
+    );
+    if (infoRes.data?.code !== 0) {
+      throw new Error((infoRes.data?.msg as string) || "音频信息加载失败");
+    }
+    const info = (infoRes.data?.data ?? {}) as Record<string, unknown>;
+    const urlRes = await axios.get(
+      "https://www.bilibili.com/audio/music-service-c/web/url",
+      {
+        params: { sid, privilege: 2, quality: 2 },
+        headers: {
+          ...defaultHeaders(),
+          Cookie: getCookieString(),
+          Referer: "https://www.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+    const urlData = (urlRes.data?.data ?? {}) as Record<string, unknown>;
+    const cdns = urlData.cdns;
+    const url = Array.isArray(cdns) ? String(cdns[0] ?? "") : "";
+    return {
+      sid,
+      title: String(info.title ?? "音频"),
+      cover: String(info.cover ?? "").replace(/^http:/, "https:"),
+      author: String(info.author ?? info.uname ?? ""),
+      intro: String(info.intro ?? "").trim(),
+      url,
+    };
+  }
+
+  async updateMyProfile(input: {
+    name?: string;
+    sign?: string;
+  }): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再修改资料");
+    const fields: Record<string, string> = { csrf };
+    const name = input.name?.trim();
+    if (name) fields.uname = name;
+    if (input.sign != null) fields.usersign = input.sign.trim();
+    if (!fields.uname && input.sign == null) {
+      throw new Error("没有要保存的内容");
+    }
+    const res = await this.client.post(
+      "/x/member/web/update",
+      new URLSearchParams(fields),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://account.bilibili.com/account/setting",
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "保存资料失败");
+    }
+  }
+
+  async updateMyFace(file: BinaryImageFile): Promise<string> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再更换头像");
+    const bytes = Buffer.from(file.data);
+    if (bytes.length === 0) throw new Error("头像文件是空的");
+    if (bytes.length > 2 * 1024 * 1024) throw new Error("头像不能超过 2MB");
+    const form = new FormData();
+    form.append(
+      "face",
+      new Blob([Uint8Array.from(bytes)], { type: file.mime || "image/jpeg" }),
+      file.name || "face.jpg",
+    );
+    form.append("csrf", csrf);
+    const res = await this.client.post("/x/member/web/face/update", form, {
+      headers: { Referer: "https://account.bilibili.com/account/setting" },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "更换头像失败");
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    return String(data.face ?? data.url ?? "").replace(/^http:/, "https:");
+  }
+
+  async getWallet(): Promise<WalletBalance> {
+    const res = await this.client.get("/x/web-interface/nav", {
+      validateStatus: () => true,
+    });
+    const wallet = (res.data?.data?.wallet ?? {}) as Record<string, unknown>;
+    const bcoin = wallet.bcoin_balance;
+    return { bcoin: bcoin == null || bcoin === "" ? "0" : String(bcoin) };
+  }
+
   async getDanmakuList(cid: number): Promise<DanmakuItem[]> {
     await this.ensureBuvid3();
 
@@ -3179,42 +3641,17 @@ class BiliApiService {
     message: string,
     root = 0,
     parent = 0,
+    images: BinaryImageFile[] = [],
   ): Promise<CommentItem | null> {
-    const csrf = getCsrf();
-    if (!csrf) throw new Error("请先登录后再发表评论");
-
-    const text = message.trim();
-    if (!text) throw new Error("评论内容不能为空");
-
-    const body = new URLSearchParams({
-      type: "1",
-      oid: String(aid),
-      message: text,
-      plat: "1",
-      csrf,
-    });
-    if (root > 0) body.set("root", String(root));
-    if (parent > 0) body.set("parent", String(parent));
-
-    const res = await this.client.post("/x/v2/reply/add", body, {
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Referer: "https://www.bilibili.com/",
-      },
-      validateStatus: () => true,
-    });
-
-    if (res.status === 412 || res.data?.code === -412) {
-      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
-    }
-    if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "发表评论失败");
-    }
-
-    const reply = (
-      res.data?.data as { reply?: Record<string, unknown> } | undefined
-    )?.reply;
-    return reply ? this.normalizeCommentItem(reply) : null;
+    return this.postReply(
+      String(aid),
+      1,
+      message,
+      root,
+      parent,
+      images,
+      "https://www.bilibili.com/",
+    );
   }
 
   async likeComment(aid: number, rpid: number, like: boolean): Promise<void> {
@@ -3283,6 +3720,24 @@ class BiliApiService {
         action: hate ? "1" : "0",
       },
       "点踩失败",
+    );
+  }
+
+  async pinComment(
+    oid: string,
+    type: number,
+    rpid: number,
+    pin: boolean,
+  ): Promise<void> {
+    await this.postReplyForm(
+      "/x/v2/reply/top",
+      {
+        type: String(type),
+        oid: String(oid),
+        rpid: String(rpid),
+        action: pin ? "1" : "0",
+      },
+      pin ? "置顶评论失败" : "取消置顶失败",
     );
   }
 
@@ -6607,6 +7062,70 @@ class BiliApiService {
     }
   }
 
+  async coinArticle(
+    id: number,
+    upMid: number,
+    multiply: 1 | 2 = 1,
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再投币");
+    const cvid = Number(id);
+    if (!Number.isFinite(cvid) || cvid <= 0) throw new Error("专栏 ID 无效");
+
+    const body = new URLSearchParams({
+      aid: String(cvid),
+      multiply: String(multiply),
+      avtype: "2",
+      upid: String(upMid || 0),
+      select_like: "0",
+      csrf,
+    });
+    const res = await this.client.post("/x/web-interface/coin/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: `https://www.bilibili.com/read/cv${cvid}`,
+      },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "投币失败"));
+    }
+  }
+
+  async favoriteArticle(id: number, favorite: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再收藏");
+    const cvid = Number(id);
+    if (!Number.isFinite(cvid) || cvid <= 0) throw new Error("专栏 ID 无效");
+
+    const body = new URLSearchParams({
+      id: String(cvid),
+      csrf,
+    });
+    const res = await this.client.post(
+      favorite ? "/x/article/favorite/add" : "/x/article/favorite/del",
+      body,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: `https://www.bilibili.com/read/cv${cvid}`,
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(
+        formatBiliApiError(res.data, favorite ? "收藏失败" : "取消收藏失败"),
+      );
+    }
+  }
+
   private normalizeArticleDetail(
     data: Record<string, unknown>,
     fallbackId: number,
@@ -6644,6 +7163,8 @@ class BiliApiService {
       words: Number(data.words) || 0,
       pubTime: Number(data.publish_time ?? data.ctime) || 0,
       liked: likedRaw === true || Number(likedRaw) === 1,
+      coined: Boolean(data.is_coin),
+      favorited: Boolean(data.in_list),
       dynId: dynId || undefined,
       categoryName: String(category.name ?? "") || undefined,
     };
@@ -7566,6 +8087,20 @@ class BiliApiService {
     this.assertToViewMutationResponse(res, "添加稍后再看失败");
   }
 
+  async clearToView(): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录");
+    const body = new URLSearchParams({ csrf });
+    const res = await this.client.post("/x/v2/history/toview/clear", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    this.assertToViewMutationResponse(res, "清空稍后再看失败");
+  }
+
   async removeFromToView(aid: number): Promise<void> {
     const csrf = getCsrf();
     if (!csrf) throw new Error("请先登录");
@@ -7719,7 +8254,7 @@ class BiliApiService {
       platform: "web",
       web_location: "333.1365",
       features:
-        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,onlyfansAssetsV2,forwardListHidden,ugcDelete,onlyfansQaCard,htmlOpusStyle",
+        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,onlyfansAssetsV2,ugcDelete,onlyfansQaCard,htmlOpusStyle",
       ...(offset ? { offset } : {}),
     });
 
@@ -8012,9 +8547,7 @@ class BiliApiService {
     if (!dynId) throw new Error("动态 ID 无效");
 
     const res = await this.client.post(
-      top
-        ? "/x/dynamic/feed/space/set_top"
-        : "/x/dynamic/feed/space/rm_top",
+      top ? "/x/dynamic/feed/space/set_top" : "/x/dynamic/feed/space/rm_top",
       { dyn_str: dynId },
       {
         params: { csrf },
@@ -8060,6 +8593,47 @@ class BiliApiService {
     }
     if (res.data?.code !== 0) {
       throw new Error((res.data?.message as string) || "删除动态失败");
+    }
+  }
+
+  /** 举报动态。reasonType 与网页三点菜单一致 */
+  async reportDynamic(
+    id: string,
+    accusedUid: number,
+    reasonType: number,
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再举报");
+    const dynId = String(id || "").trim();
+    if (!dynId) throw new Error("动态 ID 无效");
+    const uid = Number(accusedUid);
+    if (!Number.isFinite(uid) || uid <= 0) {
+      throw new Error("无法确定被举报的用户");
+    }
+
+    const res = await this.client.post(
+      "/x/dynamic/feed/dynamic_report/add",
+      {
+        accused_uid: uid,
+        dynamic_id: dynId,
+        reason_type: reasonType,
+        reason_desc: "",
+      },
+      {
+        params: { csrf },
+        headers: {
+          "Content-Type": "application/json",
+          Referer: "https://t.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "举报失败");
     }
   }
 
@@ -8143,27 +8717,51 @@ class BiliApiService {
     message: string,
     root = 0,
     parent = 0,
+    images: BinaryImageFile[] = [],
+  ): Promise<CommentItem | null> {
+    return this.postReply(
+      oid,
+      type,
+      message,
+      root,
+      parent,
+      images,
+      "https://www.bilibili.com/",
+    );
+  }
+
+  private async postReply(
+    oid: string,
+    type: number,
+    message: string,
+    root: number,
+    parent: number,
+    images: BinaryImageFile[],
+    referer: string,
   ): Promise<CommentItem | null> {
     const csrf = getCsrf();
     if (!csrf) throw new Error("请先登录后再发表评论");
-
     const text = message.trim();
-    if (!text) throw new Error("评论内容不能为空");
+    const pics = await this.uploadDrawImages(images.slice(0, 3), "new_dyn");
+    if (!text && pics.length === 0) throw new Error("评论内容不能为空");
 
     const body = new URLSearchParams({
       type: String(type),
       oid: String(oid),
-      message: text,
+      message: text || "分享图片",
       plat: "1",
       csrf,
     });
     if (root > 0) body.set("root", String(root));
     if (parent > 0) body.set("parent", String(parent));
+    if (pics.length > 0) {
+      body.set("pictures", JSON.stringify(pics));
+    }
 
     const res = await this.client.post("/x/v2/reply/add", body, {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Referer: "https://www.bilibili.com/",
+        Referer: referer,
       },
       validateStatus: () => true,
     });
@@ -8179,6 +8777,742 @@ class BiliApiService {
       res.data?.data as { reply?: Record<string, unknown> } | undefined
     )?.reply;
     return reply ? this.normalizeCommentItem(reply) : null;
+  }
+
+  private async uploadDrawImages(
+    files: BinaryImageFile[],
+    biz: string,
+  ): Promise<
+    Array<{
+      img_src: string;
+      img_width: number;
+      img_height: number;
+      img_size: number;
+    }>
+  > {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录");
+    const uploaded = [];
+    for (const file of files) {
+      const bytes = Buffer.from(file.data);
+      if (bytes.length === 0) continue;
+      if (bytes.length > 20 * 1024 * 1024) throw new Error("图片不能超过 20MB");
+      const form = new FormData();
+      form.append(
+        "file_up",
+        new Blob([Uint8Array.from(bytes)], {
+          type: file.mime || "image/jpeg",
+        }),
+        file.name || "image.jpg",
+      );
+      form.append("category", "daily");
+      form.append("biz", biz);
+      form.append("csrf", csrf);
+      const res = await this.client.post(
+        "/x/dynamic/feed/draw/upload_bfs",
+        form,
+        { validateStatus: () => true },
+      );
+      if (res.status === 412 || res.data?.code === -412) {
+        throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+      }
+      if (res.data?.code !== 0) {
+        throw new Error((res.data?.message as string) || "图片上传失败");
+      }
+      const data = (res.data?.data ?? {}) as Record<string, unknown>;
+      const url = String(data.image_url ?? "").replace(/^http:/, "https:");
+      if (!url) throw new Error("图片上传失败");
+      uploaded.push({
+        img_src: url,
+        img_width: Number(data.image_width) || 0,
+        img_height: Number(data.image_height) || 0,
+        img_size: Number(data.img_size) || 0,
+      });
+    }
+    return uploaded;
+  }
+
+  private async postCreateDyn(
+    dynReq: Record<string, unknown>,
+  ): Promise<CreatedDynamic> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再发布动态");
+    const res = await this.client.post(
+      "/x/dynamic/feed/create/dyn",
+      {
+        dyn_req: {
+          meta: {
+            app_meta: { from: "create.dynamic.web", mobi_app: "web" },
+          },
+          ...dynReq,
+        },
+      },
+      {
+        params: { csrf },
+        headers: {
+          "Content-Type": "application/json",
+          Referer: "https://t.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "发布动态失败");
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const id = String(data.dyn_id_str ?? data.dyn_id ?? "").trim();
+    if (!id) throw new Error("发布成功但没有返回动态 ID");
+    return { id };
+  }
+
+  private currentMid(): number {
+    return (
+      appStore.get("user")?.mid ?? Number(appStore.get("cookies").DedeUserID)
+    );
+  }
+
+  private async createVoteCard(
+    vote: NonNullable<DynamicPublishOptions["vote"]>,
+  ): Promise<number> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再发起投票");
+    const options = vote.options.map((item) => item.trim()).filter(Boolean);
+    if (options.length < 2) throw new Error("投票至少需要两个选项");
+    const hours = Math.min(
+      720,
+      Math.max(1, Math.round(vote.durationHours || 24)),
+    );
+    const body = new URLSearchParams({
+      title: vote.title.trim() || "投票",
+      desc: "",
+      type: "0",
+      choice_cnt: String(
+        Math.min(Math.max(1, vote.choiceCount || 1), options.length),
+      ),
+      duration: String(hours * 3600),
+      options: JSON.stringify(options.map((desc) => ({ desc }))),
+      csrf,
+    });
+    const res = await this.client.post(
+      "https://api.vc.bilibili.com/vote_svr/v1/vote_svr/create_vote",
+      body,
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        validateStatus: () => true,
+      },
+    );
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "创建投票失败");
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const id = Number(data.vote_id ?? data.id) || 0;
+    if (!id) throw new Error("创建投票失败");
+    return id;
+  }
+
+  private async createLotteryCard(
+    lottery: NonNullable<DynamicPublishOptions["lottery"]>,
+  ): Promise<number> {
+    const csrf = getCsrf();
+    const sender = this.currentMid();
+    if (!csrf || !sender) throw new Error("请先登录后再发起抽奖");
+    const prize = lottery.prize.trim();
+    if (!prize) throw new Error("请填写奖品");
+    const hours = Math.min(
+      360,
+      Math.max(1, Math.round(lottery.durationHours || 24)),
+    );
+    const body = new URLSearchParams({
+      sender_uid: String(sender),
+      business_type: "1",
+      business_id: "0",
+      at_num: "0",
+      feed_limit: "0",
+      first_prize: "1",
+      first_prize_cmt: prize,
+      first_prize_pic: "",
+      lottery_time: String(Math.floor(Date.now() / 1000) + hours * 3600),
+      need_post: "0",
+      need_follow: lottery.needFollow ? "1" : "0",
+      src_type: "1",
+      csrf,
+    });
+    const res = await this.client.post(
+      "https://api.vc.bilibili.com/lottery_svr/v1/lottery_svr/create",
+      body,
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        validateStatus: () => true,
+      },
+    );
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "创建抽奖失败");
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const id = Number(data.lottery_id ?? data.id) || 0;
+    if (!id) throw new Error("创建抽奖失败");
+    return id;
+  }
+
+  private async createReserveCard(
+    reserve: NonNullable<DynamicPublishOptions["reserve"]>,
+  ): Promise<number> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再发起预约");
+    const title = reserve.title.trim();
+    if (!title) throw new Error("请填写预约标题");
+    if (!reserve.startTs) throw new Error("请选择预约时间");
+    const body = new URLSearchParams({
+      title,
+      type: "2",
+      from: "1",
+      live_plan_start_time: String(reserve.startTs),
+      create_dynamic: "0",
+      csrf,
+    });
+    const res = await this.client.post("/x/new-reserve/reserve/create", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://t.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "创建预约失败");
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const id = Number(data.sid ?? data.reserve_id ?? data.id) || 0;
+    if (!id) throw new Error("创建预约失败");
+    return id;
+  }
+
+  private buildDynContents(
+    text: string,
+    options: DynamicPublishOptions | undefined,
+    extras: Array<{ raw_text: string; type: number; biz_id: string }>,
+  ): Array<{ raw_text: string; type: number; biz_id: string }> {
+    const mentions = options?.mentions ?? [];
+    const topic = options?.topic;
+    const source = text.trim();
+    const contents: Array<{ raw_text: string; type: number; biz_id: string }> =
+      [];
+    if (source) {
+      const needles = [
+        ...mentions.map((item) => ({
+          token: `@${item.name}`,
+          type: 2,
+          biz_id: String(item.mid),
+        })),
+        ...(topic
+          ? [
+              {
+                token: `#${topic.name}#`,
+                type: 5,
+                biz_id: String(topic.id),
+              },
+            ]
+          : []),
+      ].sort((a, b) => b.token.length - a.token.length);
+      let index = 0;
+      while (index < source.length) {
+        const hit = needles.find(
+          (item) => item.token && source.startsWith(item.token, index),
+        );
+        if (hit) {
+          contents.push({
+            raw_text: hit.token,
+            type: hit.type,
+            biz_id: hit.biz_id,
+          });
+          index += hit.token.length;
+          continue;
+        }
+        let next = source.length;
+        for (const item of needles) {
+          const at = source.indexOf(item.token, index + 1);
+          if (at >= 0 && at < next) next = at;
+        }
+        const raw = source.slice(index, next);
+        if (raw) contents.push({ raw_text: raw, type: 1, biz_id: "" });
+        index = next;
+      }
+    }
+    contents.push(...extras);
+    return contents;
+  }
+
+  private async composeDynReq(
+    text: string,
+    images: BinaryImageFile[],
+    options?: DynamicPublishOptions,
+  ): Promise<Record<string, unknown>> {
+    const content = text.trim();
+    if (content.length > 1000) throw new Error("动态最多 1000 字");
+    const uploaded = await this.uploadDrawImages(images.slice(0, 9), "new_dyn");
+    const kept = (options?.keepImages ?? [])
+      .map((src) => src.trim())
+      .filter(Boolean)
+      .map((src) => ({
+        img_src: src,
+        img_width: 0,
+        img_height: 0,
+        img_size: 0,
+      }));
+    const pics = [...kept, ...uploaded].slice(0, 9);
+    const extras: Array<{ raw_text: string; type: number; biz_id: string }> =
+      [];
+    let attach: Record<string, unknown> | undefined;
+    if (options?.vote) {
+      const voteId = await this.createVoteCard(options.vote);
+      extras.push({
+        raw_text: options.vote.title.trim() || "投票",
+        type: 4,
+        biz_id: String(voteId),
+      });
+      attach = { common_card: { type: 2, biz_id: voteId } };
+    }
+    if (options?.lottery) {
+      const lotteryId = await this.createLotteryCard(options.lottery);
+      extras.push({
+        raw_text: options.lottery.prize.trim(),
+        type: 3,
+        biz_id: String(lotteryId),
+      });
+      attach = { common_card: { type: 20, biz_id: lotteryId } };
+    }
+    if (options?.reserve) {
+      const reserveId = await this.createReserveCard(options.reserve);
+      attach = { common_card: { type: 14, biz_id: reserveId } };
+    }
+    const contents = this.buildDynContents(content, options, extras);
+    if (contents.length === 0 && pics.length === 0 && !attach) {
+      throw new Error("写点内容或加一张图");
+    }
+    const option: Record<string, number> = {};
+    if (options?.privatePub) option.private_pub = 1;
+    if (options?.closeComment) option.close_comment = 1;
+    if (options?.timerPubTime && options.timerPubTime > 0) {
+      option.timer_pub_time = options.timerPubTime;
+    }
+    return {
+      content: { contents },
+      ...(pics.length > 0 ? { pics } : {}),
+      ...(options?.topic
+        ? {
+            topic: {
+              id: options.topic.id,
+              name: options.topic.name,
+              from_source: "dynamic",
+            },
+          }
+        : {}),
+      ...(Object.keys(option).length > 0 ? { option } : {}),
+      ...(attach ? { attach_card: attach } : {}),
+      scene: pics.length > 0 ? 2 : 1,
+    };
+  }
+
+  async createDynamic(
+    text: string,
+    images: BinaryImageFile[] = [],
+    options?: DynamicPublishOptions,
+  ): Promise<CreatedDynamic> {
+    return this.postCreateDyn(await this.composeDynReq(text, images, options));
+  }
+
+  async editDynamic(
+    id: string,
+    text: string,
+    images: BinaryImageFile[] = [],
+    options?: DynamicPublishOptions,
+  ): Promise<void> {
+    const dynId = String(id || "").trim();
+    if (!dynId) throw new Error("动态 ID 无效");
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再编辑动态");
+    const dynReq = await this.composeDynReq(text, images, options);
+    const res = await this.client.post(
+      "/x/dynamic/feed/edit/dyn",
+      {
+        dyn_req: {
+          dyn_id_str: dynId,
+          meta: {
+            app_meta: { from: "create.dynamic.web", mobi_app: "web" },
+          },
+          ...dynReq,
+        },
+      },
+      {
+        params: { csrf },
+        headers: {
+          "Content-Type": "application/json",
+          Referer: "https://t.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "编辑动态失败");
+    }
+  }
+
+  async setDynamicPrivate(id: string, privatePub: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录");
+    const dynId = String(id || "").trim();
+    if (!dynId) throw new Error("动态 ID 无效");
+    const payload = { dyn_id_str: dynId, private: privatePub ? 1 : 0 };
+    const post = (path: string) =>
+      this.client.post(path, payload, {
+        params: { csrf },
+        headers: {
+          "Content-Type": "application/json",
+          Referer: "https://t.bilibili.com/",
+        },
+        validateStatus: () => true,
+      });
+    let res = await post("/x/dynamic/feed/operate/private");
+    if (res.status === 404 || res.data?.code === -404) {
+      res = await post("/x/dynamic/feed/operate/set_private");
+    }
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "修改可见范围失败");
+    }
+  }
+
+  async searchTopics(keyword: string): Promise<TopicSuggest[]> {
+    const term = keyword.trim();
+    if (!term) return [];
+    const params = await signParams({
+      keywords: term,
+      page_num: 1,
+      page_size: 8,
+    });
+    const res = await this.client.get("/x/topic/pub/search", {
+      params,
+      headers: { Referer: "https://t.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) return [];
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const list = (data.topic_items ?? data.list ?? data.topics) as unknown;
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((entry) => {
+        const item = entry as Record<string, unknown>;
+        const id = Number(item.id ?? item.topic_id) || 0;
+        const name = String(item.name ?? item.topic_name ?? "").trim();
+        if (!id || !name) return null;
+        return { id, name };
+      })
+      .filter((item): item is TopicSuggest => item != null);
+  }
+
+  async getTopicHead(topicId: number): Promise<TopicHead> {
+    const res = await this.client.get("/x/topic/web/details/top", {
+      params: { topic_id: topicId },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "话题信息加载失败");
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const info = (data.topic_item ?? data.info ?? data) as Record<
+      string,
+      unknown
+    >;
+    return {
+      id: topicId,
+      name: String(info.name ?? info.topic_name ?? "").trim() || "话题",
+      desc: String(info.description ?? info.desc ?? info.content ?? "").trim(),
+      favorited: Boolean(info.is_fav ?? info.fav ?? info.is_followed),
+    };
+  }
+
+  async favoriteTopic(topicId: number, favorite: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再关注话题");
+    const body = new URLSearchParams({
+      topic_id: String(topicId),
+      csrf,
+    });
+    const res = await this.client.post(
+      favorite ? "/x/topic/fav/sub/add" : "/x/topic/fav/sub/cancel",
+      body,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://www.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.data?.code !== 0) {
+      throw new Error(
+        (res.data?.message as string) ||
+          (favorite ? "关注话题失败" : "取消关注失败"),
+      );
+    }
+  }
+
+  async repostDynamic(dynId: string, text = ""): Promise<CreatedDynamic> {
+    const id = String(dynId || "").trim();
+    if (!id) throw new Error("动态 ID 无效");
+    const content = text.trim();
+    if (content.length > 1000) throw new Error("转发内容最多 1000 字");
+    return this.postCreateDyn({
+      content: {
+        contents: content ? [{ raw_text: content, type: 1, biz_id: "" }] : [],
+      },
+      scene: 4,
+      repost_src: { dyn_id_str: id },
+    });
+  }
+
+  async getHotSearch(): Promise<HotSearchItem[]> {
+    await this.ensureBuvid3();
+    const params = await signParams({
+      limit: 10,
+      platform: "web",
+      web_location: "333.1007",
+    });
+    const res = await this.client.get("/x/web-interface/wbi/search/square", {
+      params,
+      headers: { Referer: "https://search.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "热搜加载失败");
+    }
+    const trending = (
+      res.data?.data as { trending?: { list?: unknown[] } } | undefined
+    )?.trending;
+    const list = Array.isArray(trending?.list) ? trending.list : [];
+    return list
+      .map((entry) => {
+        const item = entry as Record<string, unknown>;
+        const keyword = String(item.keyword ?? item.show_name ?? "").trim();
+        if (!keyword) return null;
+        const icon = String(item.icon ?? "").trim();
+        const next: HotSearchItem = {
+          keyword,
+          showName: String(item.show_name ?? keyword),
+        };
+        if (icon) next.icon = icon;
+        return next;
+      })
+      .filter((item): item is HotSearchItem => item != null)
+      .slice(0, 10);
+  }
+
+  async getTopicDynamics(
+    topicId: number,
+    offset = "",
+  ): Promise<SpaceDynamicPage> {
+    await this.ensureBuvid3();
+    const params = await signParams({
+      topic_id: topicId,
+      timezone_offset: -480,
+      platform: "web",
+      features:
+        "itemOpusStyle,opusBigCover,onlyfansVote,decorationCard,ugcDelete,onlyfansQaCard",
+      ...(offset ? { offset } : {}),
+    });
+    const res = await this.client.get("/x/polymer/web-dynamic/v1/feed/topic", {
+      params,
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "话题加载失败");
+    }
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const rawItems =
+      (data?.items as Record<string, unknown>[] | undefined) ?? [];
+    const items = rawItems
+      .map((item) => this.normalizeSpaceDynamicItem(item))
+      .filter((item): item is SpaceDynamicItem => item != null);
+    return {
+      items,
+      offset: (data?.offset as string) ?? "",
+      hasMore: Boolean(data?.has_more),
+    };
+  }
+
+  async getVideoChapters(bvid: string, cid: number): Promise<VideoChapter[]> {
+    await this.ensureBuvid3();
+    const params = await signParams({ bvid, cid });
+    const res = await this.client.get("/x/player/wbi/v2", {
+      params,
+      headers: { Referer: `https://www.bilibili.com/video/${bvid}` },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) return [];
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const raw = (data.view_points ?? data.viewpoint) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((entry) => {
+        const point = entry as Record<string, unknown>;
+        const from = Number(point.from) || 0;
+        const content = String(point.content ?? "").trim();
+        if (!content) return null;
+        const cover = String(point.imgUrl ?? point.cover ?? "").trim();
+        const next: VideoChapter = {
+          from,
+          to: Number(point.to) || from,
+          content,
+        };
+        if (cover) next.cover = cover;
+        return next;
+      })
+      .filter((item): item is VideoChapter => item != null);
+  }
+
+  async getDanmakuFilters(): Promise<DanmakuFilter[]> {
+    const res = await this.client.get("/x/dm/filter/user", {
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) return [];
+    const rule = (res.data?.data as { rule?: unknown[] } | undefined)?.rule;
+    if (!Array.isArray(rule)) return [];
+    return rule
+      .map((entry) => {
+        const item = entry as Record<string, unknown>;
+        const text = String(item.filter ?? "").trim();
+        const id = Number(item.id) || 0;
+        const type = Number(item.type);
+        if (!text || !id) return null;
+        const kind: DanmakuFilterKind =
+          type === 1 ? "regex" : type === 2 ? "user" : "text";
+        return { id, text, kind };
+      })
+      .filter((item): item is DanmakuFilter => item != null);
+  }
+
+  async addDanmakuFilter(
+    text: string,
+    kind: DanmakuFilterKind = "text",
+  ): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再添加屏蔽词");
+    const word = text.trim();
+    if (!word) throw new Error("屏蔽词不能为空");
+    const type = kind === "regex" ? "1" : kind === "user" ? "2" : "0";
+    if (kind === "user" && !/^\d+$/.test(word)) {
+      throw new Error("屏蔽用户请填写数字 UID");
+    }
+    const body = new URLSearchParams({
+      type,
+      filter: word,
+      csrf,
+    });
+    const res = await this.client.post("/x/dm/filter/user/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "添加屏蔽词失败");
+    }
+  }
+
+  async removeDanmakuFilter(id: number): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录");
+    const body = new URLSearchParams({
+      ids: String(id),
+      csrf,
+    });
+    const res = await this.client.post("/x/dm/filter/user/del", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "删除屏蔽词失败");
+    }
+  }
+
+  async likeDanmaku(cid: number, dmid: string, like: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再点赞弹幕");
+    const body = new URLSearchParams({
+      oid: String(cid),
+      dmid: String(dmid),
+      op: like ? "1" : "2",
+      csrf,
+    });
+    const res = await this.client.post("/x/v2/dm/thumbup/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "弹幕点赞失败");
+    }
+  }
+
+  async recallDanmaku(cid: number, dmid: string): Promise<string> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再撤回弹幕");
+    const body = new URLSearchParams({
+      cid: String(cid),
+      dmid: String(dmid),
+      csrf,
+    });
+    const res = await this.client.post("/x/dm/recall", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "撤回弹幕失败");
+    }
+    return String(res.data?.message ?? "已撤回");
+  }
+
+  async reportDanmaku(cid: number, dmid: string, reason = 11): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再举报弹幕");
+    const body = new URLSearchParams({
+      cid: String(cid),
+      dmid: String(dmid),
+      reason: String(reason),
+      csrf,
+    });
+    const res = await this.client.post("/x/dm/report/add", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "举报弹幕失败");
+    }
   }
 
   async likeTargetComment(
@@ -10464,7 +11798,9 @@ class BiliApiService {
     return false;
   }
 
-  private extractDecorationCard(moduleAuthor: Record<string, unknown> | undefined): {
+  private extractDecorationCard(
+    moduleAuthor: Record<string, unknown> | undefined,
+  ): {
     id?: number;
     name?: string;
   } {

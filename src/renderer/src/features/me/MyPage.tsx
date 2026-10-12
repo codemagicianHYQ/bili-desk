@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { VideoCard } from "@/components/video/VideoCard";
 import { SpaceTabBar } from "@/components/space/SpaceTabBar";
 import { formatCount } from "@/lib/utils";
-import { formatUserSpaceError } from "@/lib/ipc-error";
+import { extractIpcErrorMessage, formatUserSpaceError } from "@/lib/ipc-error";
+import { imageFilesToPayload } from "@/components/comment/comment-images";
 import { upProfileCache } from "@/lib/session-data-cache";
 import { MyCheesePanel, MyUpowerPanel } from "./MyCheesePanel";
 import { MyCollectionsPanel } from "./MyCollectionsPanel";
@@ -22,6 +23,7 @@ import {
   Layers,
   Loader2,
   LogOut,
+  Pencil,
   Radio,
   RefreshCw,
   Settings,
@@ -73,6 +75,7 @@ const TABS: Array<{ id: MyTab; label: string; icon: typeof Home }> = [
 
 export function MyPage() {
   const user = useAppStore((state) => state.user);
+  const setUser = useAppStore((state) => state.setUser);
   const logout = useLogout();
   const mid = user?.mid ?? 0;
 
@@ -86,6 +89,12 @@ export function MyPage() {
   const [profile, setProfile] = useState<UpProfile | null>(null);
   const [profileError, setProfileError] = useState("");
   const [profileLoading, setProfileLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftSign, setDraftSign] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileTip, setProfileTip] = useState("");
+  const [bcoin, setBcoin] = useState("");
 
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [videoPage, setVideoPage] = useState(1);
@@ -93,6 +102,22 @@ export function MyPage() {
   const [videosLoading, setVideosLoading] = useState(false);
   const [videosError, setVideosError] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
+
+  useEffect(() => {
+    if (!user?.isLogin) return;
+    let cancelled = false;
+    void window.biliDesk.bili
+      .getWallet()
+      .then((wallet) => {
+        if (!cancelled) setBcoin(wallet.bcoin);
+      })
+      .catch(() => {
+        if (!cancelled) setBcoin("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.isLogin]);
 
   useEffect(() => {
     if (!user?.isLogin || !mid) {
@@ -283,6 +308,20 @@ export function MyPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 pb-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={() => {
+                    setDraftName(displayProfile.name);
+                    setDraftSign(displayProfile.sign);
+                    setProfileTip("");
+                    setEditing((open) => !open);
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                  编辑资料
+                </Button>
                 <Link to="/settings">
                   <Button size="sm" variant="outline" className="gap-1.5">
                     <Settings className="h-4 w-4" />
@@ -327,7 +366,107 @@ export function MyPage() {
                 </span>
                 <span className="ml-1 text-muted-foreground">投稿</span>
               </button>
+              {bcoin && (
+                <div>
+                  <span className="font-semibold text-foreground">{bcoin}</span>
+                  <span className="ml-1 text-muted-foreground">B币</span>
+                </div>
+              )}
             </div>
+            {editing && (
+              <div className="mt-4 space-y-2 rounded-xl border border-border p-3">
+                <input
+                  value={draftName}
+                  onChange={(event) => setDraftName(event.target.value)}
+                  placeholder="昵称"
+                  className="h-9 w-full rounded-md border border-border bg-transparent px-2 text-sm outline-none"
+                />
+                <textarea
+                  value={draftSign}
+                  onChange={(event) => setDraftSign(event.target.value)}
+                  placeholder="个性签名"
+                  className="min-h-16 w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    disabled={profileBusy}
+                    onClick={() => {
+                      setProfileBusy(true);
+                      setProfileTip("");
+                      void window.biliDesk.bili
+                        .updateMyProfile({ name: draftName, sign: draftSign })
+                        .then(() => {
+                          setProfile((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  name: draftName.trim(),
+                                  sign: draftSign.trim(),
+                                }
+                              : prev,
+                          );
+                          if (user) {
+                            setUser({
+                              ...user,
+                              name: draftName.trim() || user.name,
+                            });
+                          }
+                          setProfileTip("资料已保存");
+                          setEditing(false);
+                        })
+                        .catch((err: unknown) =>
+                          setProfileTip(
+                            extractIpcErrorMessage(err) || "保存失败",
+                          ),
+                        )
+                        .finally(() => setProfileBusy(false));
+                    }}
+                  >
+                    保存
+                  </Button>
+                  <label className="cursor-pointer text-sm text-primary">
+                    更换头像
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!file) return;
+                        setProfileBusy(true);
+                        setProfileTip("");
+                        void imageFilesToPayload([file])
+                          .then((files) => {
+                            const faceFile = files[0];
+                            if (!faceFile) throw new Error("头像文件是空的");
+                            return window.biliDesk.bili.updateMyFace(faceFile);
+                          })
+                          .then((face) => {
+                            if (face) {
+                              setProfile((prev) =>
+                                prev ? { ...prev, face } : prev,
+                              );
+                              if (user) setUser({ ...user, face });
+                            }
+                            setProfileTip("头像已更新");
+                          })
+                          .catch((err: unknown) =>
+                            setProfileTip(
+                              extractIpcErrorMessage(err) || "更换头像失败",
+                            ),
+                          )
+                          .finally(() => setProfileBusy(false));
+                      }}
+                    />
+                  </label>
+                </div>
+                {profileTip && (
+                  <p className="text-xs text-muted-foreground">{profileTip}</p>
+                )}
+              </div>
+            )}
 
             <SpaceTabBar
               className="mt-4"

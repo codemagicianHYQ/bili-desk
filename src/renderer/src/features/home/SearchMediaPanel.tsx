@@ -130,7 +130,13 @@ export function SearchMediaPanel({
               <button
                 key={`${item.kind}-${item.seasonId}-${item.mediaId}`}
                 type="button"
-                onClick={() => void openBiliHref(item.url, navigate)}
+                onClick={() => {
+                  if (item.seasonId > 0) {
+                    navigate(`/season/bangumi/${item.seasonId}`);
+                    return;
+                  }
+                  void openBiliHref(item.url, navigate);
+                }}
                 className="group flex gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-secondary/40"
               >
                 {item.cover ? (

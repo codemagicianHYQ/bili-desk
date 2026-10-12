@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { openBiliHref } from "@/lib/open-bili-href";
 import type { ChargeUpItem, CheeseCourseItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { cn, formatCount } from "@/lib/utils";
@@ -175,12 +176,12 @@ function ExclusiveRow({
   item: CheeseCourseItem;
   expired: boolean;
 }) {
+  const navigate = useNavigate();
   return (
-    <a
-      href={item.url}
-      target="_blank"
-      rel="noreferrer"
-      className="flex gap-3 rounded-lg p-1 transition-colors hover:bg-secondary/50"
+    <button
+      type="button"
+      onClick={() => void openBiliHref(item.url, navigate)}
+      className="flex w-full gap-3 rounded-lg p-1 text-left transition-colors hover:bg-secondary/50"
     >
       {item.cover ? (
         <BiliImage
@@ -205,7 +206,7 @@ function ExclusiveRow({
             .join(" · ")}
         </p>
       </div>
-    </a>
+    </button>
   );
 }
 
@@ -287,11 +288,9 @@ function MyCheeseList({ mid }: { mid: number }) {
       className="max-h-[60vh] space-y-2 overflow-y-auto pr-1"
     >
       {items.map((item) => (
-        <a
+        <Link
           key={item.seasonId}
-          href={item.url}
-          target="_blank"
-          rel="noreferrer"
+          to={`/season/cheese/${item.seasonId}`}
           className="flex gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-secondary/50"
         >
           {item.cover ? (
@@ -317,7 +316,7 @@ function MyCheeseList({ mid }: { mid: number }) {
                 .join(" · ")}
             </p>
           </div>
-        </a>
+        </Link>
       ))}
       <div
         ref={sentinelRef}

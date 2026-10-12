@@ -23,6 +23,7 @@ import {
   Reply,
   Search,
   Send,
+  Share2,
   Settings2,
   ShieldAlert,
   Trash2,
@@ -30,6 +31,7 @@ import {
 import type {
   ChatEmote,
   ChatMessage,
+  ChatShareCard,
   MessageFeedItem,
   MessageFeedKind,
   MessageSession,
@@ -898,19 +900,94 @@ function insertAtCaret(root: HTMLElement, node: Node) {
   selection?.addRange(range);
 }
 
+function sharePreview(kind: ChatShareCard["kind"]): string {
+  if (kind === "article") return "[专栏]";
+  if (kind === "dynamic") return "[动态]";
+  if (kind === "live") return "[直播]";
+  return "[视频]";
+}
+
+async function shareCardFromInput(raw: string): Promise<ChatShareCard | null> {
+  const text = raw.trim();
+  const video = text.match(/(?:bilibili\.com\/video\/)?(BV[0-9A-Za-z]+)/i);
+  if (video && /BV/i.test(text) && !/live\.bilibili\.com/i.test(text)) {
+    const detail = await window.biliDesk.bili.getVideo(video[1]);
+    return {
+      kind: "video",
+      title: detail.title,
+      cover: detail.cover,
+      bvid: detail.bvid,
+      aid: detail.aid,
+      views: detail.stat?.view,
+    };
+  }
+  const article = text.match(/(?:read\/cv|cv)(\d+)/i);
+  if (article && /cv/i.test(text)) {
+    const detail = await window.biliDesk.bili.getArticle(Number(article[1]));
+    return {
+      kind: "article",
+      title: detail.title,
+      cover: detail.banner || detail.images?.[0],
+      cvid: detail.id,
+      views: detail.view,
+    };
+  }
+  const dynamic = text.match(/(?:opus\/|t\.bilibili\.com\/)(\d+)/i);
+  if (dynamic) {
+    const detail = await window.biliDesk.bili.getDynamicDetail(dynamic[1]);
+    return {
+      kind: "dynamic",
+      title: detail.text.slice(0, 80) || "动态",
+      cover: detail.cover || detail.images?.[0],
+      dynId: detail.id || dynamic[1],
+    };
+  }
+  const live = text.match(/live\.bilibili\.com\/(\d+)/i);
+  if (live) {
+    const room = await window.biliDesk.bili.getLiveRoom(Number(live[1]));
+    return {
+      kind: "live",
+      title: room.title,
+      cover: room.cover,
+      roomId: room.roomId,
+    };
+  }
+  return null;
+}
+
+async function sendShareIfLink(
+  talkerId: string,
+  sessionType: number,
+  text: string,
+): Promise<string | null> {
+  const whole =
+    /^(?:https?:\/\/)?(?:www\.)?(?:bilibili\.com\/(?:video\/BV|read\/cv|opus\/)|t\.bilibili\.com\/|live\.bilibili\.com\/)/i.test(
+      text.trim(),
+    ) || /^BV[0-9A-Za-z]+$/i.test(text.trim());
+  if (!whole) return null;
+  const card = await shareCardFromInput(text);
+  if (!card) return null;
+  await window.biliDesk.bili.sendChatShare(talkerId, sessionType, card);
+  return sharePreview(card.kind);
+}
+
 function ChatComposer({
   sending,
   onSend,
   onSendImage,
+  onSendShare,
 }: {
   sending: boolean;
   onSend: (text: string) => Promise<boolean>;
   onSendImage: (file: File | undefined) => void;
+  onSendShare: (raw: string) => Promise<boolean>;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const snapshot = useRef("");
   const [draft, setDraft] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareRaw, setShareRaw] = useState("");
   const emoteMap = useReplyEmotes();
 
   const commit = () => {
@@ -982,6 +1059,17 @@ function ChatComposer({
           variant="ghost"
           size="icon"
           className="h-8 w-8 text-muted-foreground"
+          title="分享卡片"
+          disabled={sending}
+          onClick={() => setShareOpen((open) => !open)}
+        >
+          <Share2 className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
           title="发送图片"
           disabled={sending}
           onClick={() => imageInputRef.current?.click()}
@@ -993,6 +1081,42 @@ function ChatComposer({
           onPick={(emote, imageUrl) => insertEmote(emote, imageUrl)}
         />
       </div>
+      {shareOpen && (
+        <div className="mb-2 flex items-center gap-2">
+          <input
+            value={shareRaw}
+            disabled={sending}
+            placeholder="粘贴视频 BV、专栏 cv、动态或直播链接"
+            className="h-8 min-w-0 flex-1 rounded-md border border-border/60 bg-transparent px-2 text-sm outline-none"
+            onChange={(event) => setShareRaw(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              const raw = shareRaw.trim();
+              if (!raw || sending) return;
+              void onSendShare(raw).then((ok) => {
+                if (!ok) return;
+                setShareRaw("");
+                setShareOpen(false);
+              });
+            }}
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={sending || !shareRaw.trim()}
+            onClick={() => {
+              void onSendShare(shareRaw.trim()).then((ok) => {
+                if (!ok) return;
+                setShareRaw("");
+                setShareOpen(false);
+              });
+            }}
+          >
+            发送
+          </Button>
+        </div>
+      )}
       <div className="relative">
         {draft.length === 0 && (
           <span className="pointer-events-none absolute left-1 top-1 text-sm text-muted-foreground">
@@ -1184,13 +1308,20 @@ function ChatPane({
     setSending(true);
     setError("");
     try {
-      await window.biliDesk.bili.sendChatMessage(
+      const shared = await sendShareIfLink(
         session.talkerId,
         session.sessionType,
         content,
       );
+      if (!shared) {
+        await window.biliDesk.bili.sendChatMessage(
+          session.talkerId,
+          session.sessionType,
+          content,
+        );
+      }
       onPatch(session.talkerId, session.sessionType, {
-        preview: content,
+        preview: shared || content,
         time: Math.floor(Date.now() / 1000),
       });
       await loadLatest();
@@ -1384,6 +1515,34 @@ function ChatPane({
           sending={sending}
           onSend={send}
           onSendImage={(file) => void sendImage(file)}
+          onSendShare={async (raw) => {
+            if (!session || sending) return false;
+            setSending(true);
+            setError("");
+            try {
+              const card = await shareCardFromInput(raw);
+              if (!card) {
+                setError("请粘贴视频、专栏、动态或直播链接");
+                return false;
+              }
+              await window.biliDesk.bili.sendChatShare(
+                session.talkerId,
+                session.sessionType,
+                card,
+              );
+              onPatch(session.talkerId, session.sessionType, {
+                preview: sharePreview(card.kind),
+                time: Math.floor(Date.now() / 1000),
+              });
+              await loadLatest();
+              return true;
+            } catch (err) {
+              setError(tidyError(err));
+              return false;
+            } finally {
+              setSending(false);
+            }
+          }}
         />
       ) : (
         <p className="border-t border-border/60 px-4 py-3 text-center text-xs text-muted-foreground">

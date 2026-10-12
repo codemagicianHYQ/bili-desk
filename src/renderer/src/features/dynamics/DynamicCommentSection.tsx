@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CommentItem } from "@shared/types";
+import type { BinaryImageFile, CommentItem } from "@shared/types";
 import { CommentThread } from "@/components/comment/CommentThread";
 import { useFocusComment } from "@/components/comment/focus-comment";
 import { commentRpid, stripComment } from "@/components/comment/comment-tree";
 import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
+import { CommentImagePicker } from "@/components/comment/CommentImagePicker";
+import { imageFilesToPayload } from "@/components/comment/comment-images";
 import { Button } from "@/components/ui/button";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn } from "@/lib/utils";
@@ -52,6 +54,7 @@ export function DynamicCommentSection({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [draft, setDraft] = useState("");
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [closed, setClosed] = useState(false);
@@ -87,14 +90,21 @@ export function DynamicCommentSection({
           commentRpid(item),
           reason,
         ),
-      reply: (item: CommentItem, text: string) => {
+      pin: (item: CommentItem, pin: boolean) =>
+        window.biliDesk.bili.pinComment(oid, type, item.rpid, pin),
+      reply: async (
+        item: CommentItem,
+        text: string,
+        images?: BinaryImageFile[],
+      ) => {
         const root = item.root > 0 ? item.root : item.rpid;
-        return window.biliDesk.bili.addTargetComment(
+        await window.biliDesk.bili.addTargetComment(
           oid,
           type,
           text,
           root,
           item.rpid,
+          images,
         );
       },
       loadMoreReplies: (item: CommentItem, pageNo: number) =>
@@ -250,16 +260,21 @@ export function DynamicCommentSection({
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || !oid || !type) return;
+    if ((!text && draftFiles.length === 0) || !oid || !type) return;
     setSending(true);
     setError("");
     try {
+      const images = await imageFilesToPayload(draftFiles);
       const created = await window.biliDesk.bili.addTargetComment(
         oid,
         type,
         text,
+        0,
+        0,
+        images,
       );
       setDraft("");
+      setDraftFiles([]);
       if (created) {
         pendingRef.current = created;
         setComments((prev) =>
@@ -334,9 +349,14 @@ export function DynamicCommentSection({
             <EmotePickerButton
               onPick={(emote) => setDraft((prev) => prev + emote)}
             />
+            <CommentImagePicker
+              files={draftFiles}
+              onChange={setDraftFiles}
+              disabled={sending}
+            />
             <Button
               size="sm"
-              disabled={sending || !draft.trim()}
+              disabled={sending || (!draft.trim() && draftFiles.length === 0)}
               onClick={() => void handleSend()}
             >
               {sending ? "发送中" : "发表"}

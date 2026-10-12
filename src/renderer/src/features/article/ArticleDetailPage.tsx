@@ -12,7 +12,7 @@ import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { sanitizeArticleHtml } from "@/lib/sanitize-article-html";
 import { openBiliHref } from "@/lib/open-bili-href";
 import { cn, formatCount, formatPubdate } from "@/lib/utils";
-import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
+import { Coins, Loader2, MessageCircle, Share2, Star, ThumbsUp } from "lucide-react";
 
 const ARTICLE_COMMENT_TYPE = 12;
 
@@ -34,6 +34,12 @@ export function ArticleDetailPage() {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [liking, setLiking] = useState(false);
+  const [coined, setCoined] = useState(false);
+  const [coinCount, setCoinCount] = useState(0);
+  const [coining, setCoining] = useState(false);
+  const [favorited, setFavorited] = useState(false);
+  const [favCount, setFavCount] = useState(0);
+  const [favoriting, setFavoriting] = useState(false);
   const [tip, setTip] = useState("");
 
   useEffect(() => {
@@ -64,6 +70,10 @@ export function ArticleDetailPage() {
         setArticle(detail);
         setLiked(Boolean(detail.liked));
         setLikeCount(detail.like);
+        setCoined(Boolean(detail.coined));
+        setCoinCount(detail.coin);
+        setFavorited(Boolean(detail.favorited));
+        setFavCount(detail.favorite);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -100,6 +110,36 @@ export function ArticleDetailPage() {
       showTip(err instanceof Error ? err.message : "点赞失败");
     } finally {
       setLiking(false);
+    }
+  };
+
+  const handleCoin = async () => {
+    if (!article || coining || coined) return;
+    setCoining(true);
+    try {
+      await window.biliDesk.bili.coinArticle(article.id, article.mid, 1);
+      setCoined(true);
+      setCoinCount((prev) => prev + 1);
+      showTip("已投币");
+    } catch (err) {
+      showTip(err instanceof Error ? err.message : "投币失败");
+    } finally {
+      setCoining(false);
+    }
+  };
+
+  const handleFavorite = async () => {
+    if (!article || favoriting) return;
+    const next = !favorited;
+    setFavoriting(true);
+    try {
+      await window.biliDesk.bili.favoriteArticle(article.id, next);
+      setFavorited(next);
+      setFavCount((prev) => Math.max(0, prev + (next ? 1 : -1)));
+    } catch (err) {
+      showTip(err instanceof Error ? err.message : "收藏失败");
+    } finally {
+      setFavoriting(false);
     }
   };
 
@@ -239,6 +279,38 @@ export function ArticleDetailPage() {
                   />
                 </span>
                 {formatCount(likeCount)}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCoin()}
+                disabled={coining || coined}
+                className={cn(
+                  "flex flex-col items-center gap-1 text-xs transition-colors",
+                  coined
+                    ? "text-amber-400"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary/60">
+                  <Coins className="h-4 w-4" />
+                </span>
+                {formatCount(coinCount)}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleFavorite()}
+                disabled={favoriting}
+                className={cn(
+                  "flex flex-col items-center gap-1 text-xs transition-colors",
+                  favorited
+                    ? "text-amber-400"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary/60">
+                  <Star className={cn("h-4 w-4", favorited && "fill-current")} />
+                </span>
+                {formatCount(favCount)}
               </button>
               <button
                 type="button"

@@ -6,11 +6,13 @@ import {
   useState,
   type RefObject,
 } from "react";
-import type { CommentItem } from "@shared/types";
+import type { BinaryImageFile, CommentItem } from "@shared/types";
 import { CommentThread } from "@/components/comment/CommentThread";
 import { useFocusComment } from "@/components/comment/focus-comment";
 import { commentRpid, stripComment } from "@/components/comment/comment-tree";
 import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
+import { CommentImagePicker } from "@/components/comment/CommentImagePicker";
+import { imageFilesToPayload } from "@/components/comment/comment-images";
 import { Button } from "@/components/ui/button";
 import { VirtualList } from "@/components/ui/virtual-list";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
@@ -70,6 +72,7 @@ export function VideoCommentSection({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [draft, setDraft] = useState("");
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [closed, setClosed] = useState(false);
@@ -97,9 +100,21 @@ export function VideoCommentSection({
           commentRpid(item),
           reason,
         ),
-      reply: (item: CommentItem, text: string) => {
+      pin: (item: CommentItem, pin: boolean) =>
+        window.biliDesk.bili.pinComment(String(aid), 1, item.rpid, pin),
+      reply: async (
+        item: CommentItem,
+        text: string,
+        images?: BinaryImageFile[],
+      ) => {
         const root = item.root > 0 ? item.root : item.rpid;
-        return window.biliDesk.bili.addComment(aid, text, root, item.rpid);
+        await window.biliDesk.bili.addComment(
+          aid,
+          text,
+          root,
+          item.rpid,
+          images,
+        );
       },
       loadMoreReplies: (item: CommentItem, pageNo: number) =>
         window.biliDesk.bili.getCommentReplies(aid, item.rpid, pageNo),
@@ -263,12 +278,20 @@ export function VideoCommentSection({
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text && draftFiles.length === 0) return;
     setSending(true);
     setError("");
     try {
-      const created = await window.biliDesk.bili.addComment(aid, text);
+      const images = await imageFilesToPayload(draftFiles);
+      const created = await window.biliDesk.bili.addComment(
+        aid,
+        text,
+        0,
+        0,
+        images,
+      );
       setDraft("");
+      setDraftFiles([]);
       commentsCache.delete(commentsCacheKey(aid, 0));
       commentsCache.delete(commentsCacheKey(aid, 2));
       if (created) {
@@ -339,11 +362,16 @@ export function VideoCommentSection({
             className="w-full resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
           />
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <EmotePickerButton
                 onPick={(emote) =>
                   setDraft((prev) => (prev + emote).slice(0, 1000))
                 }
+              />
+              <CommentImagePicker
+                files={draftFiles}
+                onChange={setDraftFiles}
+                disabled={sending}
               />
               <p className="text-xs text-muted-foreground">
                 {draft.trim().length}/1000
@@ -352,7 +380,7 @@ export function VideoCommentSection({
             <Button
               type="button"
               size="sm"
-              disabled={sending || !draft.trim()}
+              disabled={sending || (!draft.trim() && draftFiles.length === 0)}
               onClick={() => void handleSend()}
             >
               {sending ? "发送中..." : "发表评论"}

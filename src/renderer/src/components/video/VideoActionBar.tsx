@@ -11,7 +11,7 @@ import { ChargeRing } from "@/components/video/ChargeRing";
 import { CoinTossDialog } from "@/components/video/CoinTossDialog";
 import { VideoFavButton } from "@/components/video/VideoFavButton";
 import { useFavoritesStore } from "@/stores/favorites-store";
-import { Loader2 } from "lucide-react";
+import { Loader2, ThumbsDown } from "lucide-react";
 
 interface VideoActionBarProps {
   video: VideoDetail;
@@ -194,6 +194,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
       await window.biliDesk.bili.likeVideo(video.aid, nextLiked);
       setRelation((prev) => ({
         liked: nextLiked,
+        disliked: nextLiked ? false : (prev?.disliked ?? false),
         coined: prev?.coined ?? false,
         coin: prev?.coin ?? 0,
         favorited: prev?.favorited ?? false,
@@ -285,6 +286,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
 
       setRelation((prev) => ({
         liked: nowLiked,
+        disliked: nowLiked ? false : (prev?.disliked ?? false),
         coined: (prev?.coin ?? 0) + addedCoins > 0,
         coin: (prev?.coin ?? alreadyCoin) + addedCoins,
         favorited: nowFav || (prev?.favorited ?? false),
@@ -414,6 +416,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
       });
       setRelation((prev) => ({
         liked: willLike ? true : (prev?.liked ?? false),
+        disliked: prev?.disliked ?? false,
         coined: true,
         coin: (prev?.coin ?? 0) + multiply,
         favorited: prev?.favorited ?? false,
@@ -459,6 +462,31 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
   };
 
   const liked = relation?.liked ?? false;
+  const disliked = relation?.disliked ?? false;
+
+  const handleDislike = async () => {
+    if (busy) return;
+    const next = !disliked;
+    setBusy("like");
+    setError("");
+    try {
+      await window.biliDesk.bili.dislikeVideo(video.aid, next);
+      setRelation((prev) => ({
+        liked: next ? false : (prev?.liked ?? false),
+        disliked: next,
+        coined: prev?.coined ?? false,
+        coin: prev?.coin ?? 0,
+        favorited: prev?.favorited ?? false,
+      }));
+      if (next && liked) {
+        setLikeCount((count) => Math.max(0, count - 1));
+      }
+    } catch (err) {
+      setError(formatActionError(err));
+    } finally {
+      setBusy(null);
+    }
+  };
   const coined = (relation?.coin ?? 0) > 0;
   const remainingCoins = Math.max(0, 2 - (relation?.coin ?? 0));
 
@@ -496,6 +524,16 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
             <LikeGlyph filled={liked || charging} />
           )}
           <span className="bili-toolbar-count">{formatCount(likeCount)}</span>
+        </button>
+
+        <button
+          type="button"
+          disabled={busy === "like" || busy === "triple"}
+          className={cn("bili-toolbar-action", disliked && "is-active")}
+          title={disliked ? "取消点踩" : "点踩"}
+          onClick={() => void handleDislike()}
+        >
+          <ThumbsDown className={cn("h-5 w-5", disliked && "fill-current")} />
         </button>
 
         <button
@@ -546,6 +584,7 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
                 ? { ...prev, favorited: nextCollected }
                 : {
                     liked: false,
+                    disliked: false,
                     coined: false,
                     coin: 0,
                     favorited: nextCollected,

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { CommentItem } from "@shared/types";
+import type { BinaryImageFile, CommentItem } from "@shared/types";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { CommentActionBar } from "@/components/comment/CommentActionBar";
 import {
@@ -10,6 +10,8 @@ import {
   stripComment,
 } from "@/components/comment/comment-tree";
 import { EmotePickerButton } from "@/components/comment/EmotePickerButton";
+import { CommentImagePicker } from "@/components/comment/CommentImagePicker";
+import { imageFilesToPayload } from "@/components/comment/comment-images";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -22,7 +24,12 @@ export interface CommentThreadHandlers {
   hate: (item: CommentItem, next: boolean) => Promise<void>;
   delete: (item: CommentItem) => Promise<void>;
   report: (item: CommentItem, reason: number) => Promise<void>;
-  reply: (item: CommentItem, text: string) => Promise<void>;
+  reply: (
+    item: CommentItem,
+    text: string,
+    images?: BinaryImageFile[],
+  ) => Promise<void>;
+  pin?: (item: CommentItem, pin: boolean) => Promise<void>;
   loadMoreReplies?: (
     item: CommentItem,
     page: number,
@@ -60,6 +67,7 @@ export function CommentThread({
   const [reporting, setReporting] = useState(false);
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
+  const [replyFiles, setReplyFiles] = useState<File[]>([]);
   const [replying, setReplying] = useState(false);
   const [moreReplies, setMoreReplies] = useState<CommentItem[]>([]);
   const [morePage, setMorePage] = useState(1);
@@ -78,6 +86,14 @@ export function CommentThread({
   const isOwn = Boolean(selfMid && commentMid === selfMid);
   const canDelete =
     isOwn || Boolean(ownerMid && selfMid && ownerMid === selfMid);
+  const canPin = Boolean(
+    handlers.pin &&
+      ownerMid &&
+      selfMid &&
+      ownerMid === selfMid &&
+      !nested &&
+      item.root === 0,
+  );
   const isOwner = Boolean(ownerMid && commentMid === ownerMid);
   const level = item.member.level;
   const isSenior = Boolean(item.member.isSeniorMember);
@@ -159,12 +175,14 @@ export function CommentThread({
 
   const handleReply = async () => {
     const text = replyText.trim();
-    if (!text) return;
+    if (!text && replyFiles.length === 0) return;
     setReplying(true);
     setError("");
     try {
-      await handlers.reply(item, text);
+      const images = await imageFilesToPayload(replyFiles);
+      await handlers.reply(item, text, images);
       setReplyText("");
+      setReplyFiles([]);
       setShowReply(false);
       onChanged();
     } catch (err) {
@@ -335,6 +353,17 @@ export function CommentThread({
           onReply={() => setShowReply((value) => !value)}
           onDelete={() => void handleDelete()}
           onReport={(reason) => void handleReport(reason)}
+          canPin={canPin}
+          pinned={Boolean(item.pinned)}
+          onPin={() => {
+            if (!handlers.pin) return;
+            void handlers
+              .pin(item, !item.pinned)
+              .then(() => onChanged())
+              .catch((err: unknown) =>
+                setError(err instanceof Error ? err.message : "置顶失败"),
+              );
+          }}
         />
         {showReply && (
           <div className="mt-3 space-y-2">
@@ -347,11 +376,18 @@ export function CommentThread({
               className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
             />
             <div className="flex items-center justify-between gap-2">
-              <EmotePickerButton
-                onPick={(emote) =>
-                  setReplyText((prev) => (prev + emote).slice(0, 1000))
-                }
-              />
+              <div className="flex min-w-0 items-center gap-2">
+                <EmotePickerButton
+                  onPick={(emote) =>
+                    setReplyText((prev) => (prev + emote).slice(0, 1000))
+                  }
+                />
+                <CommentImagePicker
+                  files={replyFiles}
+                  onChange={setReplyFiles}
+                  disabled={replying}
+                />
+              </div>
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -364,7 +400,9 @@ export function CommentThread({
                 <Button
                   type="button"
                   size="sm"
-                  disabled={replying || !replyText.trim()}
+                  disabled={
+                    replying || (!replyText.trim() && replyFiles.length === 0)
+                  }
                   onClick={() => void handleReply()}
                 >
                   {replying ? "发送中..." : "发送"}

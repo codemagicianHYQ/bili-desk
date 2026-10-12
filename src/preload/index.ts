@@ -27,6 +27,10 @@ import type {
   MessageFeedKind,
   MessageSessionFilter,
   MessageSettings,
+  BinaryImageFile,
+  ChatShareCard,
+  DanmakuFilterKind,
+  DynamicPublishOptions,
 } from "@shared/types";
 
 const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
@@ -186,6 +190,8 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_VIDEO_RELATION, bvid, aid),
     likeVideo: (aid: number, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_LIKE, aid, like),
+    dislikeVideo: (aid: number, dislike: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_DISLIKE, aid, dislike),
     addCoin: (payload: AddCoinPayload) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_COIN, payload),
     shareVideo: (aid: number, bvid: string) =>
@@ -196,6 +202,52 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_DANMAKU_LIST, cid),
     sendDanmaku: (payload: SendDanmakuPayload) =>
       ipcRenderer.invoke(IPC.BILI_DANMAKU_SEND, payload),
+    getDanmakuFilters: () => ipcRenderer.invoke(IPC.BILI_DM_FILTERS),
+    addDanmakuFilter: (text: string, kind?: DanmakuFilterKind) =>
+      ipcRenderer.invoke(IPC.BILI_DM_FILTER_ADD, text, kind ?? "text"),
+    recallDanmaku: (cid: number, dmid: string) =>
+      ipcRenderer.invoke(IPC.BILI_DM_RECALL, cid, dmid),
+    removeDanmakuFilter: (id: number) =>
+      ipcRenderer.invoke(IPC.BILI_DM_FILTER_DEL, id),
+    likeDanmaku: (cid: number, dmid: string, like: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_DM_LIKE, cid, dmid, like),
+    reportDanmaku: (cid: number, dmid: string, reason?: number) =>
+      ipcRenderer.invoke(IPC.BILI_DM_REPORT, cid, dmid, reason ?? 11),
+    getVideoChapters: (bvid: string, cid: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_CHAPTERS, bvid, cid),
+    getVideoHeatmap: (bvid: string, cid: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_HEATMAP, bvid, cid),
+    getArchiveNotes: (aid: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_NOTES, aid),
+    addArchiveNote: (aid: number, title: string, text: string) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_NOTE_ADD, aid, title, text),
+    downloadVideo: (bvid: string, cid: number, qn?: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_DOWNLOAD, bvid, cid, qn),
+    getSeason: (
+      kind: "bangumi" | "cheese",
+      id: number,
+      by?: "season" | "ep",
+    ) => ipcRenderer.invoke(IPC.BILI_SEASON, kind, id, by ?? "season"),
+    getSeasonPlayUrl: (
+      kind: "bangumi" | "cheese",
+      epId: number,
+      cid: number,
+      qn?: number,
+    ) => ipcRenderer.invoke(IPC.BILI_SEASON_PLAY, kind, epId, cid, qn),
+    setSeasonFollow: (
+      kind: "bangumi" | "cheese",
+      seasonId: number,
+      follow: boolean,
+    ) => ipcRenderer.invoke(IPC.BILI_SEASON_FOLLOW, kind, seasonId, follow),
+    getChannelVideos: (channelId: number, page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_CHANNEL_VIDEOS, channelId, page ?? 1),
+    getAudioSong: (sid: number) =>
+      ipcRenderer.invoke(IPC.BILI_AUDIO_SONG, sid),
+    updateMyProfile: (input: { name?: string; sign?: string }) =>
+      ipcRenderer.invoke(IPC.BILI_PROFILE_UPDATE, input),
+    updateMyFace: (file: BinaryImageFile) =>
+      ipcRenderer.invoke(IPC.BILI_PROFILE_FACE, file),
+    getWallet: () => ipcRenderer.invoke(IPC.BILI_WALLET),
     getComments: (
       aid: number,
       page?: number,
@@ -218,6 +270,7 @@ const api = {
       message: string,
       root?: number,
       parent?: number,
+      images?: BinaryImageFile[],
     ) =>
       ipcRenderer.invoke(
         IPC.BILI_COMMENT_ADD,
@@ -225,6 +278,7 @@ const api = {
         message,
         root ?? 0,
         parent ?? 0,
+        images ?? [],
       ),
     likeComment: (aid: number, rpid: number, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_COMMENT_LIKE, aid, rpid, like),
@@ -234,6 +288,8 @@ const api = {
       rpid: number | string,
       hate: boolean,
     ) => ipcRenderer.invoke(IPC.BILI_COMMENT_HATE, oid, type, rpid, hate),
+    pinComment: (oid: string, type: number, rpid: number, pin: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_COMMENT_PIN, oid, type, rpid, pin),
     deleteComment: (oid: string, type: number, rpid: number | string) =>
       ipcRenderer.invoke(IPC.BILI_COMMENT_DELETE, oid, type, rpid),
     reportComment: (
@@ -413,6 +469,7 @@ const api = {
     ) => ipcRenderer.invoke(IPC.BILI_TOVIEW_ADD, aid, bvid, video, forceLocal),
     removeFromToView: (aid: number) =>
       ipcRenderer.invoke(IPC.BILI_TOVIEW_REMOVE, aid),
+    clearToView: () => ipcRenderer.invoke(IPC.BILI_TOVIEW_CLEAR),
     getLocalToViewList: () => ipcRenderer.invoke(IPC.BILI_TOVIEW_LOCAL_LIST),
     removeFromLocalToView: (bvid: string) =>
       ipcRenderer.invoke(IPC.BILI_TOVIEW_LOCAL_REMOVE, bvid),
@@ -456,11 +513,42 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_TOP, id, top),
     removeDynamic: (id: string) =>
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_REMOVE, id),
+    reportDynamic: (id: string, accusedUid: number, reasonType: number) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_REPORT, id, accusedUid, reasonType),
     equipDynamicCard: (itemId: number) =>
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_EQUIP_CARD, itemId),
+    createDynamic: (
+      text: string,
+      images?: BinaryImageFile[],
+      options?: DynamicPublishOptions,
+    ) => ipcRenderer.invoke(IPC.BILI_DYNAMIC_CREATE, text, images ?? [], options),
+    editDynamic: (
+      id: string,
+      text: string,
+      images?: BinaryImageFile[],
+      options?: DynamicPublishOptions,
+    ) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_EDIT, id, text, images ?? [], options),
+    setDynamicPrivate: (id: string, privatePub: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_PRIVATE, id, privatePub),
+    searchTopics: (keyword: string) =>
+      ipcRenderer.invoke(IPC.BILI_TOPIC_SEARCH, keyword),
+    getTopicHead: (topicId: number) =>
+      ipcRenderer.invoke(IPC.BILI_TOPIC_HEAD, topicId),
+    favoriteTopic: (topicId: number, favorite: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_TOPIC_FAV, topicId, favorite),
+    repostDynamic: (id: string, text?: string) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_REPOST, id, text ?? ""),
+    getHotSearch: () => ipcRenderer.invoke(IPC.BILI_HOT_SEARCH),
+    getTopicDynamics: (topicId: number, offset?: string) =>
+      ipcRenderer.invoke(IPC.BILI_TOPIC_FEED, topicId, offset ?? ""),
     getArticle: (id: number) => ipcRenderer.invoke(IPC.BILI_ARTICLE_VIEW, id),
     likeArticle: (id: number, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_ARTICLE_LIKE, id, like),
+    coinArticle: (id: number, upMid: number, multiply?: 1 | 2) =>
+      ipcRenderer.invoke(IPC.BILI_ARTICLE_COIN, id, upMid, multiply ?? 1),
+    favoriteArticle: (id: number, favorite: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_ARTICLE_FAV, id, favorite),
     getTargetComments: (
       oid: string,
       type: number,
@@ -497,6 +585,7 @@ const api = {
       message: string,
       root?: number,
       parent?: number,
+      images?: BinaryImageFile[],
     ) =>
       ipcRenderer.invoke(
         IPC.BILI_TARGET_COMMENT_ADD,
@@ -505,6 +594,7 @@ const api = {
         message,
         root ?? 0,
         parent ?? 0,
+        images ?? [],
       ),
     likeTargetComment: (
       oid: string,
@@ -580,6 +670,12 @@ const api = {
       file: { name: string; mime: string; data: Uint8Array },
     ) =>
       ipcRenderer.invoke(IPC.BILI_MSG_SEND_IMAGE, talkerId, sessionType, file),
+    sendChatShare: (
+      talkerId: string,
+      sessionType: number,
+      card: ChatShareCard,
+    ) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_SEND_SHARE, talkerId, sessionType, card),
     markChatRead: (talkerId: string, sessionType: number, ackSeqno?: string) =>
       ipcRenderer.invoke(
         IPC.BILI_MSG_READ,

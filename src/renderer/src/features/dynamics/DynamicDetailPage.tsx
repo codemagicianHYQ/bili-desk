@@ -8,6 +8,7 @@ import {
   DynamicMetaLine,
 } from "@/components/dynamic/DynamicFeedCard";
 import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection";
+import { RepostDialog } from "@/components/dynamic/RepostDialog";
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
@@ -41,6 +42,7 @@ export function DynamicDetailPage() {
   const [favorited, setFavorited] = useState(false);
   const [favCount, setFavCount] = useState(0);
   const [favoriting, setFavoriting] = useState(false);
+  const [repostOpen, setRepostOpen] = useState(false);
   const [tip, setTip] = useState("");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
@@ -114,16 +116,9 @@ export function DynamicDetailPage() {
     }
   };
 
-  const handleShare = async () => {
+  const handleShare = () => {
     if (!item) return;
-    try {
-      await navigator.clipboard.writeText(
-        `https://www.bilibili.com/opus/${item.id}`,
-      );
-      showTip("链接已复制");
-    } catch {
-      showTip("复制失败");
-    }
+    setRepostOpen(true);
   };
 
   const commentOid = item?.commentId || item?.id || "";
@@ -307,6 +302,12 @@ export function DynamicDetailPage() {
                 </span>
                 {formatCount(item.stats?.forward ?? 0)}
               </button>
+              <RepostDialog
+                open={repostOpen}
+                dynId={item.id}
+                preview={item.text}
+                onClose={() => setRepostOpen(false)}
+              />
               <button
                 type="button"
                 onClick={() => void handleFavorite()}

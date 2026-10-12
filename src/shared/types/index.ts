@@ -81,12 +81,103 @@ export interface VideoOnlineTotal {
 
 /** 播放器弹幕（对齐 artplayer-plugin-danmuku） */
 export interface DanmakuItem {
+  /** 弹幕 id，点赞和举报要用 */
+  id?: string;
+  /** 弹幕 XML 里的发送者 CRC32，用来对上屏蔽用户 */
+  midHash?: string;
   text: string;
   time: number;
   color?: string;
   border?: boolean;
   /** 0=滚动 1=顶部 2=底部 */
   mode?: 0 | 1 | 2;
+}
+
+export interface BinaryImageFile {
+  name: string;
+  mime: string;
+  data: Uint8Array;
+}
+
+export interface CreatedDynamic {
+  id: string;
+}
+
+export interface DynamicMention {
+  mid: number;
+  name: string;
+}
+
+export interface DynamicPublishOptions {
+  /** 仅自己可见 */
+  privatePub?: boolean;
+  closeComment?: boolean;
+  /** 定时发布，秒级时间戳 */
+  timerPubTime?: number;
+  mentions?: DynamicMention[];
+  topic?: { id: number; name: string };
+  vote?: {
+    title: string;
+    options: string[];
+    durationHours: number;
+    choiceCount: number;
+  };
+  lottery?: {
+    prize: string;
+    durationHours: number;
+    needFollow: boolean;
+  };
+  reserve?: {
+    title: string;
+    startTs: number;
+  };
+  /** 编辑时保留原来的图片地址 */
+  keepImages?: string[];
+}
+
+export interface TopicHead {
+  id: number;
+  name: string;
+  desc: string;
+  favorited: boolean;
+}
+
+export interface TopicSuggest {
+  id: number;
+  name: string;
+}
+
+export interface HotSearchItem {
+  keyword: string;
+  showName: string;
+  icon?: string;
+}
+
+export type DanmakuFilterKind = "text" | "regex" | "user";
+
+export interface DanmakuFilter {
+  id: number;
+  text: string;
+  kind: DanmakuFilterKind;
+}
+
+export interface VideoChapter {
+  from: number;
+  to: number;
+  content: string;
+  cover?: string;
+}
+
+export interface ChatShareCard {
+  kind: "video" | "article" | "dynamic" | "live";
+  title: string;
+  cover?: string;
+  bvid?: string;
+  aid?: number;
+  cvid?: number;
+  dynId?: string;
+  roomId?: number;
+  views?: number;
 }
 
 export interface SendDanmakuPayload {
@@ -108,6 +199,7 @@ export interface VideoRelation {
   /** 已投币数量 0/1/2 */
   coin: number;
   favorited: boolean;
+  disliked: boolean;
 }
 
 export interface AddCoinPayload {
@@ -269,6 +361,55 @@ export interface VideoPlayQuality {
   needVip?: boolean;
   needLogin?: boolean;
   superscript?: string;
+}
+
+export interface SeasonEpisode {
+  epId: number;
+  aid: number;
+  cid: number;
+  bvid: string;
+  title: string;
+  cover: string;
+  duration: number;
+  badge: string;
+}
+
+export interface SeasonDetail {
+  kind: "bangumi" | "cheese";
+  seasonId: number;
+  title: string;
+  cover: string;
+  evaluate: string;
+  score: number;
+  followed: boolean;
+  episodes: SeasonEpisode[];
+}
+
+export interface ChannelVideoPage {
+  id: number;
+  name: string;
+  videos: VideoItem[];
+  page: number;
+  hasMore: boolean;
+}
+
+export interface AudioSong {
+  sid: number;
+  title: string;
+  cover: string;
+  author: string;
+  intro: string;
+  url: string;
+}
+
+export interface ArchiveNote {
+  id: number;
+  title: string;
+  summary: string;
+}
+
+export interface WalletBalance {
+  bcoin: string;
 }
 
 export interface VideoPlayInfo {
@@ -855,6 +996,8 @@ export interface ArticleDetail {
   words: number;
   pubTime: number;
   liked: boolean;
+  coined?: boolean;
+  favorited?: boolean;
   /** 已迁到图文动态时的 dyn/opus id */
   dynId?: string;
   categoryName?: string;
@@ -1502,11 +1645,54 @@ export interface BiliDeskApi {
     ) => Promise<Uint8Array>;
     getVideoRelation: (bvid: string, aid: number) => Promise<VideoRelation>;
     likeVideo: (aid: number, like: boolean) => Promise<void>;
+    dislikeVideo: (aid: number, dislike: boolean) => Promise<void>;
     addCoin: (payload: AddCoinPayload) => Promise<void>;
     shareVideo: (aid: number, bvid: string) => Promise<boolean>;
     reportWatchHeartbeat: (payload: WatchHeartbeatPayload) => Promise<void>;
     getDanmakuList: (cid: number) => Promise<DanmakuItem[]>;
     sendDanmaku: (payload: SendDanmakuPayload) => Promise<void>;
+    getDanmakuFilters: () => Promise<DanmakuFilter[]>;
+    addDanmakuFilter: (
+      text: string,
+      kind?: DanmakuFilterKind,
+    ) => Promise<void>;
+    recallDanmaku: (cid: number, dmid: string) => Promise<string>;
+    removeDanmakuFilter: (id: number) => Promise<void>;
+    likeDanmaku: (cid: number, dmid: string, like: boolean) => Promise<void>;
+    reportDanmaku: (
+      cid: number,
+      dmid: string,
+      reason?: number,
+    ) => Promise<void>;
+    getVideoChapters: (bvid: string, cid: number) => Promise<VideoChapter[]>;
+    getVideoHeatmap: (bvid: string, cid: number) => Promise<number[]>;
+    getArchiveNotes: (aid: number) => Promise<ArchiveNote[]>;
+    addArchiveNote: (aid: number, title: string, text: string) => Promise<void>;
+    downloadVideo: (bvid: string, cid: number, qn?: number) => Promise<boolean>;
+    getSeason: (
+      kind: "bangumi" | "cheese",
+      id: number,
+      by?: "season" | "ep",
+    ) => Promise<SeasonDetail>;
+    getSeasonPlayUrl: (
+      kind: "bangumi" | "cheese",
+      epId: number,
+      cid: number,
+      qn?: number,
+    ) => Promise<VideoPlayInfo>;
+    setSeasonFollow: (
+      kind: "bangumi" | "cheese",
+      seasonId: number,
+      follow: boolean,
+    ) => Promise<void>;
+    getChannelVideos: (
+      channelId: number,
+      page?: number,
+    ) => Promise<ChannelVideoPage>;
+    getAudioSong: (sid: number) => Promise<AudioSong>;
+    updateMyProfile: (input: { name?: string; sign?: string }) => Promise<void>;
+    updateMyFace: (file: BinaryImageFile) => Promise<string>;
+    getWallet: () => Promise<WalletBalance>;
     getComments: (
       aid: number,
       page?: number,
@@ -1524,6 +1710,7 @@ export interface BiliDeskApi {
       message: string,
       root?: number,
       parent?: number,
+      images?: BinaryImageFile[],
     ) => Promise<CommentItem | null>;
     likeComment: (aid: number, rpid: number, like: boolean) => Promise<void>;
     hateComment: (
@@ -1531,6 +1718,12 @@ export interface BiliDeskApi {
       type: number,
       rpid: number | string,
       hate: boolean,
+    ) => Promise<void>;
+    pinComment: (
+      oid: string,
+      type: number,
+      rpid: number,
+      pin: boolean,
     ) => Promise<void>;
     deleteComment: (
       oid: string,
@@ -1636,6 +1829,7 @@ export interface BiliDeskApi {
       forceLocal?: boolean,
     ) => Promise<ToViewAddResult>;
     removeFromToView: (aid: number) => Promise<void>;
+    clearToView: () => Promise<void>;
     getLocalToViewList: () => Promise<ToViewList>;
     removeFromLocalToView: (bvid: string) => Promise<void>;
     removeManyFromLocalToView: (bvids: string[]) => Promise<void>;
@@ -1670,9 +1864,37 @@ export interface BiliDeskApi {
     favoriteDynamic: (id: string, favorite: boolean) => Promise<void>;
     setDynamicTop: (id: string, top: boolean) => Promise<void>;
     removeDynamic: (id: string) => Promise<void>;
+    reportDynamic: (
+      id: string,
+      accusedUid: number,
+      reasonType: number,
+    ) => Promise<void>;
     equipDynamicCard: (itemId: number) => Promise<void>;
+    createDynamic: (
+      text: string,
+      images?: BinaryImageFile[],
+      options?: DynamicPublishOptions,
+    ) => Promise<CreatedDynamic>;
+    editDynamic: (
+      id: string,
+      text: string,
+      images?: BinaryImageFile[],
+      options?: DynamicPublishOptions,
+    ) => Promise<void>;
+    setDynamicPrivate: (id: string, privatePub: boolean) => Promise<void>;
+    searchTopics: (keyword: string) => Promise<TopicSuggest[]>;
+    getTopicHead: (topicId: number) => Promise<TopicHead>;
+    favoriteTopic: (topicId: number, favorite: boolean) => Promise<void>;
+    repostDynamic: (id: string, text?: string) => Promise<CreatedDynamic>;
+    getHotSearch: () => Promise<HotSearchItem[]>;
+    getTopicDynamics: (
+      topicId: number,
+      offset?: string,
+    ) => Promise<SpaceDynamicPage>;
     getArticle: (id: number) => Promise<ArticleDetail>;
     likeArticle: (id: number, like: boolean) => Promise<void>;
+    coinArticle: (id: number, upMid: number, multiply?: 1 | 2) => Promise<void>;
+    favoriteArticle: (id: number, favorite: boolean) => Promise<void>;
     getTargetComments: (
       oid: string,
       type: number,
@@ -1693,6 +1915,7 @@ export interface BiliDeskApi {
       message: string,
       root?: number,
       parent?: number,
+      images?: BinaryImageFile[],
     ) => Promise<CommentItem | null>;
     likeTargetComment: (
       oid: string,
@@ -1763,6 +1986,11 @@ export interface BiliDeskApi {
       talkerId: string,
       sessionType: number,
       file: { name: string; mime: string; data: Uint8Array },
+    ) => Promise<void>;
+    sendChatShare: (
+      talkerId: string,
+      sessionType: number,
+      card: ChatShareCard,
     ) => Promise<void>;
     markChatRead: (
       talkerId: string,

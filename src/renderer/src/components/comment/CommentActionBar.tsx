@@ -38,6 +38,9 @@ interface CommentActionBarProps {
   onReply: () => void;
   onDelete: () => void;
   onReport: (reason: number) => void;
+  canPin?: boolean;
+  pinned?: boolean;
+  onPin?: () => void;
 }
 
 export function CommentActionBar({
@@ -57,6 +60,9 @@ export function CommentActionBar({
   onReply,
   onDelete,
   onReport,
+  canPin = false,
+  pinned = false,
+  onPin,
 }: CommentActionBarProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showReport, setShowReport] = useState(false);
@@ -110,6 +116,18 @@ export function CommentActionBar({
           <MessageCircle className="h-3.5 w-3.5" />
           回复
         </button>
+        {canPin && onPin && (
+          <button
+            type="button"
+            onClick={onPin}
+            className={cn(
+              "inline-flex items-center gap-1 transition-colors hover:text-primary",
+              pinned && "text-primary",
+            )}
+          >
+            {pinned ? "取消置顶" : "置顶"}
+          </button>
+        )}
         {copyText?.trim() && (
           <button
             type="button"

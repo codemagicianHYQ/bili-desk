@@ -15,6 +15,8 @@ import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
 import { RelatedVideosPanel } from "@/features/video/RelatedVideosPanel";
 import { VideoTagList } from "@/components/video/VideoTagList";
+import { VideoWatchExtras } from "@/components/video/VideoWatchExtras";
+import { VideoSideTools } from "@/components/video/VideoSideTools";
 import { VideoPlaylistPanel } from "@/components/video/VideoPlaylistPanel";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
@@ -57,6 +59,9 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [selectedCid, setSelectedCid] = useState<number | null>(null);
   const [quality, setQuality] = useState(readQualityPref);
   const [reloadKey, setReloadKey] = useState(0);
+  const [seekAt, setSeekAt] = useState<{ time: number; nonce: number } | null>(
+    null,
+  );
   const [error, setError] = useState("");
   const [playError, setPlayError] = useState("");
   const [playErrorDetail, setPlayErrorDetail] = useState("");
@@ -428,6 +433,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     onQualityChange={handleQualityChange}
                     onError={handlePlayerError}
                     onWatchFromStart={handleWatchFromStart}
+                    seekAt={seekAt}
                   />
                 ) : (
                   <div className="relative h-full w-full overflow-hidden bg-black">
@@ -596,6 +602,24 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               {video.desc ? <BiliEmoteText text={video.desc} /> : "暂无简介"}
             </p>
             <VideoTagList tags={video.tags} />
+            {selectedCid ? (
+              <VideoWatchExtras
+                bvid={video.bvid || bvid}
+                cid={selectedCid}
+                onSeek={(time) =>
+                  setSeekAt({ time, nonce: Date.now() })
+                }
+              />
+            ) : null}
+            {selectedCid ? (
+              <VideoSideTools
+                bvid={video.bvid || bvid}
+                aid={video.aid}
+                cid={selectedCid}
+                qn={quality}
+                onSeek={(time) => setSeekAt({ time, nonce: Date.now() })}
+              />
+            ) : null}
             {playError && playInfo && (
               <div className="space-y-1 text-sm text-red-400">
                 <div className="flex flex-wrap items-center gap-2">

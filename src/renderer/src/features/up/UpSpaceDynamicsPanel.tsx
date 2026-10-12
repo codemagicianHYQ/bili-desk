@@ -36,7 +36,9 @@ export function UpSpaceDynamicsPanel({
         );
         offsetRef.current = result.offset;
         setHasMore(result.hasMore);
-        setItems((prev) => (append ? [...prev, ...result.items] : result.items));
+        setItems((prev) =>
+          append ? [...prev, ...result.items] : result.items,
+        );
       } catch (err) {
         setError(formatUserSpaceError(err));
       } finally {
@@ -98,6 +100,9 @@ export function UpSpaceDynamicsPanel({
           item={item}
           fallbackName={name}
           fallbackFace={face}
+          onRemoved={(id) =>
+            setItems((prev) => prev.filter((entry) => entry.id !== id))
+          }
         />
       ))}
       <div

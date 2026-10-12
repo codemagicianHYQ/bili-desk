@@ -130,15 +130,20 @@ export function MainLayout() {
       ? { title: "动态详情", subtitle: "内容与评论" }
       : path.startsWith("/article/")
         ? { title: "专栏", subtitle: "应用内阅读" }
-        : path.startsWith("/video/")
-          ? { title: "视频", subtitle: "正在播放" }
-          : path.startsWith("/live/")
-            ? { title: "直播", subtitle: "应用内观看" }
-            : path === "/" && searchQuery
-              ? { title: `搜索「${searchQuery}」`, subtitle: "已过滤无关结果" }
-              : path === "/" && homeTab === "live"
-                ? { title: "直播", subtitle: "推荐直播与关注开播" }
-                : (titles[path] ?? { title: "BiliDesk" });
+        : path.startsWith("/topic/")
+          ? { title: "话题", subtitle: "话题动态" }
+          : path.startsWith("/video/")
+            ? { title: "视频", subtitle: "正在播放" }
+            : path.startsWith("/live/")
+              ? { title: "直播", subtitle: "应用内观看" }
+              : path === "/" && searchQuery
+                ? {
+                    title: `搜索「${searchQuery}」`,
+                    subtitle: "已过滤无关结果",
+                  }
+                : path === "/" && homeTab === "live"
+                  ? { title: "直播", subtitle: "推荐直播与关注开播" }
+                  : (titles[path] ?? { title: "BiliDesk" });
 
   if (path === "/login") {
     return <Outlet />;
@@ -156,13 +161,24 @@ export function MainLayout() {
   const isUpSpace = path.startsWith("/up/");
   const isDynamicDetail = path.startsWith("/dynamic/");
   const isArticleDetail = path.startsWith("/article/");
+  const isTopic = path.startsWith("/topic/");
+  const isSeason = path.startsWith("/season/");
+  const isChannel = path.startsWith("/channel/");
+  const isAudio = path.startsWith("/audio/");
   const isVideo = path.startsWith("/video/");
   const isLive = path.startsWith("/live/");
   const isSettings = path === "/settings";
   const isMessages = path === "/messages";
   const isIntegrity = path === "/integrity";
   const isUpActivity = path === "/up-activity";
-  const showOutlet = isUpSpace || isDynamicDetail || isArticleDetail;
+  const showOutlet =
+    isUpSpace ||
+    isDynamicDetail ||
+    isArticleDetail ||
+    isTopic ||
+    isSeason ||
+    isChannel ||
+    isAudio;
   const showVideo = isVideo && effectiveVideoBvid != null;
   const showLive = isLive && effectiveLiveRoomId != null;
 
@@ -264,10 +280,7 @@ export function MainLayout() {
           )}
           {(messagesKeepAlive || isMessages) && (
             <div
-              className={cn(
-                "h-full overflow-hidden",
-                !isMessages && "hidden",
-              )}
+              className={cn("h-full overflow-hidden", !isMessages && "hidden")}
               aria-hidden={!isMessages}
             >
               <MessagesPage />

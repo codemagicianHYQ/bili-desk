@@ -10,6 +10,8 @@ import type { SpaceDynamicItem, UpProfile } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { RepostDialog } from "@/components/dynamic/RepostDialog";
+import { PublishDynamicDialog } from "@/components/dynamic/PublishDynamicDialog";
 import {
   OverlayPortal,
   APP_OVERLAY_ZCLASS,
@@ -25,6 +27,7 @@ import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 import {
   Loader2,
+  Lock,
   MessageCircle,
   MoreHorizontal,
   Pencil,
@@ -60,6 +63,7 @@ function DynamicActionBar({
   const [likeCount, setLikeCount] = useState(item.stats?.like ?? 0);
   const [liking, setLiking] = useState(false);
   const [tip, setTip] = useState("");
+  const [repostOpen, setRepostOpen] = useState(false);
   const reply = item.stats?.reply ?? 0;
 
   const showTip = (message: string) => {
@@ -67,17 +71,10 @@ function DynamicActionBar({
     window.setTimeout(() => setTip(""), 1800);
   };
 
-  const handleForward = async (event: MouseEvent) => {
+  const handleForward = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(
-        `https://www.bilibili.com/opus/${item.id}`,
-      );
-      showTip("链接已复制");
-    } catch {
-      showTip("复制失败");
-    }
+    setRepostOpen(true);
   };
 
   const handleLike = async (event: MouseEvent) => {
@@ -112,6 +109,12 @@ function DynamicActionBar({
         <Share2 className="h-4 w-4" />
         转发
       </button>
+      <RepostDialog
+        open={repostOpen}
+        dynId={item.id}
+        preview={item.text}
+        onClose={() => setRepostOpen(false)}
+      />
       <button
         type="button"
         onClick={(event) => {
@@ -196,6 +199,9 @@ function OwnerMenu({
   onPin,
   onCard,
   onShare,
+  onEdit,
+  onPrivate,
+  onlySelf,
   onDelete,
 }: {
   open: boolean;
@@ -205,6 +211,9 @@ function OwnerMenu({
   onPin: () => void;
   onCard: () => void;
   onShare: () => void;
+  onEdit: () => void;
+  onPrivate: () => void;
+  onlySelf: boolean;
   onDelete: () => void;
 }) {
   if (!open) return null;
@@ -238,6 +247,24 @@ function OwnerMenu({
           >
             <Pencil className="h-4 w-4 text-[#fb7299]" />
             使用此卡片背景
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className={cn(row, "border-t border-white/5")}
+            onClick={onEdit}
+          >
+            <Pencil className="h-4 w-4 text-[#fb7299]" />
+            编辑
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className={cn(row, "border-t border-white/5")}
+            onClick={onPrivate}
+          >
+            <Lock className="h-4 w-4 text-[#fb7299]" />
+            {onlySelf ? "设为公开" : "设为仅自己可见"}
           </button>
           <button
             type="button"
@@ -285,6 +312,8 @@ function DynamicCard({
 }) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [onlySelf, setOnlySelf] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tip, setTip] = useState("");
@@ -528,10 +557,37 @@ function DynamicCard({
         onPin={() => void handlePin()}
         onCard={() => void handleCard()}
         onShare={() => void handleShare()}
+        onEdit={() => {
+          setMenuOpen(false);
+          setEditOpen(true);
+        }}
+        onlySelf={onlySelf}
+        onPrivate={() => {
+          if (busy) return;
+          setBusy(true);
+          const next = !onlySelf;
+          void window.biliDesk.bili
+            .setDynamicPrivate(item.id, next)
+            .then(() => {
+              setOnlySelf(next);
+              setMenuOpen(false);
+              showTip(next ? "已设为仅自己可见" : "已设为公开");
+            })
+            .catch((err: unknown) => showTip(formatError(err)))
+            .finally(() => setBusy(false));
+        }}
         onDelete={() => {
           setMenuOpen(false);
           setConfirmDelete(true);
         }}
+      />
+      <PublishDynamicDialog
+        key={item.id}
+        open={editOpen}
+        editId={item.id}
+        initialText={item.text}
+        keepImages={item.images ?? []}
+        onClose={() => setEditOpen(false)}
       />
       <ConfirmDialog
         open={confirmDelete}
@@ -558,6 +614,7 @@ export function MyDynamicsPanel({ mid, profile }: MyDynamicsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [publishOpen, setPublishOpen] = useState(false);
 
   const fallbackName = profile?.name ?? "用户";
   const fallbackFace = profile?.face ?? "";
@@ -640,7 +697,28 @@ export function MyDynamicsPanel({ mid, profile }: MyDynamicsPanelProps) {
   }
 
   if (items.length === 0) {
-    return <p className="text-sm text-muted-foreground">暂无动态</p>;
+    return (
+      <div className="space-y-3">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="rounded-full bg-primary/15 px-3 py-1.5 text-sm text-primary"
+            onClick={() => setPublishOpen(true)}
+          >
+            发动态
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground">暂无动态</p>
+        <PublishDynamicDialog
+          open={publishOpen}
+          onClose={() => setPublishOpen(false)}
+          onPublished={() => {
+            offsetRef.current = "";
+            void load(false);
+          }}
+        />
+      </div>
+    );
   }
 
   return (
@@ -648,6 +726,23 @@ export function MyDynamicsPanel({ mid, profile }: MyDynamicsPanelProps) {
       ref={scrollRef}
       className="max-h-[70vh] space-y-4 overflow-y-auto pr-1"
     >
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="rounded-full bg-primary/15 px-3 py-1.5 text-sm text-primary"
+          onClick={() => setPublishOpen(true)}
+        >
+          发动态
+        </button>
+      </div>
+      <PublishDynamicDialog
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        onPublished={() => {
+          offsetRef.current = "";
+          void load(false);
+        }}
+      />
       {items.map((item) => (
         <DynamicCard
           key={item.id}

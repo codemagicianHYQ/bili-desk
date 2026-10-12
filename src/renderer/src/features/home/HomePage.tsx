@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  HotSearchItem,
   SearchCategory,
   SearchOrder,
   SearchSuggestItem,
@@ -145,6 +146,8 @@ export function HomePage() {
   const [searchError, setSearchError] = useState("");
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [suggests, setSuggests] = useState<SearchSuggestItem[]>([]);
+  const [hotItems, setHotItems] = useState<HotSearchItem[]>([]);
+  const [hotOpen, setHotOpen] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(-1);
   const suggestSeqRef = useRef(0);
@@ -380,16 +383,17 @@ export function HomePage() {
   }, [keyword]);
 
   useEffect(() => {
-    if (!showSuggest) return;
+    if (!showSuggest && !hotOpen) return;
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (suggestBoxRef.current?.contains(target)) return;
       setShowSuggest(false);
+      setHotOpen(false);
       setSuggestIndex(-1);
     };
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [showSuggest]);
+  }, [showSuggest, hotOpen]);
 
   const searchTotalPages = Math.max(
     1,
@@ -659,7 +663,16 @@ export function HomePage() {
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 onFocus={() => {
-                  if (suggests.length > 0) setShowSuggest(true);
+                  if (keyword.trim()) {
+                    if (suggests.length > 0) setShowSuggest(true);
+                    return;
+                  }
+                  setHotOpen(true);
+                  if (hotItems.length > 0) return;
+                  void window.biliDesk.bili
+                    .getHotSearch()
+                    .then(setHotItems)
+                    .catch(() => setHotItems([]));
                 }}
                 onKeyDown={handleSuggestKeyDown}
                 placeholder="搜索视频、用户..."
@@ -678,6 +691,33 @@ export function HomePage() {
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
+              )}
+              {hotOpen && !keyword.trim() && hotItems.length > 0 && (
+                <ul className="bili-glass absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-80 overflow-y-auto rounded-xl border border-border bg-card/40 py-1 shadow-2xl">
+                  <li className="px-3 py-1.5 text-xs text-muted-foreground">
+                    热搜
+                  </li>
+                  {hotItems.map((item, index) => (
+                    <li key={item.keyword}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-secondary/80"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          setHotOpen(false);
+                          pickSuggest(item.keyword);
+                        }}
+                      >
+                        <span className="w-5 text-xs text-muted-foreground">
+                          {index + 1}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {item.showName || item.keyword}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
               {showSuggest && suggests.length > 0 && (
                 <ul

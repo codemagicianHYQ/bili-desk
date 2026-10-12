@@ -125,12 +125,14 @@ export function WatchLaterPage() {
   const ensureLoaded = useWatchLaterStore((state) => state.ensureLoaded);
   const remove = useWatchLaterStore((state) => state.remove);
   const removeMany = useWatchLaterStore((state) => state.removeMany);
+  const clearOfficial = useWatchLaterStore((state) => state.clearOfficial);
 
   const [tab, setTab] = useState<WatchLaterTab>("official");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(false);
   const [selectedBvids, setSelectedBvids] = useState<Set<string>>(new Set());
   const [batchRemoving, setBatchRemoving] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const isLocalTab = tab === "local";
   const videos = isLocalTab ? localVideos : officialVideos;
@@ -253,6 +255,25 @@ export function WatchLaterPage() {
                 : `共 ${count} 个视频 · 最多 ${TOVIEW_MAX} 个 · 与 B 站账号同步`}
             </p>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+              {!isLocalTab && officialCount > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={clearing}
+                  onClick={() => {
+                    if (!window.confirm("清空 B 站官方稍后再看？本地列表不受影响。")) {
+                      return;
+                    }
+                    setClearing(true);
+                    void clearOfficial()
+                      .catch(() => undefined)
+                      .finally(() => setClearing(false));
+                  }}
+                >
+                  {clearing ? "清空中..." : "清空官方"}
+                </Button>
+              )}
           {videos.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               {editing ? (
@@ -308,6 +329,7 @@ export function WatchLaterPage() {
               )}
             </div>
           )}
+          </div>
         </div>
         {officialFull && (
           <p className="text-xs text-muted-foreground">

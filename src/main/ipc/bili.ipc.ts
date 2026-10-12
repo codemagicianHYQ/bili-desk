@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain } from "electron";
 import { IPC } from "@shared/ipc-channels";
 import type {
   SearchArticleOrder,
@@ -14,6 +14,10 @@ import type {
   UpVideosOrder,
   UserRelationListType,
   VideoItem,
+  BinaryImageFile,
+  ChatShareCard,
+  DanmakuFilterKind,
+  DynamicPublishOptions,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
 import { messageApi } from "../services/message-api";
@@ -115,6 +119,70 @@ export function registerBiliIpc(): void {
   ipcMain.handle(IPC.BILI_VIDEO_RELATION, (_e, bvid: string, aid: number) =>
     biliApi.getVideoRelation(bvid, aid),
   );
+  ipcMain.handle(IPC.BILI_VIDEO_DISLIKE, (_e, aid: number, dislike: boolean) =>
+    biliApi.dislikeVideo(aid, dislike),
+  );
+  ipcMain.handle(IPC.BILI_VIDEO_HEATMAP, (_e, bvid: string, cid: number) =>
+    biliApi.getVideoHeatmap(bvid, cid),
+  );
+  ipcMain.handle(IPC.BILI_VIDEO_NOTES, (_e, aid: number) =>
+    biliApi.getArchiveNotes(aid),
+  );
+  ipcMain.handle(
+    IPC.BILI_VIDEO_NOTE_ADD,
+    (_e, aid: number, title: string, text: string) =>
+      biliApi.addArchiveNote(aid, title, text),
+  );
+  ipcMain.handle(
+    IPC.BILI_VIDEO_DOWNLOAD,
+    async (event, bvid: string, cid: number, qn?: number) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const picked = await (win
+        ? dialog.showSaveDialog(win, {
+            defaultPath: `${bvid}.mp4`,
+            filters: [{ name: "视频", extensions: ["mp4", "flv"] }],
+          })
+        : dialog.showSaveDialog({
+            defaultPath: `${bvid}.mp4`,
+            filters: [{ name: "视频", extensions: ["mp4", "flv"] }],
+          }));
+      if (picked.canceled || !picked.filePath) return false;
+      await biliApi.downloadVideoFile(bvid, cid, picked.filePath, qn);
+      return true;
+    },
+  );
+  ipcMain.handle(
+    IPC.BILI_SEASON,
+    (_e, kind: "bangumi" | "cheese", id: number, by?: "season" | "ep") =>
+      biliApi.getSeason(kind, id, by ?? "season"),
+  );
+  ipcMain.handle(
+    IPC.BILI_SEASON_PLAY,
+    (_e, kind: "bangumi" | "cheese", epId: number, cid: number, qn?: number) =>
+      biliApi.getSeasonPlayUrl(kind, epId, cid, qn),
+  );
+  ipcMain.handle(
+    IPC.BILI_SEASON_FOLLOW,
+    (_e, kind: "bangumi" | "cheese", seasonId: number, follow: boolean) =>
+      biliApi.setSeasonFollow(kind, seasonId, follow),
+  );
+  ipcMain.handle(
+    IPC.BILI_CHANNEL_VIDEOS,
+    (_e, channelId: number, page?: number) =>
+      biliApi.getChannelVideos(channelId, page ?? 1),
+  );
+  ipcMain.handle(IPC.BILI_AUDIO_SONG, (_e, sid: number) =>
+    biliApi.getAudioSong(sid),
+  );
+  ipcMain.handle(
+    IPC.BILI_PROFILE_UPDATE,
+    (_e, input: { name?: string; sign?: string }) =>
+      biliApi.updateMyProfile(input),
+  );
+  ipcMain.handle(IPC.BILI_PROFILE_FACE, (_e, file: BinaryImageFile) =>
+    biliApi.updateMyFace(file),
+  );
+  ipcMain.handle(IPC.BILI_WALLET, () => biliApi.getWallet());
   ipcMain.handle(IPC.BILI_VIDEO_LIKE, (_e, aid: number, like: boolean) =>
     biliApi.likeVideo(aid, like),
   );
@@ -151,8 +219,14 @@ export function registerBiliIpc(): void {
   );
   ipcMain.handle(
     IPC.BILI_COMMENT_ADD,
-    (_e, aid: number, message: string, root?: number, parent?: number) =>
-      biliApi.addComment(aid, message, root, parent),
+    (
+      _e,
+      aid: number,
+      message: string,
+      root?: number,
+      parent?: number,
+      images?: BinaryImageFile[],
+    ) => biliApi.addComment(aid, message, root, parent, images),
   );
   ipcMain.handle(
     IPC.BILI_COMMENT_LIKE,
@@ -168,6 +242,11 @@ export function registerBiliIpc(): void {
     IPC.BILI_COMMENT_DELETE,
     (_e, oid: string, type: number, rpid: number | string) =>
       biliApi.deleteReply(oid, type, rpid),
+  );
+  handleIpc(
+    IPC.BILI_COMMENT_PIN,
+    (_e, oid: string, type: number, rpid: number, pin: boolean) =>
+      biliApi.pinComment(oid, type, rpid, pin),
   );
   handleIpc(
     IPC.BILI_COMMENT_REPORT,
@@ -396,6 +475,7 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_TOVIEW_REMOVE, (_e, aid: number) =>
     biliApi.removeFromToView(aid),
   );
+  handleIpc(IPC.BILI_TOVIEW_CLEAR, () => biliApi.clearToView());
   handleIpc(IPC.BILI_TOVIEW_LOCAL_LIST, async () => {
     const videos = localToViewRepo.list();
     return { videos, count: videos.length };
@@ -477,12 +557,86 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_DYNAMIC_REMOVE, (_e, id: string) =>
     biliApi.removeDynamic(id),
   );
+  handleIpc(
+    IPC.BILI_DYNAMIC_REPORT,
+    (_e, id: string, accusedUid: number, reasonType: number) =>
+      biliApi.reportDynamic(id, accusedUid, reasonType),
+  );
   handleIpc(IPC.BILI_DYNAMIC_EQUIP_CARD, (_e, itemId: number) =>
     biliApi.equipDynamicCard(itemId),
+  );
+  handleIpc(
+    IPC.BILI_DYNAMIC_CREATE,
+    (
+      _e,
+      text: string,
+      images?: BinaryImageFile[],
+      options?: DynamicPublishOptions,
+    ) => biliApi.createDynamic(text, images, options),
+  );
+  handleIpc(
+    IPC.BILI_DYNAMIC_EDIT,
+    (
+      _e,
+      id: string,
+      text: string,
+      images?: BinaryImageFile[],
+      options?: DynamicPublishOptions,
+    ) => biliApi.editDynamic(id, text, images, options),
+  );
+  handleIpc(IPC.BILI_DYNAMIC_PRIVATE, (_e, id: string, privatePub: boolean) =>
+    biliApi.setDynamicPrivate(id, privatePub),
+  );
+  handleIpc(IPC.BILI_TOPIC_SEARCH, (_e, keyword: string) =>
+    biliApi.searchTopics(keyword),
+  );
+  handleIpc(IPC.BILI_TOPIC_HEAD, (_e, topicId: number) =>
+    biliApi.getTopicHead(topicId),
+  );
+  handleIpc(IPC.BILI_TOPIC_FAV, (_e, topicId: number, favorite: boolean) =>
+    biliApi.favoriteTopic(topicId, favorite),
+  );
+  handleIpc(IPC.BILI_DYNAMIC_REPOST, (_e, id: string, text?: string) =>
+    biliApi.repostDynamic(id, text ?? ""),
+  );
+  handleIpc(IPC.BILI_HOT_SEARCH, () => biliApi.getHotSearch());
+  handleIpc(IPC.BILI_TOPIC_FEED, (_e, topicId: number, offset?: string) =>
+    biliApi.getTopicDynamics(topicId, offset ?? ""),
+  );
+  handleIpc(IPC.BILI_VIDEO_CHAPTERS, (_e, bvid: string, cid: number) =>
+    biliApi.getVideoChapters(bvid, cid),
+  );
+  handleIpc(IPC.BILI_DM_FILTERS, () => biliApi.getDanmakuFilters());
+  handleIpc(
+    IPC.BILI_DM_FILTER_ADD,
+    (_e, text: string, kind?: DanmakuFilterKind) =>
+      biliApi.addDanmakuFilter(text, kind ?? "text"),
+  );
+  handleIpc(IPC.BILI_DM_RECALL, (_e, cid: number, dmid: string) =>
+    biliApi.recallDanmaku(cid, dmid),
+  );
+  handleIpc(IPC.BILI_DM_FILTER_DEL, (_e, id: number) =>
+    biliApi.removeDanmakuFilter(id),
+  );
+  handleIpc(IPC.BILI_DM_LIKE, (_e, cid: number, dmid: string, like: boolean) =>
+    biliApi.likeDanmaku(cid, dmid, like),
+  );
+  handleIpc(
+    IPC.BILI_DM_REPORT,
+    (_e, cid: number, dmid: string, reason?: number) =>
+      biliApi.reportDanmaku(cid, dmid, reason ?? 11),
   );
   handleIpc(IPC.BILI_ARTICLE_VIEW, (_e, id: number) => biliApi.getArticle(id));
   handleIpc(IPC.BILI_ARTICLE_LIKE, (_e, id: number, like: boolean) =>
     biliApi.likeArticle(id, like),
+  );
+  handleIpc(
+    IPC.BILI_ARTICLE_COIN,
+    (_e, id: number, upMid: number, multiply?: 1 | 2) =>
+      biliApi.coinArticle(id, upMid, multiply ?? 1),
+  );
+  handleIpc(IPC.BILI_ARTICLE_FAV, (_e, id: number, favorite: boolean) =>
+    biliApi.favoriteArticle(id, favorite),
   );
   handleIpc(
     IPC.BILI_TARGET_COMMENT_LIST,
@@ -518,7 +672,16 @@ export function registerBiliIpc(): void {
       message: string,
       root?: number,
       parent?: number,
-    ) => biliApi.addTargetComment(oid, type, message, root ?? 0, parent ?? 0),
+      images?: BinaryImageFile[],
+    ) =>
+      biliApi.addTargetComment(
+        oid,
+        type,
+        message,
+        root ?? 0,
+        parent ?? 0,
+        images,
+      ),
   );
   handleIpc(
     IPC.BILI_TARGET_COMMENT_LIKE,
@@ -612,6 +775,11 @@ export function registerBiliIpc(): void {
       sessionType: number,
       file: { name: string; mime: string; data: Uint8Array },
     ) => messageApi.sendChatImage(talkerId, sessionType, file),
+  );
+  handleIpc(
+    IPC.BILI_MSG_SEND_SHARE,
+    (_e, talkerId: string, sessionType: number, card: ChatShareCard) =>
+      messageApi.sendChatShare(talkerId, sessionType, card),
   );
   handleIpc(
     IPC.BILI_MSG_READ,

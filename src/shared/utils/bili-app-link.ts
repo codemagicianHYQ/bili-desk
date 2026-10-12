@@ -105,6 +105,40 @@ export function parseBiliAppPath(href: string): string | null {
     return `/article/${readId}`;
   }
 
+  const topicId =
+    url.searchParams.get("topic_id") ||
+    path.match(/\/topic\/(?:detail\/)?(\d+)/i)?.[1] ||
+    "";
+  if (/^\d+$/.test(topicId)) {
+    const topicName = url.searchParams.get("topic_name") || "";
+    return topicName
+      ? `/topic/${topicId}?name=${encodeURIComponent(topicName)}`
+      : `/topic/${topicId}`;
+  }
+
+  const bangumi = path.match(/\/bangumi\/play\/(ss|ep)(\d+)/i);
+  if (bangumi) {
+    const by = bangumi[1].toLowerCase() === "ep" ? "ep" : "season";
+    return `/season/bangumi/${bangumi[2]}${by === "ep" ? "?by=ep" : ""}`;
+  }
+  const cheese = path.match(/\/cheese\/play\/(ss|ep)(\d+)/i);
+  if (cheese) {
+    const by = cheese[1].toLowerCase() === "ep" ? "ep" : "season";
+    return `/season/cheese/${cheese[2]}${by === "ep" ? "?by=ep" : ""}`;
+  }
+  const channelId =
+    path.match(/\/channel\/(\d+)/)?.[1] ||
+    url.searchParams.get("channel_id") ||
+    "";
+  if (/^\d+$/.test(channelId) && /channel/i.test(path)) {
+    return `/channel/${channelId}`;
+  }
+  const audioId =
+    path.match(/\/audio\/au(\d+)/i)?.[1] ||
+    path.match(/\/music-detail\/(\d+)/)?.[1] ||
+    "";
+  if (audioId) return `/audio/${audioId}`;
+
   const opusId = path.match(/\/opus\/(\d+)/)?.[1];
   if (opusId) return `/dynamic/${opusId}`;
 
