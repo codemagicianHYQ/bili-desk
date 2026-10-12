@@ -7627,7 +7627,7 @@ class BiliApiService {
       platform: "web",
       web_location: "333.999",
       features:
-        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,forwardListHidden,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard,htmlOpusStyle",
+        "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,commentsNewVersion,onlyfansAssetsV2,ugcDelete,onlyfansQaCard,htmlOpusStyle",
       ...(offset ? { offset } : {}),
     });
 
@@ -8002,6 +8002,96 @@ class BiliApiService {
     }
     if (res.data?.code !== 0) {
       throw new Error((res.data?.message as string) || "收藏失败");
+    }
+  }
+
+  async setDynamicTop(id: string, top: boolean): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再置顶");
+    const dynId = String(id || "").trim();
+    if (!dynId) throw new Error("动态 ID 无效");
+
+    const res = await this.client.post(
+      top
+        ? "/x/dynamic/feed/space/set_top"
+        : "/x/dynamic/feed/space/rm_top",
+      { dyn_str: dynId },
+      {
+        params: { csrf },
+        headers: {
+          "Content-Type": "application/json",
+          Referer: "https://space.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(
+        (res.data?.message as string) || (top ? "置顶失败" : "取消置顶失败"),
+      );
+    }
+  }
+
+  async removeDynamic(id: string): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再删除");
+    const dynId = String(id || "").trim();
+    if (!dynId) throw new Error("动态 ID 无效");
+
+    const res = await this.client.post(
+      "/x/dynamic/feed/operate/remove",
+      { dyn_id_str: dynId },
+      {
+        params: { csrf },
+        headers: {
+          "Content-Type": "application/json",
+          Referer: "https://t.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "删除动态失败");
+    }
+  }
+
+  /** 把这条动态上的装扮卡片设为自己的动态卡片背景 */
+  async equipDynamicCard(itemId: number): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再设置卡片背景");
+    const id = Number(itemId);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new Error("这条动态没有可使用的卡片装扮");
+    }
+
+    const body = new URLSearchParams({
+      item_id: String(id),
+      part: "card",
+      csrf,
+      csrf_token: csrf,
+    });
+    const res = await this.client.post("/x/garb/user/equip", body, {
+      params: { csrf },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "设置卡片背景失败");
     }
   }
 
@@ -9797,6 +9887,7 @@ class BiliApiService {
       | "module_dynamic"
       | "module_stat"
       | "module_tag"
+      | "module_more"
       | "module_extend",
   ): Record<string, unknown> | undefined {
     if (!modules) return undefined;
@@ -10068,6 +10159,8 @@ class BiliApiService {
         : undefined);
 
     const exclusiveTag = this.extractExclusiveTag(modules, major);
+    const pinned = this.extractDynamicPinned(modules);
+    const card = this.extractDecorationCard(moduleAuthor);
     const upowerPreview = this.extractUpowerPreview(major, moduleDynamic);
     const mentions = this.extractDynamicMentions(moduleDynamic, major);
     const emotes = this.extractDynamicEmotes(moduleDynamic, major);
@@ -10095,6 +10188,9 @@ class BiliApiService {
       commentType,
       liked,
       favorited,
+      pinned,
+      cardItemId: card.id,
+      cardName: card.name,
       exclusiveTag,
       mentions,
       emotes,
@@ -10348,6 +10444,42 @@ class BiliApiService {
       if (nested) return nested;
     }
     return "";
+  }
+
+  private extractDynamicPinned(modules: unknown): boolean {
+    const tag = this.pickDynamicModule(modules, "module_tag");
+    if (this.pickDynText(tag?.text) === "置顶") return true;
+
+    const more = this.pickDynamicModule(modules, "module_more");
+    const points = more?.three_point_items;
+    if (!Array.isArray(points)) return false;
+    for (const entry of points) {
+      if (!entry || typeof entry !== "object") continue;
+      const rec = entry as Record<string, unknown>;
+      if (String(rec.type ?? "") !== "THREE_POINT_TOP") continue;
+      const params = this.asPlainRecord(rec.params);
+      if (typeof params?.status === "boolean") return params.status;
+      return String(rec.label ?? "").includes("取消");
+    }
+    return false;
+  }
+
+  private extractDecorationCard(moduleAuthor: Record<string, unknown> | undefined): {
+    id?: number;
+    name?: string;
+  } {
+    const card = this.asPlainRecord(
+      moduleAuthor?.decoration_card ??
+        moduleAuthor?.decorate_card ??
+        moduleAuthor?.decorate,
+    );
+    if (!card) return {};
+    const id = Number(card.item_id ?? card.id) || 0;
+    const name = String(card.name ?? "").trim();
+    return {
+      id: id > 0 ? id : undefined,
+      name: name || undefined,
+    };
   }
 
   private extractExclusiveTag(

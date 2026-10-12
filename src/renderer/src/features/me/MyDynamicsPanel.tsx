@@ -1,15 +1,38 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem, UpProfile } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  OverlayPortal,
+  APP_OVERLAY_ZCLASS,
+} from "@/components/ui/overlay-portal";
 import {
   ExclusiveTag,
   UpowerExclusiveCard,
   DynamicMetaLine,
+  ForwardedOrigEmbed,
+  ImageGrid,
 } from "@/components/dynamic/DynamicFeedCard";
+import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
-import { Loader2, MessageCircle, Share2, ThumbsUp } from "lucide-react";
+import {
+  Loader2,
+  MessageCircle,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  Share2,
+  ThumbsUp,
+  Trash2,
+} from "lucide-react";
 
 interface MyDynamicsPanelProps {
   mid: number;
@@ -17,17 +40,73 @@ interface MyDynamicsPanelProps {
 }
 
 function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : "加载失败";
+  return extractIpcErrorMessage(err) || "操作失败";
 }
 
-function DynamicActionBar({ item }: { item: SpaceDynamicItem }) {
+function visibleForwardText(item: SpaceDynamicItem): string {
+  const text = item.text?.trim() ?? "";
+  if (!text || text === "转发动态" || text === "动态") return "";
+  return text;
+}
+
+function DynamicActionBar({
+  item,
+  onOpenDetail,
+}: {
+  item: SpaceDynamicItem;
+  onOpenDetail: () => void;
+}) {
+  const [liked, setLiked] = useState(Boolean(item.liked));
+  const [likeCount, setLikeCount] = useState(item.stats?.like ?? 0);
+  const [liking, setLiking] = useState(false);
+  const [tip, setTip] = useState("");
   const reply = item.stats?.reply ?? 0;
-  const like = item.stats?.like ?? 0;
+
+  const showTip = (message: string) => {
+    setTip(message);
+    window.setTimeout(() => setTip(""), 1800);
+  };
+
+  const handleForward = async (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(
+        `https://www.bilibili.com/opus/${item.id}`,
+      );
+      showTip("链接已复制");
+    } catch {
+      showTip("复制失败");
+    }
+  };
+
+  const handleLike = async (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (liking) return;
+    const next = !liked;
+    setLiking(true);
+    try {
+      await window.biliDesk.bili.likeDynamic(item.id, next);
+      setLiked(next);
+      setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
+    } catch (err) {
+      showTip(formatError(err));
+    } finally {
+      setLiking(false);
+    }
+  };
 
   return (
-    <div className="grid grid-cols-3 border-t border-white/5">
+    <div className="relative grid grid-cols-3 border-t border-white/5">
+      {tip && (
+        <p className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded-full bg-black/75 px-3 py-1 text-xs text-white">
+          {tip}
+        </p>
+      )}
       <button
         type="button"
+        onClick={(event) => void handleForward(event)}
         className="flex items-center justify-center gap-1.5 py-3 text-sm text-[#9499a0] transition-colors hover:text-[#e3e5e7]"
       >
         <Share2 className="h-4 w-4" />
@@ -35,6 +114,11 @@ function DynamicActionBar({ item }: { item: SpaceDynamicItem }) {
       </button>
       <button
         type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenDetail();
+        }}
         className="flex items-center justify-center gap-1.5 py-3 text-sm text-[#9499a0] transition-colors hover:text-[#e3e5e7]"
       >
         <MessageCircle className="h-4 w-4" />
@@ -42,10 +126,15 @@ function DynamicActionBar({ item }: { item: SpaceDynamicItem }) {
       </button>
       <button
         type="button"
-        className="flex items-center justify-center gap-1.5 py-3 text-sm text-[#9499a0] transition-colors hover:text-[#e3e5e7]"
+        disabled={liking}
+        onClick={(event) => void handleLike(event)}
+        className={cn(
+          "flex items-center justify-center gap-1.5 py-3 text-sm transition-colors",
+          liked ? "text-[#00aeec]" : "text-[#9499a0] hover:text-[#e3e5e7]",
+        )}
       >
-        <ThumbsUp className="h-4 w-4" />
-        {like > 0 ? like : "点赞"}
+        <ThumbsUp className={cn("h-4 w-4", liked && "fill-current")} />
+        {likeCount > 0 ? formatCount(likeCount) : "点赞"}
       </button>
     </div>
   );
@@ -79,7 +168,7 @@ function VideoDynamicBody({ item }: { item: SpaceDynamicItem }) {
             <span>{formatCount(item.stats.view)} 播放</span>
           )}
           {item.stats?.danmaku != null && item.stats.danmaku > 0 && (
-            <span>{formatCount(item.stats.danmaku)} 评论</span>
+            <span>{formatCount(item.stats.danmaku)} 弹幕</span>
           )}
         </div>
       </div>
@@ -87,21 +176,118 @@ function VideoDynamicBody({ item }: { item: SpaceDynamicItem }) {
   );
 
   if (item.bvid) {
-    return <Link to={`/video/${item.bvid}`}>{content}</Link>;
+    return (
+      <Link
+        to={`/video/${item.bvid}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {content}
+      </Link>
+    );
   }
   return content;
+}
+
+function OwnerMenu({
+  open,
+  pinned,
+  busy,
+  onClose,
+  onPin,
+  onCard,
+  onShare,
+  onDelete,
+}: {
+  open: boolean;
+  pinned: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onPin: () => void;
+  onCard: () => void;
+  onShare: () => void;
+  onDelete: () => void;
+}) {
+  if (!open) return null;
+
+  const row =
+    "flex w-full items-center gap-3 px-5 py-3.5 text-left text-[15px] text-[#e3e5e7] transition-colors hover:bg-white/5 disabled:opacity-50";
+
+  return (
+    <OverlayPortal>
+      <div
+        className={cn(
+          "fixed inset-0 flex items-end justify-center bg-black/55 p-4",
+          APP_OVERLAY_ZCLASS,
+        )}
+        onClick={onClose}
+      >
+        <div
+          role="menu"
+          className="w-full max-w-md overflow-hidden rounded-2xl bg-[#232527] shadow-2xl ring-1 ring-white/10"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button type="button" disabled={busy} className={row} onClick={onPin}>
+            <Pin className="h-4 w-4 text-[#fb7299]" />
+            {pinned ? "取消置顶" : "置顶"}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className={cn(row, "border-t border-white/5")}
+            onClick={onCard}
+          >
+            <Pencil className="h-4 w-4 text-[#fb7299]" />
+            使用此卡片背景
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className={cn(row, "border-t border-white/5")}
+            onClick={onShare}
+          >
+            <Share2 className="h-4 w-4 text-[#fb7299]" />
+            分享
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className={cn(row, "border-t border-white/5 text-rose-400")}
+            onClick={onDelete}
+          >
+            <Trash2 className="h-4 w-4" />
+            删除
+          </button>
+          <button
+            type="button"
+            className="w-full border-t border-white/10 py-3.5 text-center text-[15px] text-[#9499a0] hover:bg-white/5"
+            onClick={onClose}
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </OverlayPortal>
+  );
 }
 
 function DynamicCard({
   item,
   fallbackName,
   fallbackFace,
+  onPinned,
+  onRemoved,
 }: {
   item: SpaceDynamicItem;
   fallbackName: string;
   fallbackFace: string;
+  onPinned: (id: string, pinned: boolean) => void;
+  onRemoved: (id: string) => void;
 }) {
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [tip, setTip] = useState("");
   const authorName = item.authorName || fallbackName;
   const authorFace = item.authorFace || fallbackFace;
   const canOpenDetail =
@@ -113,9 +299,102 @@ function DynamicCard({
       item.kind === "forward" ||
       item.kind === "article" ||
       item.kind === "upower");
+  const forwardText =
+    item.kind === "forward" ? visibleForwardText(item) : item.text;
+  const images = item.images?.length
+    ? item.images
+    : item.cover
+      ? [item.cover]
+      : [];
+
+  const showTip = (message: string) => {
+    setTip(message);
+    window.setTimeout(() => setTip(""), 1800);
+  };
+
+  const openDetail = () => {
+    if (
+      item.kind === "article" &&
+      item.commentType === 12 &&
+      item.commentId &&
+      /^\d+$/.test(item.commentId)
+    ) {
+      navigate(`/article/${item.commentId}`);
+      return;
+    }
+    navigate(`/dynamic/${item.id}`);
+  };
+
+  const handlePin = async () => {
+    if (busy) return;
+    const next = !item.pinned;
+    setBusy(true);
+    try {
+      await window.biliDesk.bili.setDynamicTop(item.id, next);
+      onPinned(item.id, next);
+      setMenuOpen(false);
+      showTip(next ? "已置顶" : "已取消置顶");
+    } catch (err) {
+      showTip(formatError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCard = async () => {
+    if (busy) return;
+    if (!item.cardItemId) {
+      showTip("这条动态没有可使用的卡片装扮");
+      setMenuOpen(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await window.biliDesk.bili.equipDynamicCard(item.cardItemId);
+      setMenuOpen(false);
+      showTip(
+        item.cardName ? `已使用「${item.cardName}」` : "已使用此卡片背景",
+      );
+    } catch (err) {
+      showTip(formatError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        `https://www.bilibili.com/opus/${item.id}`,
+      );
+      setMenuOpen(false);
+      showTip("链接已复制");
+    } catch {
+      showTip("复制失败");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await window.biliDesk.bili.removeDynamic(item.id);
+      setConfirmDelete(false);
+      setMenuOpen(false);
+      onRemoved(item.id);
+    } catch (err) {
+      showTip(formatError(err));
+      setBusy(false);
+    }
+  };
 
   return (
-    <article className="overflow-hidden rounded-xl bg-[#232527] shadow-sm ring-1 ring-white/5">
+    <article className="relative overflow-hidden rounded-xl bg-[#232527] shadow-sm ring-1 ring-white/5">
+      {tip && (
+        <p className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black/75 px-3 py-1 text-xs text-white">
+          {tip}
+        </p>
+      )}
       <div className="flex items-start gap-3 px-5 pb-1 pt-5">
         {authorFace ? (
           <BiliImage
@@ -135,6 +414,11 @@ function DynamicCard({
             {!item.exclusiveTag && item.pubAction && (
               <span>· {item.pubAction}</span>
             )}
+            {item.pinned && (
+              <span className="rounded bg-[#fb7299]/15 px-1 py-px text-[#fb7299]">
+                置顶
+              </span>
+            )}
             {item.ipLocation ? <span>· IP属地：{item.ipLocation}</span> : null}
             {item.cvId ? (
               <Link
@@ -148,26 +432,23 @@ function DynamicCard({
             {item.exclusiveTag && <ExclusiveTag text={item.exclusiveTag} />}
           </p>
         </div>
+        <button
+          type="button"
+          aria-label="动态设置"
+          className="rounded-md p-1 text-[#9499a0] transition-colors hover:bg-white/5 hover:text-[#e3e5e7]"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setMenuOpen(true);
+          }}
+        >
+          <MoreHorizontal className="h-5 w-5" />
+        </button>
       </div>
 
       <div
         className={cn("space-y-3 px-5 py-3", canOpenDetail && "cursor-pointer")}
-        onClick={
-          canOpenDetail
-            ? () => {
-                if (
-                  item.kind === "article" &&
-                  item.commentType === 12 &&
-                  item.commentId &&
-                  /^\d+$/.test(item.commentId)
-                ) {
-                  navigate(`/article/${item.commentId}`);
-                  return;
-                }
-                navigate(`/dynamic/${item.id}`);
-              }
-            : undefined
-        }
+        onClick={canOpenDetail ? openDetail : undefined}
       >
         {item.kind === "video" ? (
           <>
@@ -185,6 +466,25 @@ function DynamicCard({
           </>
         ) : item.kind === "upower" ? (
           <UpowerExclusiveCard item={item} />
+        ) : item.kind === "forward" ? (
+          <>
+            {forwardText && (
+              <p className="text-sm leading-relaxed text-[#e3e5e7]">
+                <BiliEmoteText
+                  text={forwardText}
+                  mentions={item.mentions}
+                  emotes={item.emotes}
+                />
+              </p>
+            )}
+            {item.orig ? (
+              <ForwardedOrigEmbed item={item.orig} imageLayout="grid" />
+            ) : (
+              <p className="rounded-lg bg-black/25 px-3 py-4 text-sm text-[#9499a0]">
+                源动态已删除
+              </p>
+            )}
+          </>
         ) : (
           <>
             {item.title && item.kind !== "text" && (
@@ -192,7 +492,7 @@ function DynamicCard({
                 {item.title}
               </h3>
             )}
-            {item.text && (
+            {item.text && item.text !== "动态" && (
               <p className="text-sm leading-relaxed text-[#e3e5e7]">
                 <BiliEmoteText
                   text={item.text}
@@ -201,11 +501,14 @@ function DynamicCard({
                 />
               </p>
             )}
-            {item.cover && (
-              <BiliImage
-                src={item.cover}
-                alt=""
-                className="max-h-80 w-full rounded-lg object-cover"
+            {images.length > 0 && (
+              <ImageGrid
+                images={images}
+                layout={
+                  item.kind === "article" || item.kind === "live"
+                    ? "stack"
+                    : "grid"
+                }
               />
             )}
             <DynamicMetaLine item={item} />
@@ -213,7 +516,35 @@ function DynamicCard({
         )}
       </div>
 
-      <DynamicActionBar item={item} />
+      <DynamicActionBar item={item} onOpenDetail={openDetail} />
+
+      <OwnerMenu
+        open={menuOpen}
+        pinned={Boolean(item.pinned)}
+        busy={busy}
+        onClose={() => {
+          if (!busy) setMenuOpen(false);
+        }}
+        onPin={() => void handlePin()}
+        onCard={() => void handleCard()}
+        onShare={() => void handleShare()}
+        onDelete={() => {
+          setMenuOpen(false);
+          setConfirmDelete(true);
+        }}
+      />
+      <ConfirmDialog
+        open={confirmDelete}
+        title="要删除动态吗？"
+        description="动态删除后将无法恢复，请谨慎操作"
+        confirmLabel="确认删除"
+        destructive
+        loading={busy}
+        onCancel={() => {
+          if (!busy) setConfirmDelete(false);
+        }}
+        onConfirm={() => void handleDelete()}
+      />
     </article>
   );
 }
@@ -279,6 +610,22 @@ export function MyDynamicsPanel({ mid, profile }: MyDynamicsPanelProps) {
     return () => observer.disconnect();
   }, [hasMore, load, loading, loadingMore]);
 
+  const handlePinned = (id: string, pinned: boolean) => {
+    setItems((prev) => {
+      const next = prev.map((entry) =>
+        entry.id === id
+          ? { ...entry, pinned }
+          : pinned
+            ? { ...entry, pinned: false }
+            : entry,
+      );
+      if (!pinned) return next;
+      const target = next.find((entry) => entry.id === id);
+      if (!target) return next;
+      return [target, ...next.filter((entry) => entry.id !== id)];
+    });
+  };
+
   if (loading && items.length === 0) {
     return (
       <p className="flex items-center text-sm text-muted-foreground">
@@ -307,6 +654,10 @@ export function MyDynamicsPanel({ mid, profile }: MyDynamicsPanelProps) {
           item={item}
           fallbackName={fallbackName}
           fallbackFace={fallbackFace}
+          onPinned={handlePinned}
+          onRemoved={(id) =>
+            setItems((prev) => prev.filter((entry) => entry.id !== id))
+          }
         />
       ))}
       <div

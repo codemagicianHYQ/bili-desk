@@ -198,7 +198,7 @@ export function Sidebar() {
         {navItems.map(({ to, icon: Icon, label }) => {
           const active =
             location.pathname === to ||
-            (to !== "/" && location.pathname.startsWith(to)) ||
+            (to !== "/" && location.pathname.startsWith(`${to}/`)) ||
             (to === "/following" && inFollowingFlow) ||
             (to === "/favorites" && inFavoritesFlow) ||
             (to === "/collections" && inCollectionsFlow) ||

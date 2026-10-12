@@ -452,6 +452,12 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_LIKE, id, like),
     favoriteDynamic: (id: string, favorite: boolean) =>
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_FAV, id, favorite),
+    setDynamicTop: (id: string, top: boolean) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_TOP, id, top),
+    removeDynamic: (id: string) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_REMOVE, id),
+    equipDynamicCard: (itemId: number) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_EQUIP_CARD, itemId),
     getArticle: (id: number) => ipcRenderer.invoke(IPC.BILI_ARTICLE_VIEW, id),
     likeArticle: (id: number, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_ARTICLE_LIKE, id, like),

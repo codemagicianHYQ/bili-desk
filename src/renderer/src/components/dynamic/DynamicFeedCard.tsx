@@ -311,7 +311,7 @@ export function UpowerExclusiveCard({ item }: { item: SpaceDynamicItem }) {
   );
 }
 
-function ImageGrid({
+export function ImageGrid({
   images,
   layout = "grid",
 }: {
@@ -483,9 +483,11 @@ function dynamicImages(item: SpaceDynamicItem): string[] {
 function DynamicCardBody({
   item,
   depth = 0,
+  imageLayout,
 }: {
   item: SpaceDynamicItem;
   depth?: number;
+  imageLayout?: "grid" | "stack";
 }) {
   const images = dynamicImages(item);
 
@@ -537,12 +539,16 @@ function DynamicCardBody({
         item.kind === "article") && (
         <ImageGrid
           images={images}
-          layout={item.kind === "draw" ? "grid" : "stack"}
+          layout={imageLayout ?? (item.kind === "draw" ? "grid" : "stack")}
         />
       )}
       <DynamicMetaLine item={item} />
       {item.kind === "forward" && item.orig && depth < 2 && (
-        <ForwardedOrigEmbed item={item.orig} depth={depth + 1} />
+        <ForwardedOrigEmbed
+          item={item.orig}
+          depth={depth + 1}
+          imageLayout={imageLayout}
+        />
       )}
       {item.kind === "forward" && !item.orig && (
         <p className="text-sm text-muted-foreground">源动态已删除</p>
@@ -551,12 +557,19 @@ function DynamicCardBody({
   );
 }
 
+function atLabel(name?: string): string {
+  const text = (name || "用户").trim() || "用户";
+  return text.startsWith("@") ? text : `@${text}`;
+}
+
 export function ForwardedOrigEmbed({
   item,
   depth = 0,
+  imageLayout,
 }: {
   item: SpaceDynamicItem;
   depth?: number;
+  imageLayout?: "grid" | "stack";
 }) {
   const navigate = useNavigate();
   const deleted = !item.id || item.id === "0" || item.text === "源动态已删除";
@@ -594,16 +607,16 @@ export function ForwardedOrigEmbed({
               onClick={(event) => event.stopPropagation()}
               className="truncate text-sm font-medium text-sky-400 hover:underline"
             >
-              {item.authorName || "用户"}
+              {atLabel(item.authorName)}
             </Link>
           ) : (
             <p className="truncate text-sm font-medium text-sky-400">
-              {item.authorName || "用户"}
+              {atLabel(item.authorName)}
             </p>
           )}
         </div>
       )}
-      <DynamicCardBody item={item} depth={depth} />
+      <DynamicCardBody item={item} depth={depth} imageLayout={imageLayout} />
     </div>
   );
 }

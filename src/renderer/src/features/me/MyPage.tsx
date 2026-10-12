@@ -16,7 +16,6 @@ import { MyFavoritesPanel } from "./MyFavoritesPanel";
 import { MyFollowPanel } from "./MyFollowPanel";
 import {
   Bookmark,
-  Clock,
   GraduationCap,
   Home,
   Layers,
@@ -25,7 +24,6 @@ import {
   Radio,
   RefreshCw,
   Settings,
-  Users,
   Video,
   Zap,
 } from "lucide-react";
@@ -337,10 +335,10 @@ export function MyPage() {
                   type="button"
                   onClick={() => openTab(id)}
                   className={cn(
-                    "flex shrink-0 items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm transition-colors",
+                    "relative flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-sm transition-colors",
                     tab === id
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted-foreground hover:text-foreground",
+                      ? "text-primary after:absolute after:inset-x-3 after:bottom-0 after:z-10 after:h-0.5 after:rounded-full after:bg-primary"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -353,82 +351,31 @@ export function MyPage() {
 
         <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
           {tab === "home" && (
-            <>
-              <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Link
-                  to="/following"
-                  className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-secondary/50"
-                >
-                  <Users className="h-5 w-5 text-primary" />
-                  <div>
-                    <p className="text-sm font-medium">我的关注</p>
-                    <p className="text-xs text-muted-foreground">
-                      管理 UP 主分组
-                    </p>
-                  </div>
-                </Link>
-                <Link
-                  to="/favorites"
-                  className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-secondary/50"
-                >
-                  <Bookmark className="h-5 w-5 text-sky-400" />
-                  <div>
-                    <p className="text-sm font-medium">收藏夹</p>
-                    <p className="text-xs text-muted-foreground">
-                      本地二级分类
-                    </p>
-                  </div>
-                </Link>
-                <Link
-                  to="/watch-later"
-                  className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-secondary/50"
-                >
-                  <Clock className="h-5 w-5 text-sky-400" />
-                  <div>
-                    <p className="text-sm font-medium">稍后再看</p>
-                    <p className="text-xs text-muted-foreground">
-                      官方列表 + 本地
-                    </p>
-                  </div>
-                </Link>
-                <Link
-                  to="/settings"
-                  className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-secondary/50"
-                >
-                  <Settings className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">设置</p>
-                    <p className="text-xs text-muted-foreground">主题与 AI</p>
-                  </div>
-                </Link>
-              </section>
-
-              <section>
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-lg font-medium">最近投稿</h2>
-                  {videos.length > 6 && (
-                    <button
-                      type="button"
-                      className="text-sm text-primary hover:underline"
-                      onClick={() => openTab("videos")}
-                    >
-                      查看全部
-                    </button>
-                  )}
-                </div>
-                {videosLoading && videos.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">加载中...</p>
-                ) : showVideoGrid.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-                    {showVideoGrid.map((video) => (
-                      <VideoCard key={video.bvid} video={video} meta="stats" />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">暂无投稿视频</p>
+            <section>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-medium">最近投稿</h2>
+                {videos.length > 6 && (
+                  <button
+                    type="button"
+                    className="text-sm text-primary hover:underline"
+                    onClick={() => openTab("videos")}
+                  >
+                    查看全部
+                  </button>
                 )}
-              </section>
-            </>
+              </div>
+              {videosLoading && videos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">加载中...</p>
+              ) : showVideoGrid.length > 0 ? (
+                <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+                  {showVideoGrid.map((video) => (
+                    <VideoCard key={video.bvid} video={video} meta="stats" />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">暂无投稿视频</p>
+              )}
+            </section>
           )}
 
           {visitedTabs.has("dynamics") && (

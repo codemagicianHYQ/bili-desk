@@ -988,6 +988,12 @@ export interface SpaceDynamicItem {
   liked?: boolean;
   /** 当前用户是否已收藏该图文 */
   favorited?: boolean;
+  /** 空间动态是否置顶 */
+  pinned?: boolean;
+  /** 动态卡片装扮 id，用于「使用此卡片背景」 */
+  cardItemId?: number;
+  /** 装扮名称 */
+  cardName?: string;
   /** 直播间号 / 跳转 */
   liveRoomId?: number;
   liveUrl?: string;
@@ -1662,6 +1668,9 @@ export interface BiliDeskApi {
     getDynamicDetail: (id: string) => Promise<SpaceDynamicItem>;
     likeDynamic: (id: string, like: boolean) => Promise<void>;
     favoriteDynamic: (id: string, favorite: boolean) => Promise<void>;
+    setDynamicTop: (id: string, top: boolean) => Promise<void>;
+    removeDynamic: (id: string) => Promise<void>;
+    equipDynamicCard: (itemId: number) => Promise<void>;
     getArticle: (id: number) => Promise<ArticleDetail>;
     likeArticle: (id: number, like: boolean) => Promise<void>;
     getTargetComments: (
