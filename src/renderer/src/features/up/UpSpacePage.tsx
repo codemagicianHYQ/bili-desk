@@ -19,6 +19,7 @@ import { UpRelationListPanel } from "@/features/up/UpRelationListPanel";
 import { UpSpaceChargePanel } from "@/features/up/UpSpaceChargePanel";
 import { UpSpaceCollectionsPanel } from "@/features/up/UpSpaceCollectionsPanel";
 import { UpSpaceDynamicsPanel } from "@/features/up/UpSpaceDynamicsPanel";
+import { SpaceTabBar } from "@/components/space/SpaceTabBar";
 import { UpSpaceHeader } from "@/features/up/UpSpaceHeader";
 import { UpSpaceHome } from "@/features/up/UpSpaceHome";
 import { UpSpaceOpusPanel } from "@/features/up/UpSpaceOpusPanel";
@@ -662,23 +663,9 @@ export function UpSpacePage() {
           onError={showToast}
         />
 
-        <div className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
-          <div className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-6">
-            {spaceTabs.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setTab(item.id)}
-                className={cn(
-                  "shrink-0 border-b-2 px-4 py-2.5 text-sm transition-colors",
-                  tab === item.id
-                    ? "border-primary font-medium text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {item.label}
-              </button>
-            ))}
+        <div className="sticky top-0 z-10 bg-background/90 backdrop-blur">
+          <div className="mx-auto max-w-5xl px-6">
+            <SpaceTabBar tabs={spaceTabs} value={tab} onChange={setTab} />
           </div>
         </div>
 

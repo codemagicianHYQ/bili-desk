@@ -6,7 +6,8 @@ import { useAppStore } from "@/stores/app-store";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { VideoCard } from "@/components/video/VideoCard";
-import { cn, formatCount } from "@/lib/utils";
+import { SpaceTabBar } from "@/components/space/SpaceTabBar";
+import { formatCount } from "@/lib/utils";
 import { formatUserSpaceError } from "@/lib/ipc-error";
 import { upProfileCache } from "@/lib/session-data-cache";
 import { MyCheesePanel, MyUpowerPanel } from "./MyCheesePanel";
@@ -328,24 +329,12 @@ export function MyPage() {
               </button>
             </div>
 
-            <div className="scrollbar-overlay mt-4 flex gap-1 overflow-x-auto border-b border-border">
-              {TABS.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => openTab(id)}
-                  className={cn(
-                    "relative flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-sm transition-colors",
-                    tab === id
-                      ? "text-primary after:absolute after:inset-x-3 after:bottom-0 after:z-10 after:h-0.5 after:rounded-full after:bg-primary"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </button>
-              ))}
-            </div>
+            <SpaceTabBar
+              className="mt-4"
+              tabs={TABS}
+              value={tab}
+              onChange={openTab}
+            />
           </div>
         </div>
 
