@@ -5497,12 +5497,19 @@ class BiliApiService {
   /** 分页拉全量关注，供失效/封禁扫描 */
   async getAllFollowings(): Promise<FollowingUp[]> {
     const all: FollowingUp[] = [];
+    const seen = new Set<number>();
     let page = 1;
-    while (true) {
+    while (page <= 200) {
       const batch = await this.getFollowings(page);
       if (batch.length === 0) break;
-      all.push(...batch);
-      if (batch.length < 50) break;
+      let fresh = 0;
+      for (const up of batch) {
+        if (seen.has(up.mid)) continue;
+        seen.add(up.mid);
+        all.push(up);
+        fresh += 1;
+      }
+      if (fresh === 0 || batch.length < 50) break;
       page += 1;
       await sleep(400);
     }
@@ -6104,20 +6111,59 @@ class BiliApiService {
   async modifyFollow(mid: number, follow: boolean): Promise<void> {
     const csrf = getCsrf();
     if (!csrf) throw new Error("请先登录后再关注");
+    const fid = Number(mid);
+    if (!Number.isFinite(fid) || fid <= 0) throw new Error("用户 ID 无效");
 
-    const res = await this.client.post(
-      "/x/relation/modify",
-      new URLSearchParams({
-        fid: String(mid),
-        act: follow ? "1" : "2",
-        re_src: "11",
-        csrf,
-      }),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+    const res = await new Promise<Awaited<ReturnType<typeof axios.post>>>(
+      (resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(follow ? "关注超时" : "取消关注超时")),
+          8000,
+        );
+        void axios
+          .post(
+            "https://api.bilibili.com/x/relation/modify",
+            new URLSearchParams({
+              fid: String(fid),
+              act: follow ? "1" : "2",
+              re_src: "11",
+              csrf,
+            }),
+            {
+              timeout: 8000,
+              params: { csrf },
+              headers: {
+                ...defaultHeaders(),
+                Cookie: getCookieString(),
+                "Content-Type": "application/x-www-form-urlencoded",
+                Referer: `https://space.bilibili.com/${fid}`,
+                Origin: "https://space.bilibili.com",
+              },
+              validateStatus: () => true,
+            },
+          )
+          .then(
+            (value) => {
+              clearTimeout(timer);
+              resolve(value);
+            },
+            (error: unknown) => {
+              clearTimeout(timer);
+              reject(
+                error instanceof Error ? error : new Error("关注操作失败"),
+              );
+            },
+          );
+      },
     );
 
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
     if (res.data?.code !== 0) {
-      throw new Error(res.data?.message || "关注操作失败");
+      throw new Error(
+        (res.data?.message as string) || (follow ? "关注失败" : "取消关注失败"),
+      );
     }
   }
 

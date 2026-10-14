@@ -100,6 +100,7 @@ export function FollowingPage() {
     null,
   );
   const [unfollowing, setUnfollowing] = useState(false);
+  const [unfollowError, setUnfollowError] = useState("");
   const [specialPendingMid, setSpecialPendingMid] = useState<number | null>(
     null,
   );
@@ -365,26 +366,47 @@ export function FollowingPage() {
     void reloadCurrentList();
   }, [refreshVersion, reloadCurrentList]);
 
-  const handleUnfollow = async () => {
+  const handleUnfollow = () => {
     const up = unfollowTarget;
-    if (!up) return;
+    if (!up || unfollowing) return;
 
-    setUnfollowing(true);
-    setActionMessage("");
-    try {
-      await window.biliDesk.bili.modifyFollow(up.mid, false);
-      setFollowings((prev) => prev.filter((item) => item.mid !== up.mid));
-      patchFollowing(up.mid, null);
-      useFollowingStore.getState().removeMidFromTagLists(up.mid);
-      invalidateSidebar();
-      await refreshSidebar({ force: true });
-      setActionMessage(`已取消关注「${up.uname}」`);
-      setUnfollowTarget(null);
-    } catch (err) {
-      setActionMessage(formatError(err));
-    } finally {
-      setUnfollowing(false);
-    }
+    setUnfollowTarget(null);
+    setUnfollowing(false);
+    setUnfollowError("");
+    setFollowings((prev) => prev.filter((item) => item.mid !== up.mid));
+    if (selectedTagId != null) patchFollowTagCount(selectedTagId, -1);
+    if (up.special) patchSpecialFollowCount(-1);
+    setActionMessage(`正在取消关注「${up.uname}」`);
+
+    void (async () => {
+      try {
+        await window.biliDesk.bili.modifyFollow(up.mid, false);
+        patchFollowing(up.mid, null);
+        useFollowingStore.getState().removeMidFromTagLists(up.mid);
+        const relationKey = String(up.mid);
+        const prevRelation = upRelationCache.get(relationKey);
+        const nextRelation = prevRelation
+          ? { ...prevRelation, isFollowing: false, special: false }
+          : { isFollowing: false, attribute: 0, special: false };
+        upRelationCache.set(relationKey, nextRelation);
+        const space = upSpaceCache.get(relationKey);
+        if (space) {
+          upSpaceCache.set(relationKey, { ...space, relation: nextRelation });
+        }
+        setActionMessage(`已取消关注「${up.uname}」`);
+        void useFollowingStore
+          .getState()
+          .refreshFollowTags()
+          .catch(() => undefined);
+      } catch (err) {
+        setFollowings((prev) =>
+          prev.some((item) => item.mid === up.mid) ? prev : [up, ...prev],
+        );
+        if (selectedTagId != null) patchFollowTagCount(selectedTagId, 1);
+        if (up.special) patchSpecialFollowCount(1);
+        setActionMessage(formatError(err));
+      }
+    })();
   };
 
   const handleToggleSpecial = async (up: FollowingUp, special: boolean) => {
@@ -620,7 +642,10 @@ export function FollowingPage() {
                   onToggleSpecial={(target, next) =>
                     void handleToggleSpecial(target, next)
                   }
-                  onUnfollow={setUnfollowTarget}
+                  onUnfollow={(up) => {
+                    setUnfollowError("");
+                    setUnfollowTarget(up);
+                  }}
                 />
               ))}
 
@@ -664,9 +689,13 @@ export function FollowingPage() {
       <UnfollowConfirmDialog
         up={unfollowTarget}
         loading={unfollowing}
+        error={unfollowError}
         onConfirm={() => void handleUnfollow()}
         onCancel={() => {
-          if (!unfollowing) setUnfollowTarget(null);
+          if (!unfollowing) {
+            setUnfollowError("");
+            setUnfollowTarget(null);
+          }
         }}
       />
     </div>

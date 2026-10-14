@@ -46,14 +46,21 @@ interface FollowingState {
 
 async function fetchAllFollowingsFromApi(): Promise<FollowingUp[]> {
   const all: FollowingUp[] = [];
+  const seen = new Set<number>();
   let page = 1;
 
-  while (true) {
+  while (page <= 200) {
     const batch = await window.biliDesk.bili.getFollowings(page);
     if (batch.length === 0) break;
-    all.push(...batch);
-    if (batch.length < 50) break;
-    page++;
+    let fresh = 0;
+    for (const up of batch) {
+      if (seen.has(up.mid)) continue;
+      seen.add(up.mid);
+      all.push(up);
+      fresh += 1;
+    }
+    if (fresh === 0 || batch.length < 50) break;
+    page += 1;
   }
 
   return all;
@@ -118,20 +125,24 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
       return;
     }
 
-    const [tags, tree, all] = await Promise.all([
+    const [tags, tree] = await Promise.all([
       window.biliDesk.bili.getFollowTags(),
       window.biliDesk.taxonomy.getUpGroupTree(),
-      get().ensureAllFollowings({ force }),
     ]);
-    const assignedMids = await window.biliDesk.taxonomy.getUpGroupMemberMids({
-      level: "all",
-      id: null,
-    });
+    const all = get().allFollowings;
+    let uncategorizedCount = get().uncategorizedCount;
+    if (all) {
+      const assignedMids = await window.biliDesk.taxonomy.getUpGroupMemberMids({
+        level: "all",
+        id: null,
+      });
+      uncategorizedCount = Math.max(0, all.length - assignedMids.length);
+    }
 
     set({
       followTags: tags,
       upGroupTree: tree,
-      uncategorizedCount: Math.max(0, all.length - assignedMids.length),
+      uncategorizedCount,
       sidebarReady: true,
     });
   },
