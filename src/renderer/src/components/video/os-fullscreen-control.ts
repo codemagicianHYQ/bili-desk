@@ -15,6 +15,12 @@ const controllers = new WeakMap<Artplayer, FillController>();
 export function setPlayerFillLayout(on: boolean) {
   document.documentElement.classList.toggle("bili-player-fill", on);
   document.documentElement.classList.toggle("bili-os-fullscreen", on);
+  if (!on) setPlayerOsLayout(false);
+}
+
+/** 只在播放器全屏（铺满显示器）时打开，用来隐藏自绘标题栏；网页全屏保留标题栏 */
+function setPlayerOsLayout(on: boolean) {
+  document.documentElement.classList.toggle("bili-player-os", on);
 }
 
 /** @deprecated 与 setPlayerFillLayout 相同，保留给旧调用 */
@@ -138,17 +144,10 @@ class FillController {
     };
     document.addEventListener("keydown", this.onKeyDown);
 
+    // 视频页和直播页可能同时保活，各有一个控制器。广播「进入全屏」不能让后台那个也切成全屏，
+    // 只认自己 apply 出来的状态；只处理别处触发的退出。
     this.unsubscribe = window.biliDesk.app.onFullscreenChange((on) => {
-      if (this.disposed) return;
-      if (on) {
-        if (this.mode !== "os") {
-          this.mode = "os";
-          setPlayerFillLayout(true);
-          this.sync();
-          requestAnimationFrame(() => afterLayout(this.art));
-        }
-        return;
-      }
+      if (this.disposed || on || this.pending) return;
       if (this.mode === "os") {
         this.mode = "none";
         setPlayerFillLayout(false);
@@ -198,6 +197,7 @@ class FillController {
       }
 
       setPlayerFillLayout(true);
+      setPlayerOsLayout(next === "os");
       this.mode = next;
       this.sync();
       if (next === "os" && prev !== "os") {
@@ -234,8 +234,10 @@ class FillController {
     this.webEl = null;
     this.osEl = null;
     const wasOs = this.mode === "os";
+    const wasFilling = this.mode !== "none";
     this.mode = "none";
-    setPlayerFillLayout(false);
+    // 后台保活的另一个播放器卸载时，不能把正在全屏的这个布局拆掉
+    if (wasFilling) setPlayerFillLayout(false);
     if (wasOs) {
       void window.biliDesk.app.setFullscreen(false);
     }

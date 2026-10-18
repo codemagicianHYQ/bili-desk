@@ -824,6 +824,31 @@ html.bili-os-fullscreen .bili-player-stage {
   background: #000;
 }
 
+/* 自绘标题栏：播放器全屏时整条隐藏；网页全屏只铺满标题栏下面的区域 */
+html.bili-player-os [data-window-titlebar] {
+  display: none !important;
+}
+
+html[data-custom-titlebar].bili-player-fill:not(.bili-player-os)
+  .bili-player-stage {
+  top: 32px !important;
+  height: calc(100vh - 32px) !important;
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.bili-caption-glyph {
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-size: 10px;
+  line-height: 1;
+}
+
 html.bili-player-fill .bili-player-stage .art-video-player,
 html.bili-os-fullscreen .bili-player-stage .art-video-player,
 html.bili-player-fill .bili-player-stage video,

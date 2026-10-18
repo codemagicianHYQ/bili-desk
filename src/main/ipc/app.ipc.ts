@@ -8,7 +8,13 @@ import {
   resolveInAppPathFromUrl,
 } from "@shared/utils/bili-app-link";
 import { resolveBiliUrl } from "../services/bili-link";
-import { applyWindowGlassEffect } from "../window";
+import {
+  applyWindowGlassEffect,
+  getWindowState,
+  isWindowFullscreen,
+  setWindowFullscreen,
+  toggleWindowMaximize,
+} from "../window";
 
 function windowFromEvent(
   event: Electron.IpcMainInvokeEvent,
@@ -35,13 +41,34 @@ export function registerAppIpc(): void {
   ipcMain.handle(IPC.APP_SET_FULLSCREEN, (event, on: boolean) => {
     const win = windowFromEvent(event);
     if (!win || win.isDestroyed()) return false;
-    win.setFullScreen(Boolean(on));
-    return win.isFullScreen();
+    return setWindowFullscreen(win, Boolean(on));
   });
   ipcMain.handle(IPC.APP_GET_FULLSCREEN, (event) => {
     const win = windowFromEvent(event);
     if (!win || win.isDestroyed()) return false;
-    return win.isFullScreen();
+    return isWindowFullscreen(win);
+  });
+  ipcMain.handle(IPC.APP_WINDOW_MINIMIZE, (event) => {
+    const win = windowFromEvent(event);
+    if (win && !win.isDestroyed()) win.minimize();
+  });
+  ipcMain.handle(IPC.APP_WINDOW_TOGGLE_MAXIMIZE, (event) => {
+    const win = windowFromEvent(event);
+    if (!win || win.isDestroyed()) {
+      return { maximized: false, fullscreen: false };
+    }
+    return toggleWindowMaximize(win);
+  });
+  ipcMain.handle(IPC.APP_WINDOW_CLOSE, (event) => {
+    const win = windowFromEvent(event);
+    if (win && !win.isDestroyed()) win.close();
+  });
+  ipcMain.handle(IPC.APP_WINDOW_GET_STATE, (event) => {
+    const win = windowFromEvent(event);
+    if (!win || win.isDestroyed()) {
+      return { maximized: false, fullscreen: false };
+    }
+    return getWindowState(win);
   });
   ipcMain.handle(IPC.APP_OPEN_EXTERNAL, async (event, raw: string) => {
     const url = sanitizeExternalUrl(raw);

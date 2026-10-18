@@ -432,6 +432,13 @@ export interface VideoPlayInfo {
   qualityNotice?: string;
 }
 
+export interface WindowState {
+  /** 窗口铺满显示器（右上角按钮应显示「还原」） */
+  maximized: boolean;
+  /** 播放器全屏 */
+  fullscreen: boolean;
+}
+
 export interface UserInfo {
   mid: number;
   name: string;
@@ -2080,6 +2087,13 @@ export interface BiliDeskApi {
     setFullscreen: (on: boolean) => Promise<boolean>;
     isFullscreen: () => Promise<boolean>;
     onFullscreenChange: (callback: (on: boolean) => void) => () => void;
+    /** Windows 下系统标题栏被隐藏，由页面自己画最小化 / 最大化 / 关闭 */
+    customTitleBar: boolean;
+    minimizeWindow: () => Promise<void>;
+    toggleMaximizeWindow: () => Promise<WindowState>;
+    closeWindow: () => Promise<void>;
+    getWindowState: () => Promise<WindowState>;
+    onWindowStateChange: (callback: (state: WindowState) => void) => () => void;
     onNavigate: (callback: (path: string) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
     resolveBiliUrl: (url: string) => Promise<string>;

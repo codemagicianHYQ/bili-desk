@@ -31,6 +31,7 @@ import type {
   ChatShareCard,
   DanmakuFilterKind,
   DynamicPublishOptions,
+  WindowState,
 } from "@shared/types";
 
 const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
@@ -59,6 +60,25 @@ function subscribeFullscreenChange(callback: (on: boolean) => void) {
   fullscreenChangeCallbacks.add(callback);
   return () => {
     fullscreenChangeCallbacks.delete(callback);
+  };
+}
+
+const windowStateCallbacks = new Set<(state: WindowState) => void>();
+let windowStateIpcBound = false;
+
+function subscribeWindowState(callback: (state: WindowState) => void) {
+  if (!windowStateIpcBound) {
+    windowStateIpcBound = true;
+    ipcRenderer.on(
+      IPC.APP_WINDOW_STATE_CHANGED,
+      (_event, state: WindowState) => {
+        for (const cb of windowStateCallbacks) cb(state);
+      },
+    );
+  }
+  windowStateCallbacks.add(callback);
+  return () => {
+    windowStateCallbacks.delete(callback);
   };
 }
 
@@ -223,11 +243,8 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_VIDEO_NOTE_ADD, aid, title, text),
     downloadVideo: (bvid: string, cid: number, qn?: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_DOWNLOAD, bvid, cid, qn),
-    getSeason: (
-      kind: "bangumi" | "cheese",
-      id: number,
-      by?: "season" | "ep",
-    ) => ipcRenderer.invoke(IPC.BILI_SEASON, kind, id, by ?? "season"),
+    getSeason: (kind: "bangumi" | "cheese", id: number, by?: "season" | "ep") =>
+      ipcRenderer.invoke(IPC.BILI_SEASON, kind, id, by ?? "season"),
     getSeasonPlayUrl: (
       kind: "bangumi" | "cheese",
       epId: number,
@@ -241,8 +258,7 @@ const api = {
     ) => ipcRenderer.invoke(IPC.BILI_SEASON_FOLLOW, kind, seasonId, follow),
     getChannelVideos: (channelId: number, page?: number) =>
       ipcRenderer.invoke(IPC.BILI_CHANNEL_VIDEOS, channelId, page ?? 1),
-    getAudioSong: (sid: number) =>
-      ipcRenderer.invoke(IPC.BILI_AUDIO_SONG, sid),
+    getAudioSong: (sid: number) => ipcRenderer.invoke(IPC.BILI_AUDIO_SONG, sid),
     updateMyProfile: (input: { name?: string; sign?: string }) =>
       ipcRenderer.invoke(IPC.BILI_PROFILE_UPDATE, input),
     updateMyFace: (file: BinaryImageFile) =>
@@ -521,14 +537,21 @@ const api = {
       text: string,
       images?: BinaryImageFile[],
       options?: DynamicPublishOptions,
-    ) => ipcRenderer.invoke(IPC.BILI_DYNAMIC_CREATE, text, images ?? [], options),
+    ) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_CREATE, text, images ?? [], options),
     editDynamic: (
       id: string,
       text: string,
       images?: BinaryImageFile[],
       options?: DynamicPublishOptions,
     ) =>
-      ipcRenderer.invoke(IPC.BILI_DYNAMIC_EDIT, id, text, images ?? [], options),
+      ipcRenderer.invoke(
+        IPC.BILI_DYNAMIC_EDIT,
+        id,
+        text,
+        images ?? [],
+        options,
+      ),
     setDynamicPrivate: (id: string, privatePub: boolean) =>
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_PRIVATE, id, privatePub),
     searchTopics: (keyword: string) =>
@@ -798,6 +821,14 @@ const api = {
     isFullscreen: () => ipcRenderer.invoke(IPC.APP_GET_FULLSCREEN),
     onFullscreenChange: (callback: (on: boolean) => void) =>
       subscribeFullscreenChange(callback),
+    customTitleBar: process.platform === "win32",
+    minimizeWindow: () => ipcRenderer.invoke(IPC.APP_WINDOW_MINIMIZE),
+    toggleMaximizeWindow: () =>
+      ipcRenderer.invoke(IPC.APP_WINDOW_TOGGLE_MAXIMIZE),
+    closeWindow: () => ipcRenderer.invoke(IPC.APP_WINDOW_CLOSE),
+    getWindowState: () => ipcRenderer.invoke(IPC.APP_WINDOW_GET_STATE),
+    onWindowStateChange: (callback: (state: WindowState) => void) =>
+      subscribeWindowState(callback),
     onNavigate: (callback: (path: string) => void) =>
       subscribeNavigate(callback),
     openExternal: (url: string) =>
