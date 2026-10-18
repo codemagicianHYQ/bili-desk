@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { VideoItem } from "@shared/types";
+import type { RecommendDislikeReason, VideoItem } from "@shared/types";
+import { extractIpcErrorMessage } from "@/lib/ipc-error";
 
 /** 防止推荐无限滚动把堆内存撑爆（首页常挂载 + Zustand 跨路由不清空） */
 const MAX_FEED_VIDEOS = 240;
@@ -18,12 +19,27 @@ interface HomeFeedState {
   fetchInitial: () => Promise<void>;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
+  /** 先本地移除再上报；返回给用户看的提示 */
+  dislike: (
+    video: VideoItem,
+    reason: RecommendDislikeReason,
+  ) => Promise<string>;
+}
+
+/** 本次运行里点过「不想看这个 UP」的，后续翻页也不再出现 */
+const hiddenUpMids = new Set<number>();
+const hiddenBvids = new Set<string>();
+
+function visible(list: VideoItem[]): VideoItem[] {
+  return list.filter(
+    (item) => !hiddenBvids.has(item.bvid) && !hiddenUpMids.has(item.owner.mid),
+  );
 }
 
 function mergeVideos(prev: VideoItem[], next: VideoItem[]): VideoItem[] {
   const seen = new Set(prev.map((item) => item.bvid));
   const merged = [...prev];
-  for (const item of next) {
+  for (const item of visible(next)) {
     if (seen.has(item.bvid)) continue;
     seen.add(item.bvid);
     merged.push(item);
@@ -52,7 +68,7 @@ export const useHomeFeedStore = create<HomeFeedState>((set, get) => ({
         freshIdx: 1,
         freshIdx1h: 1,
       });
-      const videos = page.videos.slice(0, MAX_FEED_VIDEOS);
+      const videos = visible(page.videos).slice(0, MAX_FEED_VIDEOS);
       set({
         videos,
         freshIdx: page.freshIdx,
@@ -133,7 +149,7 @@ export const useHomeFeedStore = create<HomeFeedState>((set, get) => ({
         freshIdx: 1,
         freshIdx1h: 1,
       });
-      const videos = page.videos.slice(0, MAX_FEED_VIDEOS);
+      const videos = visible(page.videos).slice(0, MAX_FEED_VIDEOS);
       set({
         videos,
         freshIdx: page.freshIdx,
@@ -148,6 +164,26 @@ export const useHomeFeedStore = create<HomeFeedState>((set, get) => ({
         error: err instanceof Error ? err.message : "刷新失败",
         refreshing: false,
       });
+    }
+  },
+
+  dislike: async (video, reason) => {
+    hiddenBvids.add(video.bvid);
+    if (reason === 4 && video.owner.mid > 0) hiddenUpMids.add(video.owner.mid);
+    set({ videos: visible(get().videos) });
+    try {
+      await window.biliDesk.bili.dislikeRecommend({
+        aid: video.aid,
+        upMid: video.owner.mid,
+        reasonId: reason,
+        trackId: video.trackId,
+      });
+      return reason === 4
+        ? `将减少推荐 ${video.owner.name || "该 UP"} 的视频`
+        : "将减少此类内容推荐";
+    } catch (err) {
+      const message = extractIpcErrorMessage(err);
+      return `已在本地隐藏，但同步到 B 站失败${message ? `：${message}` : ""}`;
     }
   },
 }));

@@ -12,6 +12,7 @@ export function registerAuthIpc(): void {
     biliApi.logout()
   })
   ipcMain.handle(IPC.AUTH_STATUS, async () => {
+    await biliApi.keepLoginFresh()
     const user = await biliApi.fetchCurrentUser()
     return user ?? biliApi.getAuthStatus()
   })

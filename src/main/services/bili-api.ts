@@ -68,6 +68,11 @@ import type {
   DanmakuItem,
   SendDanmakuPayload,
   VideoRelation,
+  UgcTripleResult,
+  VideoAiSummary,
+  VideoAiOutlineSection,
+  VideoAiOutlinePoint,
+  RecommendDislikePayload,
   AddCoinPayload,
   WatchHeartbeatPayload,
   CommentItem,
@@ -447,18 +452,7 @@ class BiliApiService {
     if (code === 0 && res.data?.data) {
       await this.applyCookiesFromTvLogin(res.data.data);
 
-      const payload = res.data.data as Record<string, unknown>;
-      const tokenInfo = payload.token_info as
-        | { access_token?: string; refresh_token?: string }
-        | undefined;
-      const accessToken = String(
-        tokenInfo?.access_token ?? payload.access_token ?? "",
-      );
-      const refreshToken = String(
-        tokenInfo?.refresh_token ?? payload.refresh_token ?? "",
-      );
-      if (accessToken) appStore.set("accessToken", accessToken);
-      if (refreshToken) appStore.set("refreshToken", refreshToken);
+      this.saveTvTokens(res.data.data as Record<string, unknown>);
 
       const user = await this.fetchCurrentUser();
       if (!user?.isLogin) {
@@ -478,6 +472,105 @@ class BiliApiService {
     }
 
     return { status: "waiting" };
+  }
+
+  private saveTvTokens(payload: Record<string, unknown>): void {
+    const tokenInfo = payload.token_info as
+      | { access_token?: string; refresh_token?: string; expires_in?: number }
+      | undefined;
+    const accessToken = String(
+      tokenInfo?.access_token ?? payload.access_token ?? "",
+    );
+    const refreshToken = String(
+      tokenInfo?.refresh_token ?? payload.refresh_token ?? "",
+    );
+    const expiresIn = Number(tokenInfo?.expires_in ?? payload.expires_in) || 0;
+    if (accessToken) appStore.set("accessToken", accessToken);
+    if (refreshToken) appStore.set("refreshToken", refreshToken);
+    if (expiresIn > 0) {
+      appStore.set("tokenExpiresAt", Date.now() + expiresIn * 1000);
+    }
+  }
+
+  private loginRefreshTask: Promise<boolean> | null = null;
+  private lastLoginCheckAt = 0;
+  private static readonly LOGIN_CHECK_GAP_MS = 10 * 60 * 1000;
+  private static readonly TOKEN_RENEW_BEFORE_MS = 7 * 24 * 60 * 60 * 1000;
+
+  /**
+   * 登录续期：Cookie 被服务端标记需要刷新、已失效，或令牌 7 天内到期时，
+   * 用 TV 扫码拿到的 refresh_token 换新令牌和 Cookie。返回是否刷新过。
+   */
+  keepLoginFresh(): Promise<boolean> {
+    if (this.loginRefreshTask) return this.loginRefreshTask;
+    if (Date.now() - this.lastLoginCheckAt < BiliApiService.LOGIN_CHECK_GAP_MS) {
+      return Promise.resolve(false);
+    }
+    this.lastLoginCheckAt = Date.now();
+    this.loginRefreshTask = this.runLoginRefresh()
+      .catch((err) => {
+        console.warn("[BiliDesk][login-refresh]", err);
+        return false;
+      })
+      .finally(() => {
+        this.loginRefreshTask = null;
+      });
+    return this.loginRefreshTask;
+  }
+
+  private async runLoginRefresh(): Promise<boolean> {
+    const accessToken = appStore.get("accessToken");
+    const refreshToken = appStore.get("refreshToken");
+    if (!accessToken || !refreshToken) return false;
+
+    const expiresAt = appStore.get("tokenExpiresAt");
+    let needRefresh =
+      expiresAt > 0 &&
+      expiresAt - Date.now() < BiliApiService.TOKEN_RENEW_BEFORE_MS;
+
+    if (!needRefresh) {
+      if (!isLoggedIn()) {
+        needRefresh = true;
+      } else {
+        const res = await this.passportClient.get(
+          "/x/passport-login/web/cookie/info",
+          { params: { csrf: getCsrf() }, validateStatus: () => true },
+        );
+        const code = Number(res.data?.code);
+        needRefresh =
+          code === -101 || (code === 0 && Boolean(res.data?.data?.refresh));
+      }
+    }
+    if (!needRefresh) return false;
+
+    const res = await this.passportClient.post(
+      "/x/passport-login/oauth2/refresh_token",
+      this.toFormBody(
+        this.buildTvSignedParams({
+          access_key: accessToken,
+          refresh_token: refreshToken,
+        }),
+      ),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        validateStatus: () => true,
+      },
+    );
+    if (res.data?.code !== 0 || !res.data?.data) {
+      console.warn(
+        `[BiliDesk][login-refresh] ${formatBiliApiError(res.data, "令牌刷新失败")}`,
+      );
+      return false;
+    }
+
+    const data = res.data.data as Record<string, unknown>;
+    await this.applyCookiesFromTvLogin(
+      data as Parameters<BiliApiService["applyCookiesFromTvLogin"]>[0],
+    );
+    this.saveTvTokens(data);
+    invalidateWbiCache();
+    await this.fetchCurrentUser();
+    return true;
   }
 
   private formatPassportError(message: unknown, status?: number): string {
@@ -959,7 +1052,11 @@ class BiliApiService {
         Boolean(item && typeof item === "object"),
       )
       .filter((item) => item.bvid)
-      .map((item) => this.normalizeVideo(item));
+      .map((item) => {
+        const video = this.normalizeVideo(item);
+        const trackId = String(item.track_id ?? "").trim();
+        return trackId ? { ...video, trackId } : video;
+      });
   }
 
   private pickRcmdReason(item: Record<string, unknown>): string {
@@ -2447,6 +2544,136 @@ class BiliApiService {
       favorited: Number(data.favorite) === 1,
       disliked: Number(data.dislike) === 1 || data.dislike === true,
     };
+  }
+
+  /** 官网长按点赞：一次请求完成点赞 + 投 2 币 + 收藏到默认收藏夹 */
+  async tripleVideo(aid: number, bvid: string): Promise<UgcTripleResult> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再三连");
+
+    const body = new URLSearchParams({
+      aid: String(aid),
+      eab_x: "2",
+      ramval: "0",
+      source: "web_normal",
+      ga: "1",
+      csrf,
+      spmid: "333.788.0.0",
+      statistics: '{"appId":100,"platform":5}',
+    });
+    const res = await this.client.post(
+      "/x/web-interface/archive/like/triple",
+      body,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: `https://www.bilibili.com/video/${bvid}`,
+          Origin: "https://www.bilibili.com",
+        },
+        validateStatus: () => true,
+      },
+    );
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "三连失败"));
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    return {
+      like: Boolean(data.like),
+      coin: Boolean(data.coin),
+      fav: Boolean(data.fav),
+      multiply: Number(data.multiply) || 0,
+    };
+  }
+
+  /** 官网播放页「AI 视频总结」；没有总结时返回 null */
+  async getVideoAiSummary(
+    bvid: string,
+    cid: number,
+    upMid: number,
+  ): Promise<VideoAiSummary | null> {
+    await this.ensureBuvid3();
+    const params = await signParams({
+      bvid,
+      cid,
+      ...(upMid > 0 ? { up_mid: upMid } : {}),
+    });
+    const res = await this.client.get("/x/web-interface/view/conclusion/get", {
+      params,
+      headers: { Referer: `https://www.bilibili.com/video/${bvid}` },
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "AI 总结获取失败"));
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    if (Number(data.code) !== 0) return null;
+
+    const model = (data.model_result ?? {}) as Record<string, unknown>;
+    const summary = String(model.summary ?? "").trim();
+    const outlineRaw = Array.isArray(model.outline) ? model.outline : [];
+    const outline: VideoAiOutlineSection[] = [];
+    for (const raw of outlineRaw) {
+      if (!raw || typeof raw !== "object") continue;
+      const section = raw as Record<string, unknown>;
+      const title = String(section.title ?? "").trim();
+      const pointsRaw = Array.isArray(section.part_outline)
+        ? section.part_outline
+        : [];
+      const points: VideoAiOutlinePoint[] = [];
+      for (const p of pointsRaw) {
+        if (!p || typeof p !== "object") continue;
+        const point = p as Record<string, unknown>;
+        const content = String(point.content ?? "").trim();
+        if (!content) continue;
+        points.push({ timestamp: Number(point.timestamp) || 0, content });
+      }
+      if (!title && points.length === 0) continue;
+      outline.push({
+        title,
+        timestamp: Number(section.timestamp) || 0,
+        points,
+      });
+    }
+    if (!summary && outline.length === 0) return null;
+    return { summary, outline };
+  }
+
+  /** 首页推荐「不感兴趣」：走 APP 反馈接口，用 TV 扫码登录拿到的 access_key 签名 */
+  async dislikeRecommend(payload: RecommendDislikePayload): Promise<void> {
+    const accessKey = appStore.get("accessToken");
+    if (!accessKey) throw new Error("请退出后重新扫码登录，再使用不感兴趣");
+
+    const params = this.buildTvSignedParams({
+      access_key: accessKey,
+      goto: "av",
+      id: payload.aid,
+      ...(payload.upMid > 0 ? { mid: payload.upMid } : {}),
+      reason_id: payload.reasonId,
+      ...(payload.trackId ? { track_id: payload.trackId } : {}),
+      build: 1,
+      mobi_app: "android",
+    });
+    const res = await axios.get("https://app.bilibili.com/x/feed/dislike", {
+      params,
+      headers: defaultHeaders(),
+      timeout: 15000,
+      validateStatus: () => true,
+    });
+
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "反馈失败"));
+    }
   }
 
   async dislikeVideo(aid: number, dislike: boolean): Promise<void> {
@@ -7967,6 +8194,7 @@ class BiliApiService {
     appStore.set("user", null);
     appStore.set("refreshToken", "");
     appStore.set("accessToken", "");
+    appStore.set("tokenExpiresAt", 0);
   }
 
   getAuthStatus(): UserInfo {

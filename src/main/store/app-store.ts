@@ -26,6 +26,8 @@ interface StoreSchema {
   ai: AiConfig;
   refreshToken: string;
   accessToken: string;
+  /** TV 扫码登录令牌到期时间（毫秒时间戳），0 表示未知 */
+  tokenExpiresAt: number;
   localDb: unknown;
   /** 官方稍后再看满员后溢出到本机的列表 */
   localToView: ToViewItem[];
@@ -64,6 +66,7 @@ const defaults: StoreSchema = {
   user: null,
   refreshToken: "",
   accessToken: "",
+  tokenExpiresAt: 0,
   localDb: null,
   ai: {
     provider: "deepseek",
@@ -106,6 +109,7 @@ export function clearAuth(): void {
   appStore.set("user", null);
   appStore.set("refreshToken", "");
   appStore.set("accessToken", "");
+  appStore.set("tokenExpiresAt", 0);
 }
 
 export function isLoggedIn(): boolean {

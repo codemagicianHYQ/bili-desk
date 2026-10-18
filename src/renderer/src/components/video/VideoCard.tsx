@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom";
 import { Play } from "lucide-react";
-import type { VideoItem } from "@shared/types";
+import type { RecommendDislikeReason, VideoItem } from "@shared/types";
 import { cn, formatCount, formatDuration, formatPubdate } from "@/lib/utils";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Badge } from "@/components/ui/badge";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
+import { RecommendDislikeMenu } from "@/components/video/RecommendDislikeMenu";
 
 interface VideoCardProps {
   video: VideoItem;
@@ -22,6 +23,8 @@ interface VideoCardProps {
   /** 封面左下角进度文案，例如「看到 0:14」 */
   progressLabel?: string;
   onCardClick?: () => void;
+  /** 首页推荐：右下角「不感兴趣」菜单 */
+  onDislike?: (reason: RecommendDislikeReason) => void;
 }
 
 export function VideoCard({
@@ -34,6 +37,7 @@ export function VideoCard({
   progressPercent = 0,
   progressLabel,
   onCardClick,
+  onDislike,
 }: VideoCardProps) {
   const showProgress = progressPercent > 0;
   const content = (
@@ -108,6 +112,9 @@ export function VideoCard({
             </div>
           )}
           <span className="shrink-0">{formatCount(video.play)} 播放</span>
+          {onDislike && (
+            <RecommendDislikeMenu video={video} onDislike={onDislike} />
+          )}
         </div>
       </div>
     </>

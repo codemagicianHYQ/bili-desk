@@ -208,11 +208,62 @@ export function VideoActionBar({ video, className }: VideoActionBarProps) {
     }
   };
 
+  /** 官方三连接口；返回 false 表示需要退回逐个调用 */
+  const runOfficialTriple = async (): Promise<boolean> => {
+    const before = relation;
+    try {
+      await window.biliDesk.bili.tripleVideo(video.aid, video.bvid);
+    } catch {
+      return false;
+    }
+    const after = await window.biliDesk.bili
+      .getVideoRelation(video.bvid, video.aid)
+      .catch(() => null);
+    if (!after) {
+      setRelation((prev) => ({
+        liked: true,
+        disliked: false,
+        coined: true,
+        coin: Math.max(prev?.coin ?? 0, 2),
+        favorited: true,
+      }));
+      invalidateFolders();
+      setFavReloadToken((token) => token + 1);
+      triggerPop("triple");
+      showHint("三连成功");
+      return true;
+    }
+
+    const didLike = after.liked && !before?.liked;
+    const addedCoins = Math.max(0, after.coin - (before?.coin ?? 0));
+    const didFav = after.favorited && !before?.favorited;
+    setRelation(after);
+    if (didLike) setLikeCount((count) => count + 1);
+    if (addedCoins > 0) setCoinCount((count) => count + addedCoins);
+    if (didFav) setFavoriteCount((count) => count + 1);
+    if (didFav || after.favorited) {
+      invalidateFolders();
+      setFavReloadToken((token) => token + 1);
+    }
+    if (!didLike && addedCoins === 0 && !didFav) {
+      showHint("已经三连过啦");
+      return true;
+    }
+    triggerPop("triple");
+    showHint(
+      after.liked && after.coin >= 2 && after.favorited
+        ? "三连成功"
+        : "部分三连已完成",
+    );
+    return true;
+  };
+
   const handleTriple = async () => {
     if (busy) return;
     setBusy("triple");
     setError("");
     try {
+      if (await runOfficialTriple()) return;
       const alreadyLiked = relation?.liked ?? false;
       const alreadyCoin = relation?.coin ?? 0;
       const remaining = Math.max(0, 2 - alreadyCoin);

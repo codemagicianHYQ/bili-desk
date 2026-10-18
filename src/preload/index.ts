@@ -9,6 +9,7 @@ import type {
   SearchMediaKind,
   SearchLiveOrder,
   AddCoinPayload,
+  RecommendDislikePayload,
   SendDanmakuPayload,
   WatchHeartbeatPayload,
   Theme,
@@ -208,6 +209,12 @@ const api = {
     ) => ipcRenderer.invoke(IPC.BILI_MEDIA_RANGE, url, range, referer),
     getVideoRelation: (bvid: string, aid: number) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_RELATION, bvid, aid),
+    tripleVideo: (aid: number, bvid: string) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_TRIPLE, aid, bvid),
+    getVideoAiSummary: (bvid: string, cid: number, upMid: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_AI_SUMMARY, bvid, cid, upMid),
+    dislikeRecommend: (payload: RecommendDislikePayload) =>
+      ipcRenderer.invoke(IPC.BILI_RECOMMEND_DISLIKE, payload),
     likeVideo: (aid: number, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_LIKE, aid, like),
     dislikeVideo: (aid: number, dislike: boolean) =>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   HotSearchItem,
+  RecommendDislikeReason,
   SearchCategory,
   SearchOrder,
   SearchSuggestItem,
@@ -115,7 +116,22 @@ export function HomePage() {
     error: recommendError,
     fetchInitial,
     loadMore: loadMoreRecommend,
+    dislike: dislikeRecommend,
   } = useHomeFeedStore();
+  const [feedTip, setFeedTip] = useState("");
+  const feedTipTimerRef = useRef(0);
+
+  const handleDislike = useCallback(
+    async (video: VideoItem, reason: RecommendDislikeReason) => {
+      const message = await dislikeRecommend(video, reason);
+      window.clearTimeout(feedTipTimerRef.current);
+      setFeedTip(message);
+      feedTipTimerRef.current = window.setTimeout(() => setFeedTip(""), 2400);
+    },
+    [dislikeRecommend],
+  );
+
+  useEffect(() => () => window.clearTimeout(feedTipTimerRef.current), []);
 
   const {
     rooms: liveRooms,
@@ -981,6 +997,11 @@ export function HomePage() {
                     showFollowedBadge={
                       !isSearchMode && followedMidSet.has(video.owner.mid)
                     }
+                    onDislike={
+                      isSearchMode
+                        ? undefined
+                        : (reason) => void handleDislike(video, reason)
+                    }
                   />
                 ))}
               </div>
@@ -1040,6 +1061,12 @@ export function HomePage() {
             </>
           )}
         </div>
+
+        {feedTip && (
+          <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/75 px-4 py-2 text-sm text-white shadow-lg">
+            {feedTip}
+          </div>
+        )}
 
         {showBackToTop && (
           <Button

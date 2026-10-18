@@ -16,6 +16,41 @@ export interface VideoItem {
     face: string;
   };
   pubdate: number;
+  /** 首页推荐流独有，「不感兴趣」反馈要带回 */
+  trackId?: string;
+}
+
+/** 首页推荐「不感兴趣」原因：1 内容不感兴趣，4 不想看这个 UP */
+export type RecommendDislikeReason = 1 | 4;
+
+export interface RecommendDislikePayload {
+  aid: number;
+  upMid: number;
+  reasonId: RecommendDislikeReason;
+  trackId?: string;
+}
+
+export interface UgcTripleResult {
+  like: boolean;
+  coin: boolean;
+  fav: boolean;
+  multiply: number;
+}
+
+export interface VideoAiOutlinePoint {
+  timestamp: number;
+  content: string;
+}
+
+export interface VideoAiOutlineSection {
+  title: string;
+  timestamp: number;
+  points: VideoAiOutlinePoint[];
+}
+
+export interface VideoAiSummary {
+  summary: string;
+  outline: VideoAiOutlineSection[];
 }
 
 export type VideoTagKind = "normal" | "topic" | "channel" | "bgm";
@@ -1651,6 +1686,13 @@ export interface BiliDeskApi {
       referer: string,
     ) => Promise<Uint8Array>;
     getVideoRelation: (bvid: string, aid: number) => Promise<VideoRelation>;
+    tripleVideo: (aid: number, bvid: string) => Promise<UgcTripleResult>;
+    getVideoAiSummary: (
+      bvid: string,
+      cid: number,
+      upMid: number,
+    ) => Promise<VideoAiSummary | null>;
+    dislikeRecommend: (payload: RecommendDislikePayload) => Promise<void>;
     likeVideo: (aid: number, like: boolean) => Promise<void>;
     dislikeVideo: (aid: number, dislike: boolean) => Promise<void>;
     addCoin: (payload: AddCoinPayload) => Promise<void>;

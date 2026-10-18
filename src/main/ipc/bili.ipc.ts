@@ -9,6 +9,7 @@ import type {
   SearchLiveOrder,
   MessageFeedKind,
   MessageSessionFilter,
+  RecommendDislikePayload,
   SuggestFavFolderPayload,
   ToViewAddResult,
   UpVideosOrder,
@@ -605,6 +606,17 @@ export function registerBiliIpc(): void {
   );
   handleIpc(IPC.BILI_VIDEO_CHAPTERS, (_e, bvid: string, cid: number) =>
     biliApi.getVideoChapters(bvid, cid),
+  );
+  handleIpc(IPC.BILI_VIDEO_TRIPLE, (_e, aid: number, bvid: string) =>
+    biliApi.tripleVideo(aid, bvid),
+  );
+  handleIpc(
+    IPC.BILI_VIDEO_AI_SUMMARY,
+    (_e, bvid: string, cid: number, upMid: number) =>
+      biliApi.getVideoAiSummary(bvid, cid, upMid),
+  );
+  handleIpc(IPC.BILI_RECOMMEND_DISLIKE, (_e, payload: RecommendDislikePayload) =>
+    biliApi.dislikeRecommend(payload),
   );
   handleIpc(IPC.BILI_DM_FILTERS, () => biliApi.getDanmakuFilters());
   handleIpc(

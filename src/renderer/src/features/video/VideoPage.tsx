@@ -15,6 +15,7 @@ import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { VideoCommentSection } from "@/features/video/VideoCommentSection";
 import { RelatedVideosPanel } from "@/features/video/RelatedVideosPanel";
 import { VideoTagList } from "@/components/video/VideoTagList";
+import { VideoAiSummaryCard } from "@/components/video/VideoAiSummaryCard";
 import { VideoWatchExtras } from "@/components/video/VideoWatchExtras";
 import { VideoSideTools } from "@/components/video/VideoSideTools";
 import { VideoPlaylistPanel } from "@/components/video/VideoPlaylistPanel";
@@ -602,6 +603,14 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               {video.desc ? <BiliEmoteText text={video.desc} /> : "暂无简介"}
             </p>
             <VideoTagList tags={video.tags} />
+            {selectedCid ? (
+              <VideoAiSummaryCard
+                bvid={video.bvid || bvid}
+                cid={selectedCid}
+                upMid={video.owner.mid}
+                onSeek={(time) => setSeekAt({ time, nonce: Date.now() })}
+              />
+            ) : null}
             {selectedCid ? (
               <VideoWatchExtras
                 bvid={video.bvid || bvid}

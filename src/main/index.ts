@@ -7,6 +7,9 @@ import {
   registerMediaScheme,
   startMediaProxy,
 } from "./services/media-proxy";
+import { biliApi } from "./services/bili-api";
+
+const LOGIN_KEEPALIVE_MS = 6 * 60 * 60 * 1000;
 
 registerMediaScheme();
 
@@ -91,6 +94,7 @@ app.whenReady().then(async () => {
   attachMediaProtocol();
   registerAllIpc();
   mainWindow = createMainWindow();
+  setInterval(() => void biliApi.keepLoginFresh(), LOGIN_KEEPALIVE_MS);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
