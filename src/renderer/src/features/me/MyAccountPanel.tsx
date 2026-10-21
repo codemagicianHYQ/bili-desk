@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import type {
   ExpRewardStatus,
   FansMedalItem,
-  LiveSignInfo,
   MemberLogItem,
   VipCenterInfo,
   VipPrivilegeItem,
@@ -12,7 +11,7 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn } from "@/lib/utils";
-import { Check, Crown, Loader2, Medal, Radio, Sparkles } from "lucide-react";
+import { Check, Crown, Loader2, Medal, Sparkles } from "lucide-react";
 
 function Section({
   icon: Icon,
@@ -91,8 +90,7 @@ function LogList({ items }: { items: MemberLogItem[] }) {
 export function MyAccountPanel() {
   const [vip, setVip] = useState<VipCenterInfo | null>(null);
   const [privileges, setPrivileges] = useState<VipPrivilegeItem[]>([]);
-  const [reward, setReward] = useState<ExpRewardStatus | null>(null);
-  const [liveSign, setLiveSign] = useState<LiveSignInfo | null>(null);
+  const [reward, setReward] = useState<ExpRewardStatus | null | undefined>();
   const [medals, setMedals] = useState<FansMedalItem[]>([]);
   const [medalPage, setMedalPage] = useState(1);
   const [medalHasMore, setMedalHasMore] = useState(false);
@@ -143,10 +141,6 @@ export function MyAccountPanel() {
       .getExpReward()
       .then(setReward)
       .catch(() => setReward(null));
-    void api
-      .getLiveSignInfo()
-      .then(setLiveSign)
-      .catch(() => setLiveSign(null));
     void loadMedals(1).catch(() => setMedals([]));
   }, [loadMedals]);
 
@@ -252,75 +246,42 @@ export function MyAccountPanel() {
               />
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">加载中…</p>
-          )}
-        </Section>
-
-        <Section
-          icon={Radio}
-          title="直播签到"
-          extra={
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={liveSign?.signed || busy === "live-sign"}
-              onClick={() =>
-                void run("live-sign", async () => {
-                  const message = await window.biliDesk.bili.doLiveSign();
-                  setLiveSign((prev) => ({
-                    signed: true,
-                    text: message,
-                    days: (prev?.days ?? 0) + 1,
-                  }));
-                  return message;
-                })
-              }
-            >
-              {busy === "live-sign" && (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              )}
-              {liveSign?.signed ? "今日已签" : "签到"}
-            </Button>
-          }
-        >
-          <p className="text-xs text-muted-foreground">
-            {liveSign
-              ? `${liveSign.text || "每日签到可得直播经验"} · 本月已签 ${liveSign.days} 天`
-              : "签到信息获取失败，可直接点签到试试"}
-          </p>
-        </Section>
-
-        <Section
-          icon={Medal}
-          title="硬币 / 经验记录"
-          extra={
-            <div className="flex gap-1 text-xs">
-              {(["coin", "exp"] as const).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={cn(
-                    "rounded-full px-2.5 py-0.5",
-                    logTab === key
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => setLogTab(key)}
-                >
-                  {key === "coin" ? "硬币" : "经验"}
-                </button>
-              ))}
-            </div>
-          }
-        >
-          {logs ? (
-            <LogList items={logs} />
-          ) : (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <p className="text-xs text-muted-foreground">
+              {reward === null ? "经验任务获取失败" : "加载中…"}
+            </p>
           )}
         </Section>
       </div>
+
+      <Section
+        icon={Medal}
+        title="硬币 / 经验记录"
+        extra={
+          <div className="flex gap-1 text-xs">
+            {(["coin", "exp"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={cn(
+                  "rounded-full px-2.5 py-0.5",
+                  logTab === key
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setLogTab(key)}
+              >
+                {key === "coin" ? "硬币" : "经验"}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        {logs ? (
+          <LogList items={logs} />
+        ) : (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        )}
+      </Section>
 
       <Section icon={Medal} title={`粉丝勋章（${medals.length}）`}>
         {medals.length === 0 ? (

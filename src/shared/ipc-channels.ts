@@ -44,8 +44,6 @@ export const IPC = {
   BILI_EXP_REWARD: "bili:exp-reward",
   BILI_COIN_LOG: "bili:coin-log",
   BILI_EXP_LOG: "bili:exp-log",
-  BILI_LIVE_SIGN_INFO: "bili:live-sign-info",
-  BILI_LIVE_SIGN: "bili:live-sign",
   BILI_FANS_MEDALS: "bili:fans-medals",
   BILI_FANS_MEDAL_WEAR: "bili:fans-medal-wear",
   BILI_VIDEO_DISLIKE: "bili:video-dislike",

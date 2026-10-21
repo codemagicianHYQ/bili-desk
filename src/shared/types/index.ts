@@ -119,12 +119,6 @@ export interface MemberLogItem {
   reason: string;
 }
 
-export interface LiveSignInfo {
-  signed: boolean;
-  text: string;
-  days: number;
-}
-
 export interface FansMedalItem {
   medalId: number;
   name: string;
@@ -1791,7 +1785,10 @@ export interface BiliDeskApi {
     getDanmakuHistoryDates: (cid: number, month: string) => Promise<string[]>;
     getDanmakuHistory: (cid: number, date: string) => Promise<DanmakuItem[]>;
     syncDanmakuConfig: (config: DanmakuCloudConfig) => Promise<void>;
-    getVideoSnapshot: (bvid: string, cid: number) => Promise<VideoSnapshot | null>;
+    getVideoSnapshot: (
+      bvid: string,
+      cid: number,
+    ) => Promise<VideoSnapshot | null>;
     getVipCenter: () => Promise<VipCenterInfo>;
     claimVipExperience: () => Promise<string>;
     getVipPrivileges: () => Promise<VipPrivilegeItem[]>;
@@ -1799,8 +1796,6 @@ export interface BiliDeskApi {
     getExpReward: () => Promise<ExpRewardStatus>;
     getCoinLog: () => Promise<MemberLogItem[]>;
     getExpLog: () => Promise<MemberLogItem[]>;
-    getLiveSignInfo: () => Promise<LiveSignInfo>;
-    doLiveSign: () => Promise<string>;
     getFansMedals: (page?: number) => Promise<FansMedalPage>;
     wearFansMedal: (medalId: number | null) => Promise<void>;
     likeVideo: (aid: number, like: boolean) => Promise<void>;
@@ -1811,10 +1806,7 @@ export interface BiliDeskApi {
     getDanmakuList: (cid: number) => Promise<DanmakuItem[]>;
     sendDanmaku: (payload: SendDanmakuPayload) => Promise<void>;
     getDanmakuFilters: () => Promise<DanmakuFilter[]>;
-    addDanmakuFilter: (
-      text: string,
-      kind?: DanmakuFilterKind,
-    ) => Promise<void>;
+    addDanmakuFilter: (text: string, kind?: DanmakuFilterKind) => Promise<void>;
     recallDanmaku: (cid: number, dmid: string) => Promise<string>;
     removeDanmakuFilter: (id: number) => Promise<void>;
     likeDanmaku: (cid: number, dmid: string, like: boolean) => Promise<void>;

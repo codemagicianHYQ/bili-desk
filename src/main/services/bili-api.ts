@@ -80,7 +80,6 @@ import type {
   VipPrivilegeItem,
   ExpRewardStatus,
   MemberLogItem,
-  LiveSignInfo,
   FansMedalItem,
   FansMedalPage,
   AddCoinPayload,
@@ -2788,6 +2787,7 @@ class BiliApiService {
   async getExpReward(): Promise<ExpRewardStatus> {
     this.requireLogin("查看经验任务");
     const res = await this.client.get("/x/member/web/exp/reward", {
+      headers: { Referer: "https://account.bilibili.com/" },
       validateStatus: () => true,
     });
     const data = this.assertOk(res, "经验任务获取失败");
@@ -2826,29 +2826,6 @@ class BiliApiService {
 
   getExpLog(): Promise<MemberLogItem[]> {
     return this.getMemberLog("/x/member/web/exp/log", "经验记录获取失败");
-  }
-
-  async getLiveSignInfo(): Promise<LiveSignInfo> {
-    this.requireLogin("查看直播签到");
-    const res = await this.liveClient.get(
-      "/xlive/web-ucenter/v1/sign/WebGetSignInfo",
-      { validateStatus: () => true },
-    );
-    const data = this.assertOk(res, "直播签到信息获取失败");
-    return {
-      signed: Number(data.status) === 1,
-      text: String(data.text ?? data.specialText ?? "").trim(),
-      days: Number(data.hadSignDays) || 0,
-    };
-  }
-
-  async doLiveSign(): Promise<string> {
-    this.requireLogin("直播签到");
-    const res = await this.liveClient.get("/xlive/web-ucenter/v1/sign/DoSign", {
-      validateStatus: () => true,
-    });
-    const data = this.assertOk(res, "直播签到失败");
-    return String(data.text ?? "").trim() || "签到成功";
   }
 
   async getFansMedals(page = 1): Promise<FansMedalPage> {

@@ -9,6 +9,10 @@ import {
   resolveInAppPathFromUrl,
 } from "@shared/utils/bili-app-link";
 import { appStore } from "./store/app-store";
+import {
+  keepBackdropActive,
+  refreshBackdropActive,
+} from "./keep-backdrop-active";
 
 /**
  * 液态玻璃要透桌面，Win 上必须透明窗。透明窗不能用系统最大化，
@@ -326,6 +330,7 @@ export function applyWindowGlassEffect(
   }
   win.setBackgroundColor("#00000000");
   keepMaximizeButton(win);
+  refreshBackdropActive(win);
   return true;
 }
 
@@ -355,8 +360,7 @@ export function createMainWindow(): BrowserWindow {
     ...(process.platform === "win32"
       ? {
           backgroundMaterial: (glassOn ? "acrylic" : "none") as
-            | "acrylic"
-            | "none",
+            "acrylic" | "none",
         }
       : {}),
     ...(icon ? { icon } : {}),
@@ -368,6 +372,8 @@ export function createMainWindow(): BrowserWindow {
       backgroundThrottling: false,
     },
   });
+
+  keepBackdropActive(win, () => Boolean(appStore.get("windowGlass")));
 
   win.on("ready-to-show", () => {
     applyWindowGlassEffect(win, Boolean(appStore.get("windowGlass")));

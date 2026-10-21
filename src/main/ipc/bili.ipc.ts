@@ -644,8 +644,6 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_EXP_REWARD, () => biliApi.getExpReward());
   handleIpc(IPC.BILI_COIN_LOG, () => biliApi.getCoinLog());
   handleIpc(IPC.BILI_EXP_LOG, () => biliApi.getExpLog());
-  handleIpc(IPC.BILI_LIVE_SIGN_INFO, () => biliApi.getLiveSignInfo());
-  handleIpc(IPC.BILI_LIVE_SIGN, () => biliApi.doLiveSign());
   handleIpc(IPC.BILI_FANS_MEDALS, (_e, page: number) =>
     biliApi.getFansMedals(page),
   );

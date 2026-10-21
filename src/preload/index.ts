@@ -234,8 +234,6 @@ const api = {
     getExpReward: () => ipcRenderer.invoke(IPC.BILI_EXP_REWARD),
     getCoinLog: () => ipcRenderer.invoke(IPC.BILI_COIN_LOG),
     getExpLog: () => ipcRenderer.invoke(IPC.BILI_EXP_LOG),
-    getLiveSignInfo: () => ipcRenderer.invoke(IPC.BILI_LIVE_SIGN_INFO),
-    doLiveSign: () => ipcRenderer.invoke(IPC.BILI_LIVE_SIGN),
     getFansMedals: (page?: number) =>
       ipcRenderer.invoke(IPC.BILI_FANS_MEDALS, page ?? 1),
     wearFansMedal: (medalId: number | null) =>
