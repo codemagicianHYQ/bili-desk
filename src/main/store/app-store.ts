@@ -2,6 +2,7 @@ import Store from "electron-store";
 import type {
   AbnormalFollowingRecord,
   AiConfig,
+  CollectionGroupMap,
   InvalidVideoRecord,
   Theme,
   ToViewItem,
@@ -50,6 +51,8 @@ interface StoreSchema {
   /** 关注 UP 活跃度（最新稿件 / 动态时间） */
   upActivityCache: UpActivityRecord[];
   lastUpActivityScanAt: number;
+  /** 合集 AI / 规则整理结果，key 见 collectionGroupKey */
+  collectionGroups: CollectionGroupMap;
 }
 
 const defaults: StoreSchema = {
@@ -81,6 +84,7 @@ const defaults: StoreSchema = {
   lastIntegrityScanAt: 0,
   upActivityCache: [],
   lastUpActivityScanAt: 0,
+  collectionGroups: {},
 };
 
 export const appStore = new Store<StoreSchema>({

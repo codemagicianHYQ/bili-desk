@@ -20,8 +20,14 @@ import type {
   ChatShareCard,
   DanmakuFilterKind,
   DynamicPublishOptions,
+  CollectionListKind,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
+import {
+  classifyCollections,
+  fetchAllCollections,
+  getCollectionGroups,
+} from "../services/collection-classifier";
 import { messageApi } from "../services/message-api";
 import { localToViewRepo } from "../db/repositories/local-toview";
 import {
@@ -776,6 +782,24 @@ export function registerBiliIpc(): void {
   );
   handleIpc(IPC.BILI_SUBSCRIBED_COLLECTIONS, (_e, page?: number) =>
     biliApi.getSubscribedCollections(page),
+  );
+  handleIpc(IPC.BILI_COLLECTIONS_ALL, (_e, listKind: CollectionListKind) =>
+    fetchAllCollections(listKind === "created" ? "created" : "subscribed"),
+  );
+  ipcMain.handle(IPC.BILI_COLLECTION_GROUPS, () => getCollectionGroups());
+  handleIpc(
+    IPC.BILI_COLLECTION_CLASSIFY,
+    (event, listKind: CollectionListKind) =>
+      classifyCollections(
+        listKind === "created" ? "created" : "subscribed",
+        (progress) => {
+          try {
+            event.sender.send(IPC.BILI_COLLECTION_CLASSIFY_PROGRESS, progress);
+          } catch {
+            // sender may be gone
+          }
+        },
+      ),
   );
   handleIpc(IPC.BILI_UGC_SEASON_SUBSCRIBED, (_e, seasonId: number) =>
     biliApi.getUgcSeasonSubscribed(seasonId),

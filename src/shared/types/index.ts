@@ -1588,6 +1588,30 @@ export interface UserCollectionsPage {
   hasMore: boolean;
 }
 
+export type CollectionListKind = "subscribed" | "created";
+
+export interface CollectionGroup {
+  l1: string;
+  l2: string;
+  source: "rule" | "ai";
+}
+
+/** key 为 `${kind}:${id}`，见 collectionGroupKey */
+export type CollectionGroupMap = Record<string, CollectionGroup>;
+
+export interface CollectionClassifyResult {
+  items: UserCollectionItem[];
+  groups: CollectionGroupMap;
+  message: string;
+}
+
+export interface CollectionClassifyProgress {
+  listKind: CollectionListKind;
+  done: number;
+  total: number;
+  message: string;
+}
+
 export interface BangumiFollowItem {
   seasonId: number;
   title: string;
@@ -2106,6 +2130,16 @@ export interface BiliDeskApi {
       page?: number,
     ) => Promise<BangumiFollowPage>;
     getSubscribedCollections: (page?: number) => Promise<UserCollectionsPage>;
+    getAllCollections: (
+      listKind: CollectionListKind,
+    ) => Promise<UserCollectionItem[]>;
+    getCollectionGroups: () => Promise<CollectionGroupMap>;
+    classifyCollections: (
+      listKind: CollectionListKind,
+    ) => Promise<CollectionClassifyResult>;
+    onCollectionClassifyProgress: (
+      callback: (progress: CollectionClassifyProgress) => void,
+    ) => () => void;
     getUgcSeasonSubscribed: (seasonId: number) => Promise<boolean>;
     setUgcSeasonSubscribe: (
       seasonId: number,

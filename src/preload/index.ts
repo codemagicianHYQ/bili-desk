@@ -19,6 +19,8 @@ import type {
   HistoryFeedType,
   HistoryFilters,
   IntegrityScanProgress,
+  CollectionClassifyProgress,
+  CollectionListKind,
   IntegrityScanScope,
   UpActivityArchive,
   UpActivityScanProgress,
@@ -686,6 +688,26 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_BANGUMI_FOLLOW, mid, type ?? 1, page ?? 1),
     getSubscribedCollections: (page?: number) =>
       ipcRenderer.invoke(IPC.BILI_SUBSCRIBED_COLLECTIONS, page ?? 1),
+    getAllCollections: (listKind: CollectionListKind) =>
+      ipcRenderer.invoke(IPC.BILI_COLLECTIONS_ALL, listKind),
+    getCollectionGroups: () => ipcRenderer.invoke(IPC.BILI_COLLECTION_GROUPS),
+    classifyCollections: (listKind: CollectionListKind) =>
+      ipcRenderer.invoke(IPC.BILI_COLLECTION_CLASSIFY, listKind),
+    onCollectionClassifyProgress: (
+      callback: (progress: CollectionClassifyProgress) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        progress: CollectionClassifyProgress,
+      ) => callback(progress);
+      ipcRenderer.on(IPC.BILI_COLLECTION_CLASSIFY_PROGRESS, listener);
+      return () => {
+        ipcRenderer.removeListener(
+          IPC.BILI_COLLECTION_CLASSIFY_PROGRESS,
+          listener,
+        );
+      };
+    },
     getUgcSeasonSubscribed: (seasonId: number) =>
       ipcRenderer.invoke(IPC.BILI_UGC_SEASON_SUBSCRIBED, seasonId),
     setUgcSeasonSubscribe: (seasonId: number, subscribe: boolean) =>

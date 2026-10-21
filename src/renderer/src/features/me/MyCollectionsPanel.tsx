@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { UserCollectionItem, VideoItem } from "@shared/types";
+import type {
+  CollectionGroupMap,
+  UserCollectionItem,
+  VideoItem,
+} from "@shared/types";
+import {
+  UNGROUPED_COLLECTION_L1,
+  collectionGroupKey,
+} from "@shared/utils/collection-groups";
 import { BiliImage } from "@/components/ui/bili-image";
 import { VideoCard } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
@@ -13,9 +21,42 @@ import {
   Folder,
   Layers,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 
 const VIDEO_PAGE_SIZE = 30;
+const GROUPED_FLAG_KEY = "bilidesk:collections-grouped:";
+
+function isGroupedTab(tab: CollectionTab): boolean {
+  return localStorage.getItem(GROUPED_FLAG_KEY + tab) === "1";
+}
+
+type LabeledCollection = UserCollectionItem & { label: string };
+
+function groupCollections(
+  items: LabeledCollection[],
+  groups: CollectionGroupMap,
+  by: "l1" | "l2",
+): Array<{ name: string; items: LabeledCollection[] }> {
+  const buckets = new Map<string, LabeledCollection[]>();
+  for (const item of items) {
+    const group = groups[collectionGroupKey(item)];
+    const name = group
+      ? by === "l1"
+        ? group.l1
+        : group.l2
+      : UNGROUPED_COLLECTION_L1;
+    const bucket = buckets.get(name);
+    if (bucket) bucket.push(item);
+    else buckets.set(name, [item]);
+  }
+  return Array.from(buckets, ([name, list]) => ({ name, items: list })).sort(
+    (a, b) =>
+      Number(a.name === UNGROUPED_COLLECTION_L1) -
+        Number(b.name === UNGROUPED_COLLECTION_L1) ||
+      b.items.length - a.items.length,
+  );
+}
 
 function formatError(err: unknown): string {
   const message = extractIpcErrorMessage(err) || "加载失败";
@@ -66,9 +107,47 @@ export function MyCollectionsPanel({
   );
   const [subBusy, setSubBusy] = useState(false);
   const [subError, setSubError] = useState("");
+  const [groups, setGroups] = useState<CollectionGroupMap>({});
+  const [grouped, setGrouped] = useState(() => isGroupedTab("subscribed"));
+  const [activeL1, setActiveL1] = useState("");
+  const [classifying, setClassifying] = useState(false);
+  const [classifyMessage, setClassifyMessage] = useState("");
+
+  const isSelf = mid > 0 && Number(mid) === Number(selfMid);
+
+  const applyFullList = useCallback(
+    (kind: CollectionTab, items: UserCollectionItem[]) => {
+      if (kind === "created") {
+        setSeasons(items.filter((item) => item.kind === "season"));
+        setSeries(items.filter((item) => item.kind === "series"));
+      } else {
+        setSubscribed(items);
+      }
+      setHasMore(false);
+      setPage(1);
+    },
+    [],
+  );
 
   const loadList = useCallback(
     async (kind: CollectionTab, nextPage: number, append: boolean) => {
+      if (!append && isSelf && isGroupedTab(kind)) {
+        setLoading(true);
+        setError("");
+        setSelected(null);
+        setVideos([]);
+        try {
+          applyFullList(
+            kind,
+            await window.biliDesk.bili.getAllCollections(kind),
+          );
+        } catch (err) {
+          setError(formatError(err));
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
       if (append) setLoadingMore(true);
       else {
         setLoading(true);
@@ -109,8 +188,50 @@ export function MyCollectionsPanel({
         setLoadingMore(false);
       }
     },
-    [mid],
+    [mid, isSelf, applyFullList],
   );
+
+  useEffect(() => {
+    void window.biliDesk.bili
+      .getCollectionGroups()
+      .then(setGroups)
+      .catch(() => setGroups({}));
+    return window.biliDesk.bili.onCollectionClassifyProgress((progress) => {
+      setClassifyMessage(progress.message);
+    });
+  }, []);
+
+  useEffect(() => {
+    setGrouped(isSelf && isGroupedTab(tab));
+    setActiveL1("");
+    setClassifyMessage("");
+  }, [tab, isSelf]);
+
+  const runClassify = async () => {
+    if (classifying) return;
+    setClassifying(true);
+    setClassifyMessage("正在启动 AI 整理…");
+    try {
+      const result = await window.biliDesk.bili.classifyCollections(tab);
+      localStorage.setItem(GROUPED_FLAG_KEY + tab, "1");
+      setGroups(result.groups);
+      applyFullList(tab, result.items);
+      setGrouped(true);
+      setActiveL1("");
+      setClassifyMessage(result.message);
+    } catch (err) {
+      setClassifyMessage(formatError(err));
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  const exitGrouped = () => {
+    localStorage.removeItem(GROUPED_FLAG_KEY + tab);
+    setGrouped(false);
+    setActiveL1("");
+    setClassifyMessage("");
+  };
 
   const loadVideos = useCallback(
     async (collection: UserCollectionItem, nextPage: number) => {
@@ -303,8 +424,26 @@ export function MyCollectionsPanel({
     ...item,
     label: "订阅",
   }));
-  const allCollections =
+  const allCollections: LabeledCollection[] =
     tab === "created" ? createdCollections : subscribedCollections;
+
+  const showGroups = grouped && isSelf;
+  const l1Groups = showGroups
+    ? groupCollections(allCollections, groups, "l1")
+    : [];
+  const visibleCollections =
+    showGroups && activeL1
+      ? (l1Groups.find((group) => group.name === activeL1)?.items ?? [])
+      : allCollections;
+  const listSections = showGroups
+    ? activeL1
+      ? groupCollections(
+          visibleCollections,
+          groups,
+          activeL1 === UNGROUPED_COLLECTION_L1 ? "l1" : "l2",
+        )
+      : l1Groups
+    : [{ name: "", items: allCollections }];
 
   const shellClass =
     layout === "page"
@@ -322,7 +461,7 @@ export function MyCollectionsPanel({
 
   return (
     <div className={shellClass}>
-      <div className="flex shrink-0 gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <Button
           size="sm"
           variant={tab === "subscribed" ? "default" : "outline"}
@@ -337,7 +476,64 @@ export function MyCollectionsPanel({
         >
           我创建的
         </Button>
+        {isSelf && (
+          <div className="ml-auto flex items-center gap-2">
+            {showGroups && !classifying && (
+              <Button size="sm" variant="ghost" onClick={exitGrouped}>
+                取消分组
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={classifying}
+              onClick={() => void runClassify()}
+              title="按合集标题和简介，用规则 + AI 自动分类"
+            >
+              {classifying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {showGroups ? "重新整理" : "AI 整理"}
+            </Button>
+          </div>
+        )}
       </div>
+
+      {classifyMessage && (
+        <p className="-mt-2 shrink-0 text-xs text-muted-foreground">
+          {classifyMessage}
+        </p>
+      )}
+
+      {showGroups && l1Groups.length > 0 && (
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          {[
+            { name: "", count: allCollections.length },
+            ...l1Groups.map((group) => ({
+              name: group.name,
+              count: group.items.length,
+            })),
+          ].map((chip) => (
+            <button
+              key={chip.name || "__all"}
+              type="button"
+              onClick={() => setActiveL1(chip.name)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs transition-colors",
+                activeL1 === chip.name
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary/60 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {chip.name || "全部"}
+              <span className="ml-1 opacity-70">{chip.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && allCollections.length === 0 ? (
         <p className="text-sm text-red-400">{error}</p>
@@ -359,49 +555,64 @@ export function MyCollectionsPanel({
               ref={listScrollRef}
               className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2"
             >
-              {allCollections.map((item) => {
-                const active =
-                  selected?.kind === item.kind &&
-                  selected?.id === item.id &&
-                  selected?.source === item.source;
-                return (
-                  <button
-                    key={`${item.source ?? tab}-${item.kind}-${item.id}`}
-                    type="button"
-                    onClick={() => selectCollection(item)}
-                    className={cn(
-                      "flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors",
-                      active
-                        ? "bg-primary/15 ring-1 ring-primary/35"
-                        : "hover:bg-secondary/70",
-                    )}
-                  >
-                    {item.cover ? (
-                      <BiliImage
-                        src={item.cover}
-                        alt=""
-                        className="h-12 w-[4.5rem] shrink-0 rounded-lg object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-12 w-[4.5rem] shrink-0 items-center justify-center rounded-lg bg-muted">
-                        {item.kind === "season" ? (
-                          <Folder className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <Layers className="h-4 w-4 text-muted-foreground" />
+              {listSections.map((section) => (
+                <div key={section.name || "__all"} className="space-y-1">
+                  {section.name && (
+                    <p className="sticky top-0 z-[1] flex items-center justify-between rounded-md bg-card/90 px-2 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur">
+                      <span className="truncate">{section.name}</span>
+                      <span>{section.items.length}</span>
+                    </p>
+                  )}
+                  {section.items.map((item) => {
+                    const active =
+                      selected?.kind === item.kind &&
+                      selected?.id === item.id &&
+                      selected?.source === item.source;
+                    return (
+                      <button
+                        key={`${item.source ?? tab}-${item.kind}-${item.id}`}
+                        type="button"
+                        onClick={() => selectCollection(item)}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors",
+                          active
+                            ? "bg-primary/15 ring-1 ring-primary/35"
+                            : "hover:bg-secondary/70",
                         )}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {item.title}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {item.label} · {formatCount(item.total)} 个内容
-                      </p>
-                    </div>
-                  </button>
-                );
-              })}
+                      >
+                        {item.cover ? (
+                          <BiliImage
+                            src={item.cover}
+                            alt=""
+                            className="h-12 w-[4.5rem] shrink-0 rounded-lg object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-12 w-[4.5rem] shrink-0 items-center justify-center rounded-lg bg-muted">
+                            {item.kind === "season" ? (
+                              <Folder className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <Layers className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {item.title}
+                          </p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {item.label} · {formatCount(item.total)} 个内容
+                            {showGroups &&
+                            !activeL1 &&
+                            groups[collectionGroupKey(item)]
+                              ? ` · ${groups[collectionGroupKey(item)].l2}`
+                              : ""}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
               <div
                 ref={listSentinelRef}
                 className="py-3 text-center text-xs text-muted-foreground"
