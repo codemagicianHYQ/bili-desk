@@ -11,24 +11,57 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn } from "@/lib/utils";
-import { Check, Crown, Loader2, Medal, Sparkles } from "lucide-react";
+import {
+  Check,
+  Coins,
+  Crown,
+  Gift,
+  History,
+  Loader2,
+  LogIn,
+  Medal,
+  PlayCircle,
+  Share2,
+  Sparkles,
+} from "lucide-react";
+
+const DAILY_EXP_LIMIT = 65;
+const COIN_EXP_LIMIT = 50;
 
 function Section({
   icon: Icon,
   title,
+  description,
   extra,
+  className,
   children,
 }: {
   icon: typeof Crown;
   title: string;
+  description?: string;
   extra?: React.ReactNode;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-3 rounded-xl border border-border bg-card/60 p-4">
-      <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-primary" />
-        <h3 className="flex-1 text-sm font-semibold">{title}</h3>
+    <section
+      className={cn(
+        "flex flex-col gap-4 rounded-xl border border-border bg-card/60 p-5",
+        className,
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+          <Icon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          {description && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {description}
+            </p>
+          )}
+        </div>
         {extra}
       </div>
       {children}
@@ -42,32 +75,55 @@ function formatDate(ms: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function TaskChip({ done, label }: { done: boolean; label: string }) {
+function TaskRow({
+  icon: Icon,
+  label,
+  hint,
+  done,
+  progress,
+}: {
+  icon: typeof Crown;
+  label: string;
+  hint: string;
+  done: boolean;
+  progress?: string;
+}) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs",
-        done
-          ? "bg-emerald-500/15 text-emerald-500"
-          : "bg-secondary text-muted-foreground",
+    <li className="flex items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2.5">
+      <Icon
+        className={cn(
+          "h-4 w-4 shrink-0",
+          done ? "text-emerald-500" : "text-muted-foreground",
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm">{label}</p>
+        <p className="text-[11px] text-muted-foreground">{hint}</p>
+      </div>
+      {done ? (
+        <span className="inline-flex items-center gap-1 text-xs text-emerald-500">
+          <Check className="h-3.5 w-3.5" />
+          已完成
+        </span>
+      ) : (
+        <span className="text-xs text-muted-foreground">
+          {progress ?? "未完成"}
+        </span>
       )}
-    >
-      {done && <Check className="h-3 w-3" />}
-      {label}
-    </span>
+    </li>
   );
 }
 
 function LogList({ items }: { items: MemberLogItem[] }) {
   if (items.length === 0) {
-    return <p className="text-xs text-muted-foreground">暂无记录</p>;
+    return <p className="text-xs text-muted-foreground">近期没有变动</p>;
   }
   return (
     <ul className="max-h-72 divide-y divide-border overflow-y-auto text-xs">
       {items.map((item, index) => (
         <li
           key={`${item.time}-${index}`}
-          className="flex items-center gap-3 py-1.5"
+          className="flex items-center gap-3 py-2"
         >
           <span className="w-36 shrink-0 text-muted-foreground">
             {item.time}
@@ -88,7 +144,7 @@ function LogList({ items }: { items: MemberLogItem[] }) {
 }
 
 export function MyAccountPanel() {
-  const [vip, setVip] = useState<VipCenterInfo | null>(null);
+  const [vip, setVip] = useState<VipCenterInfo | null | undefined>();
   const [privileges, setPrivileges] = useState<VipPrivilegeItem[]>([]);
   const [reward, setReward] = useState<ExpRewardStatus | null | undefined>();
   const [medals, setMedals] = useState<FansMedalItem[]>([]);
@@ -153,11 +209,13 @@ export function MyAccountPanel() {
     void task.then(setLogs).catch(() => setLogs([]));
   }, [logTab]);
 
-  const vipLabel = !vip?.active
-    ? "未开通大会员"
-    : vip.vipType === 2
-      ? "年度大会员"
-      : "大会员";
+  const vipActive = Boolean(vip?.active);
+  const todayExp = reward
+    ? (reward.login ? 5 : 0) +
+      (reward.watch ? 5 : 0) +
+      (reward.share ? 5 : 0) +
+      Math.min(reward.coinExp, COIN_EXP_LIMIT)
+    : 0;
 
   return (
     <div className="space-y-4">
@@ -169,101 +227,176 @@ export function MyAccountPanel() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Section
-          icon={Crown}
-          title="大会员"
-          extra={
-            vip?.active ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy === "vip-exp"}
-                onClick={() =>
-                  void run("vip-exp", () =>
-                    window.biliDesk.bili.claimVipExperience(),
-                  )
-                }
-              >
-                {busy === "vip-exp" && (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                )}
-                领每日经验
-              </Button>
-            ) : null
-          }
+          icon={Sparkles}
+          title="今日经验"
+          description="每天最多 65 经验，用来提升账号等级"
         >
-          <p className="text-sm">
-            <span className="font-medium text-[#fb7299]">{vipLabel}</span>
-            {vip?.active && (
-              <span className="ml-2 text-xs text-muted-foreground">
-                到期 {formatDate(vip.dueDate)}
-              </span>
-            )}
-          </p>
-          {privileges.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {privileges.map((item) => (
-                <button
-                  key={item.type}
-                  type="button"
-                  disabled={item.received || busy === `pri-${item.type}`}
-                  className={cn(
-                    "rounded-full px-2.5 py-1 text-xs transition-colors",
-                    item.received
-                      ? "bg-secondary text-muted-foreground"
-                      : "bg-primary/15 text-primary hover:bg-primary/25",
-                  )}
-                  onClick={() =>
-                    void run(`pri-${item.type}`, async () => {
-                      await window.biliDesk.bili.receiveVipPrivilege(item.type);
-                      setPrivileges((prev) =>
-                        prev.map((entry) =>
-                          entry.type === item.type
-                            ? { ...entry, received: true }
-                            : entry,
-                        ),
-                      );
-                      return `已领取${item.name}`;
-                    })
-                  }
-                >
-                  {item.received ? `${item.name} · 已领` : `领取${item.name}`}
-                </button>
-              ))}
-            </div>
+          {reward ? (
+            <>
+              <div className="space-y-2">
+                <p className="text-sm">
+                  <span className="text-2xl font-semibold text-primary">
+                    {todayExp}
+                  </span>
+                  <span className="ml-1 text-muted-foreground">
+                    / {DAILY_EXP_LIMIT}
+                  </span>
+                </p>
+                <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width]"
+                    style={{
+                      width: `${Math.min(100, (todayExp / DAILY_EXP_LIMIT) * 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              <ul className="space-y-2">
+                <TaskRow
+                  icon={LogIn}
+                  label="每日登录"
+                  hint="+5 经验"
+                  done={reward.login}
+                />
+                <TaskRow
+                  icon={PlayCircle}
+                  label="观看一个视频"
+                  hint="+5 经验"
+                  done={reward.watch}
+                />
+                <TaskRow
+                  icon={Share2}
+                  label="分享一个视频"
+                  hint="+5 经验"
+                  done={reward.share}
+                />
+                <TaskRow
+                  icon={Coins}
+                  label="给视频投币"
+                  hint="每枚 +10 经验，最多 50"
+                  done={reward.coinExp >= COIN_EXP_LIMIT}
+                  progress={`${reward.coinExp} / ${COIN_EXP_LIMIT}`}
+                />
+              </ul>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {reward === null ? "经验任务获取失败，稍后再试" : "加载中…"}
+            </p>
           )}
         </Section>
 
-        <Section icon={Sparkles} title="今日经验任务">
-          {reward ? (
-            <div className="flex flex-wrap gap-2">
-              <TaskChip done={reward.login} label="每日登录 +5" />
-              <TaskChip done={reward.watch} label="观看视频 +5" />
-              <TaskChip done={reward.share} label="分享视频 +5" />
-              <TaskChip
-                done={reward.coinExp >= 50}
-                label={`投币 ${reward.coinExp}/50`}
-              />
-            </div>
+        <Section
+          icon={Crown}
+          title="大会员福利"
+          description={
+            vip === undefined
+              ? "加载中…"
+              : vipActive
+                ? `${vip?.vipType === 2 ? "年度大会员" : "大会员"} · ${formatDate(vip?.dueDate ?? 0)} 到期`
+                : "未开通大会员"
+          }
+        >
+          {vipActive ? (
+            <>
+              <div className="flex items-center gap-3 rounded-lg bg-[#fb7299]/10 px-3 py-2.5">
+                <Sparkles className="h-4 w-4 shrink-0 text-[#fb7299]" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">每日大会员经验</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    每天可额外领取 +10 经验
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy === "vip-exp"}
+                  onClick={() =>
+                    void run("vip-exp", () =>
+                      window.biliDesk.bili.claimVipExperience(),
+                    )
+                  }
+                >
+                  {busy === "vip-exp" && (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  )}
+                  领取
+                </Button>
+              </div>
+              {privileges.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    每月福利券（每月 1 日刷新）
+                  </p>
+                  <ul className="grid gap-2 sm:grid-cols-2">
+                    {privileges.map((item) => (
+                      <li
+                        key={item.type}
+                        className="flex items-center gap-2 rounded-lg bg-secondary/40 px-3 py-2"
+                      >
+                        <Gift className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {item.name}
+                        </span>
+                        {item.received ? (
+                          <span className="text-xs text-muted-foreground">
+                            已领
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2.5 text-xs"
+                            disabled={busy === `pri-${item.type}`}
+                            onClick={() =>
+                              void run(`pri-${item.type}`, async () => {
+                                await window.biliDesk.bili.receiveVipPrivilege(
+                                  item.type,
+                                );
+                                setPrivileges((prev) =>
+                                  prev.map((entry) =>
+                                    entry.type === item.type
+                                      ? { ...entry, received: true }
+                                      : entry,
+                                  ),
+                                );
+                                return `已领取${item.name}`;
+                              })
+                            }
+                          >
+                            领取
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              {reward === null ? "经验任务获取失败" : "加载中…"}
-            </p>
+            vip !== undefined && (
+              <p className="rounded-lg bg-secondary/40 px-3 py-3 text-xs leading-relaxed text-muted-foreground">
+                开通大会员后，这里可以一键领取每日 +10 经验，以及每月的 B
+                币券、会员购优惠券、装扮体验卡等福利。
+              </p>
+            )
           )}
         </Section>
       </div>
 
       <Section
-        icon={Medal}
+        icon={History}
         title="硬币 / 经验记录"
+        description="近期每一笔硬币和经验的变动"
         extra={
-          <div className="flex gap-1 text-xs">
+          <div className="flex gap-1 rounded-full bg-secondary/50 p-0.5 text-xs">
             {(["coin", "exp"] as const).map((key) => (
               <button
                 key={key}
                 type="button"
                 className={cn(
-                  "rounded-full px-2.5 py-0.5",
+                  "rounded-full px-3 py-1",
                   logTab === key
                     ? "bg-primary/15 text-primary"
                     : "text-muted-foreground hover:text-foreground",
@@ -283,7 +416,11 @@ export function MyAccountPanel() {
         )}
       </Section>
 
-      <Section icon={Medal} title={`粉丝勋章（${medals.length}）`}>
+      <Section
+        icon={Medal}
+        title={`粉丝勋章（${medals.length}）`}
+        description="佩戴后会显示在直播间弹幕和评论区昵称旁"
+      >
         {medals.length === 0 ? (
           <p className="text-xs text-muted-foreground">还没有粉丝勋章</p>
         ) : (

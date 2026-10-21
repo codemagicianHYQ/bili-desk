@@ -21,7 +21,7 @@ export function SpaceTabBar<T extends string>({
   return (
     <div
       className={cn(
-        "scrollbar-overlay flex items-end gap-8 overflow-x-auto border-b border-border",
+        "scrollbar-none flex items-end gap-8 overflow-x-auto overflow-y-hidden border-b border-border",
         className,
       )}
     >
@@ -47,7 +47,7 @@ export function SpaceTabBar<T extends string>({
             <span
               aria-hidden
               className={cn(
-                "absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary transition-opacity",
+                "absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary transition-opacity",
                 active ? "opacity-100" : "opacity-0",
               )}
             />

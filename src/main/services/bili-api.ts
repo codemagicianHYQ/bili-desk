@@ -2757,14 +2757,18 @@ class BiliApiService {
     const list = Array.isArray(data.list)
       ? (data.list as Record<string, unknown>[])
       : [];
-    return list.map((item) => {
+    return list.flatMap((item) => {
       const type = Number(item.type) || 0;
-      return {
-        type,
-        name: BiliApiService.VIP_PRIVILEGE_NAMES[type] ?? `权益 ${type}`,
-        received: Number(item.state) === 1,
-        expireTime: Number(item.expire_time ?? item.period_end_unix) || 0,
-      };
+      const name = BiliApiService.VIP_PRIVILEGE_NAMES[type];
+      if (!name) return [];
+      return [
+        {
+          type,
+          name,
+          received: Number(item.state) === 1,
+          expireTime: Number(item.expire_time ?? item.period_end_unix) || 0,
+        },
+      ];
     });
   }
 
