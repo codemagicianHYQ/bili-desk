@@ -53,6 +53,100 @@ export interface VideoAiSummary {
   outline: VideoAiOutlineSection[];
 }
 
+export interface MentionSuggestItem {
+  mid: number;
+  name: string;
+  face: string;
+  fans: number;
+  /** 关注的人 / 其他 */
+  followed: boolean;
+}
+
+/** 进度条预览图：B 站雪碧图，每张 column × row 帧 */
+export interface VideoSnapshot {
+  images: string[];
+  column: number;
+  row: number;
+  frameWidth: number;
+  frameHeight: number;
+  frameCount: number;
+}
+
+/** 同步到账号的网页弹幕设置（/x/v2/dm/web/config） */
+export interface DanmakuCloudConfig {
+  visible: boolean;
+  blockScroll: boolean;
+  blockTop: boolean;
+  blockBottom: boolean;
+  opacity: number;
+  /** 弹幕区域百分比：25 / 50 / 75 / 100 */
+  area: number;
+  /** 0.4 ~ 1.6 */
+  speedPlus: number;
+  /** 0.4 ~ 1.6 */
+  fontScale: number;
+  speedSync: boolean;
+}
+
+export interface VipCenterInfo {
+  /** 0 无，1 月度，2 年度 */
+  vipType: number;
+  active: boolean;
+  /** 毫秒时间戳 */
+  dueDate: number;
+}
+
+export interface VipPrivilegeItem {
+  type: number;
+  name: string;
+  received: boolean;
+  /** 秒级时间戳，0 表示无 */
+  expireTime: number;
+}
+
+/** 每日经验任务完成情况 */
+export interface ExpRewardStatus {
+  login: boolean;
+  watch: boolean;
+  share: boolean;
+  /** 今日投币已得经验 0 ~ 50 */
+  coinExp: number;
+}
+
+export interface MemberLogItem {
+  time: string;
+  delta: number;
+  reason: string;
+}
+
+export interface LiveSignInfo {
+  signed: boolean;
+  text: string;
+  days: number;
+}
+
+export interface FansMedalItem {
+  medalId: number;
+  name: string;
+  level: number;
+  intimacy: number;
+  nextIntimacy: number;
+  todayFeed: number;
+  dayLimit: number;
+  wearing: boolean;
+  upMid: number;
+  upName: string;
+  upFace: string;
+  roomId: number;
+  living: boolean;
+}
+
+export interface FansMedalPage {
+  list: FansMedalItem[];
+  page: number;
+  hasMore: boolean;
+}
+
 export type VideoTagKind = "normal" | "topic" | "channel" | "bgm";
 
 /** 稿件标签（官网简介下方胶囊） */
@@ -1693,6 +1787,22 @@ export interface BiliDeskApi {
       upMid: number,
     ) => Promise<VideoAiSummary | null>;
     dislikeRecommend: (payload: RecommendDislikePayload) => Promise<void>;
+    getMentionSuggest: (keyword: string) => Promise<MentionSuggestItem[]>;
+    getDanmakuHistoryDates: (cid: number, month: string) => Promise<string[]>;
+    getDanmakuHistory: (cid: number, date: string) => Promise<DanmakuItem[]>;
+    syncDanmakuConfig: (config: DanmakuCloudConfig) => Promise<void>;
+    getVideoSnapshot: (bvid: string, cid: number) => Promise<VideoSnapshot | null>;
+    getVipCenter: () => Promise<VipCenterInfo>;
+    claimVipExperience: () => Promise<string>;
+    getVipPrivileges: () => Promise<VipPrivilegeItem[]>;
+    receiveVipPrivilege: (type: number) => Promise<void>;
+    getExpReward: () => Promise<ExpRewardStatus>;
+    getCoinLog: () => Promise<MemberLogItem[]>;
+    getExpLog: () => Promise<MemberLogItem[]>;
+    getLiveSignInfo: () => Promise<LiveSignInfo>;
+    doLiveSign: () => Promise<string>;
+    getFansMedals: (page?: number) => Promise<FansMedalPage>;
+    wearFansMedal: (medalId: number | null) => Promise<void>;
     likeVideo: (aid: number, like: boolean) => Promise<void>;
     dislikeVideo: (aid: number, dislike: boolean) => Promise<void>;
     addCoin: (payload: AddCoinPayload) => Promise<void>;

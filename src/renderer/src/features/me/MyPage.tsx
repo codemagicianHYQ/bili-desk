@@ -16,8 +16,10 @@ import { MyCollectionsPanel } from "./MyCollectionsPanel";
 import { MyDynamicsPanel } from "./MyDynamicsPanel";
 import { MyFavoritesPanel } from "./MyFavoritesPanel";
 import { MyFollowPanel } from "./MyFollowPanel";
+import { MyAccountPanel } from "./MyAccountPanel";
 import {
   Bookmark,
+  Crown,
   GraduationCap,
   Home,
   Layers,
@@ -39,7 +41,8 @@ type MyTab =
   | "favorites"
   | "follow"
   | "cheese"
-  | "upower";
+  | "upower"
+  | "account";
 
 function normalizeUpVideosPage(data: unknown): {
   videos: VideoItem[];
@@ -71,6 +74,7 @@ const TABS: Array<{ id: MyTab; label: string; icon: typeof Home }> = [
   { id: "follow", label: "追更", icon: RefreshCw },
   { id: "cheese", label: "课堂", icon: GraduationCap },
   { id: "upower", label: "充电", icon: Zap },
+  { id: "account", label: "账号", icon: Crown },
 ];
 
 export function MyPage() {
@@ -572,6 +576,12 @@ export function MyPage() {
           {visitedTabs.has("favorites") && (
             <div className={tab === "favorites" ? undefined : "hidden"}>
               <MyFavoritesPanel />
+            </div>
+          )}
+
+          {visitedTabs.has("account") && (
+            <div className={tab === "account" ? undefined : "hidden"}>
+              <MyAccountPanel />
             </div>
           )}
         </div>

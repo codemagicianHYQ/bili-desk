@@ -8,7 +8,7 @@ import { midHashOf } from "@/components/video/danmaku-match";
 import { useAppStore } from "@/stores/app-store";
 import { Button } from "@/components/ui/button";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
-import { formatDuration } from "@/lib/utils";
+import { cn, formatDuration } from "@/lib/utils";
 import { Loader2, X } from "lucide-react";
 
 export function VideoWatchExtras({
@@ -36,6 +36,14 @@ export function VideoWatchExtras({
   const [danmakuLoading, setDanmakuLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState("");
+  const [historyMonth, setHistoryMonth] = useState(() =>
+    new Date().toISOString().slice(0, 7),
+  );
+  const [historyDates, setHistoryDates] = useState<string[]>([]);
+  const [historyDate, setHistoryDate] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [latestDanmaku, setLatestDanmaku] = useState<DanmakuItem[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,12 +99,58 @@ export function VideoWatchExtras({
     if (danmaku.length > 0) return;
     setDanmakuLoading(true);
     try {
-      setDanmaku(await window.biliDesk.bili.getDanmakuList(cid));
+      const list = await window.biliDesk.bili.getDanmakuList(cid);
+      setDanmaku(list);
+      setLatestDanmaku(list);
     } catch (err) {
       setFilterError(extractIpcErrorMessage(err) || "弹幕加载失败");
     } finally {
       setDanmakuLoading(false);
     }
+  };
+
+  useEffect(() => {
+    setHistoryDates([]);
+    setHistoryDate("");
+    setHistoryError("");
+    setLatestDanmaku([]);
+    setDanmaku([]);
+    setDanmakuOpen(false);
+  }, [cid]);
+
+  const loadHistoryMonth = async (month: string) => {
+    setHistoryMonth(month);
+    setHistoryDates([]);
+    setHistoryError("");
+    if (!month) return;
+    try {
+      const dates = await window.biliDesk.bili.getDanmakuHistoryDates(
+        cid,
+        month,
+      );
+      setHistoryDates(dates);
+      if (dates.length === 0) setHistoryError("这个月没有历史弹幕");
+    } catch (err) {
+      setHistoryError(extractIpcErrorMessage(err) || "历史弹幕日期获取失败");
+    }
+  };
+
+  const loadHistoryDate = async (date: string) => {
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      setDanmaku(await window.biliDesk.bili.getDanmakuHistory(cid, date));
+      setHistoryDate(date);
+    } catch (err) {
+      setHistoryError(extractIpcErrorMessage(err) || "历史弹幕获取失败");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const backToLatest = () => {
+    setHistoryDate("");
+    setDanmaku(latestDanmaku);
   };
 
   return (
@@ -161,7 +215,7 @@ export function VideoWatchExtras({
             variant="ghost"
             onClick={() => void loadDanmaku()}
           >
-            {danmakuOpen ? "收起弹幕" : "点赞 / 举报"}
+            {danmakuOpen ? "收起弹幕" : "弹幕列表 / 历史弹幕"}
           </Button>
         </div>
         {filters.length > 0 && (
@@ -217,6 +271,67 @@ export function VideoWatchExtras({
               placeholder="搜索这条视频的弹幕"
               className="mb-2 h-8 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none"
             />
+            <div className="mb-2 space-y-1.5 rounded-lg bg-secondary/40 p-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>历史弹幕</span>
+                <input
+                  type="month"
+                  value={historyMonth}
+                  max={new Date().toISOString().slice(0, 7)}
+                  onChange={(event) =>
+                    void loadHistoryMonth(event.target.value)
+                  }
+                  className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+                />
+                {historyDates.length === 0 && !historyError && (
+                  <button
+                    type="button"
+                    className="text-primary hover:underline"
+                    onClick={() => void loadHistoryMonth(historyMonth)}
+                  >
+                    查看有记录的日期
+                  </button>
+                )}
+                {historyDate && (
+                  <>
+                    <span className="text-foreground">
+                      正在看 {historyDate} 的弹幕
+                    </span>
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={backToLatest}
+                    >
+                      回到最新
+                    </button>
+                  </>
+                )}
+                {historyLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+              </div>
+              {historyDates.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {historyDates.map((date) => (
+                    <button
+                      key={date}
+                      type="button"
+                      disabled={historyLoading}
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs transition-colors",
+                        date === historyDate
+                          ? "bg-primary/20 text-primary"
+                          : "bg-background text-muted-foreground hover:text-foreground",
+                      )}
+                      onClick={() => void loadHistoryDate(date)}
+                    >
+                      {date.slice(5)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {historyError && (
+                <p className="text-xs text-muted-foreground">{historyError}</p>
+              )}
+            </div>
             {danmakuLoading ? (
               <p className="flex items-center text-xs text-muted-foreground">
                 <Loader2 className="mr-1 h-3 w-3 animate-spin" />

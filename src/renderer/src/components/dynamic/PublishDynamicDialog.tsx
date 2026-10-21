@@ -1,9 +1,17 @@
-import { useEffect, useState } from "react";
-import type { DynamicMention, DynamicPublishOptions, TopicSuggest } from "@shared/types";
+import { useEffect, useRef, useState } from "react";
+import type {
+  DynamicMention,
+  DynamicPublishOptions,
+  MentionSuggestItem,
+  TopicSuggest,
+} from "@shared/types";
 import { CommentImagePicker } from "@/components/comment/CommentImagePicker";
 import { imageFilesToPayload } from "@/components/comment/comment-images";
 import { Button } from "@/components/ui/button";
-import { OverlayPortal, APP_OVERLAY_ZCLASS } from "@/components/ui/overlay-portal";
+import {
+  OverlayPortal,
+  APP_OVERLAY_ZCLASS,
+} from "@/components/ui/overlay-portal";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +50,41 @@ export function PublishDynamicDialog({
   const [lotteryFollow, setLotteryFollow] = useState(true);
   const [reserveTitle, setReserveTitle] = useState("");
   const [reserveTime, setReserveTime] = useState("");
+  /** 正文里光标前正在输入的「@xxx」 */
+  const [inlineMention, setInlineMention] = useState<{
+    start: number;
+    end: number;
+    term: string;
+  } | null>(null);
+  const [inlineHits, setInlineHits] = useState<MentionSuggestItem[]>([]);
+  const [inlineIndex, setInlineIndex] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const inlineTerm = inlineMention ? inlineMention.term : null;
+
+  useEffect(() => {
+    if (inlineTerm == null) {
+      setInlineHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void window.biliDesk.bili
+        .getMentionSuggest(inlineTerm)
+        .then((list) => {
+          if (cancelled) return;
+          setInlineHits(list);
+          setInlineIndex(0);
+        })
+        .catch(() => {
+          if (!cancelled) setInlineHits([]);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [inlineTerm]);
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +107,7 @@ export function PublishDynamicDialog({
     setLotteryFollow(true);
     setReserveTitle("");
     setReserveTime("");
+    setInlineMention(null);
   }, [open, editId, initialText]);
 
   if (!open) return null;
@@ -73,10 +117,50 @@ export function PublishDynamicDialog({
   const searchMention = async () => {
     const term = mentionQuery.trim();
     if (!term) return;
-    const page = await window.biliDesk.bili.searchUsers(term, 1);
+    const list = await window.biliDesk.bili.getMentionSuggest(term);
     setMentionHits(
-      page.users.slice(0, 6).map((user) => ({ mid: user.mid, name: user.name })),
+      list.slice(0, 8).map((user) => ({ mid: user.mid, name: user.name })),
     );
+  };
+
+  const addMention = (user: DynamicMention) => {
+    setMentions((prev) =>
+      prev.some((item) => item.mid === user.mid) ? prev : [...prev, user],
+    );
+  };
+
+  const detectInlineMention = (value: string, caret: number) => {
+    const before = value.slice(0, caret);
+    const match = before.match(/@([^\s@]{0,20})$/);
+    if (!match) {
+      setInlineMention(null);
+      return;
+    }
+    setInlineMention({
+      start: caret - match[0].length,
+      end: caret,
+      term: match[1],
+    });
+  };
+
+  const pickInlineMention = (user: MentionSuggestItem) => {
+    if (!inlineMention) return;
+    const insert = `@${user.name} `;
+    const next = (
+      text.slice(0, inlineMention.start) +
+      insert +
+      text.slice(inlineMention.end)
+    ).slice(0, 1000);
+    const caret = inlineMention.start + insert.length;
+    setText(next);
+    addMention({ mid: user.mid, name: user.name });
+    setInlineMention(null);
+    window.requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
   };
 
   const searchTopic = async () => {
@@ -139,7 +223,9 @@ export function PublishDynamicDialog({
       }
       onClose();
     } catch (err) {
-      setError(extractIpcErrorMessage(err) || (editing ? "保存失败" : "发布失败"));
+      setError(
+        extractIpcErrorMessage(err) || (editing ? "保存失败" : "发布失败"),
+      );
     } finally {
       setBusy(false);
     }
@@ -163,13 +249,85 @@ export function PublishDynamicDialog({
           <h2 className="text-base font-semibold">
             {editing ? "编辑动态" : "发动态"}
           </h2>
-          <textarea
-            value={text}
-            onChange={(event) => setText(event.target.value.slice(0, 1000))}
-            rows={5}
-            placeholder="分享新鲜事，@ 和 #话题# 会按你选中的人、话题发出"
-            className="mt-3 w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
-          />
+          <div className="relative mt-3">
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(event) => {
+                const value = event.target.value.slice(0, 1000);
+                setText(value);
+                detectInlineMention(value, event.target.selectionStart);
+              }}
+              onKeyDown={(event) => {
+                if (!inlineMention || inlineHits.length === 0) return;
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setInlineIndex((prev) => (prev + 1) % inlineHits.length);
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setInlineIndex(
+                    (prev) =>
+                      (prev - 1 + inlineHits.length) % inlineHits.length,
+                  );
+                } else if (event.key === "Enter" || event.key === "Tab") {
+                  event.preventDefault();
+                  const hit = inlineHits[inlineIndex];
+                  if (hit) pickInlineMention(hit);
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setInlineMention(null);
+                }
+              }}
+              onBlur={() =>
+                window.setTimeout(() => setInlineMention(null), 150)
+              }
+              rows={5}
+              placeholder="分享新鲜事，输入 @ 可以提到别人，#话题# 按你选中的话题发出"
+              className="w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+            />
+            {inlineMention && inlineHits.length > 0 && (
+              <ul className="absolute left-2 right-2 top-full z-10 mt-1 max-h-60 overflow-y-auto rounded-xl bg-card py-1 shadow-2xl ring-1 ring-border">
+                {inlineHits.map((user, index) => (
+                  <li key={user.mid}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
+                        index === inlineIndex
+                          ? "bg-primary/15"
+                          : "hover:bg-secondary",
+                      )}
+                      onMouseEnter={() => setInlineIndex(index)}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        pickInlineMention(user);
+                      }}
+                    >
+                      {user.face ? (
+                        <img
+                          src={user.face}
+                          alt=""
+                          referrerPolicy="no-referrer"
+                          className="h-6 w-6 shrink-0 rounded-full object-cover"
+                        />
+                      ) : (
+                        <span className="h-6 w-6 shrink-0 rounded-full bg-secondary" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">
+                        {user.name}
+                      </span>
+                      {user.followed && (
+                        <span className="shrink-0 text-[10px] text-primary">
+                          已关注
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div className="mt-3">
             <CommentImagePicker
               files={files}
@@ -179,7 +337,9 @@ export function PublishDynamicDialog({
             />
             <p className="mt-1 text-xs text-muted-foreground">
               {text.trim().length}/1000 · 最多 9 张图
-              {keepImages.length > 0 ? ` · 保留原图 ${keepImages.length} 张` : ""}
+              {keepImages.length > 0
+                ? ` · 保留原图 ${keepImages.length} 张`
+                : ""}
             </p>
           </div>
           <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
@@ -226,7 +386,12 @@ export function PublishDynamicDialog({
                     placeholder="搜索要 @ 的人"
                     className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-sm"
                   />
-                  <Button type="button" size="sm" variant="outline" onClick={() => void searchMention()}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void searchMention()}
+                  >
                     搜索
                   </Button>
                 </div>
@@ -237,11 +402,7 @@ export function PublishDynamicDialog({
                       type="button"
                       className="rounded-full bg-secondary px-2 py-0.5 text-xs"
                       onClick={() => {
-                        setMentions((prev) =>
-                          prev.some((item) => item.mid === user.mid)
-                            ? prev
-                            : [...prev, user],
-                        );
+                        addMention(user);
                         setText((prev) => `${prev}@${user.name} `);
                       }}
                     >
@@ -258,7 +419,12 @@ export function PublishDynamicDialog({
                     placeholder="搜索话题"
                     className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-sm"
                   />
-                  <Button type="button" size="sm" variant="outline" onClick={() => void searchTopic()}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void searchTopic()}
+                  >
                     搜索
                   </Button>
                 </div>
@@ -312,7 +478,9 @@ export function PublishDynamicDialog({
                     <input
                       type="checkbox"
                       checked={lotteryFollow}
-                      onChange={(event) => setLotteryFollow(event.target.checked)}
+                      onChange={(event) =>
+                        setLotteryFollow(event.target.checked)
+                      }
                     />
                     抽奖需要关注
                   </label>

@@ -40,6 +40,10 @@ import {
 import { BILI_AUTO_QN } from "@shared/utils/bilibili-quality";
 import { danmakuBlocked } from "@/components/video/danmaku-match";
 import {
+  loadPlayerThumbnails,
+  type PlayerThumbnails,
+} from "@/components/video/video-snapshot";
+import {
   clearPlaybackProgress,
   getPlaybackProgress,
   savePlaybackProgress,
@@ -612,6 +616,12 @@ export function VideoPlayer({
     });
 
     artRef.current = art;
+    let disposed = false;
+    void loadPlayerThumbnails(bvid, cid).then((thumbnails) => {
+      if (disposed || !thumbnails) return;
+      (art as unknown as { thumbnails: PlayerThumbnails }).thumbnails =
+        thumbnails;
+    });
     const applySavedPlayback = () => {
       const rate = readPlaybackRate();
       if (Math.abs((art.playbackRate || 1) - rate) > 0.001) {
@@ -641,6 +651,7 @@ export function VideoPlayer({
     }
 
     return () => {
+      disposed = true;
       unbindHotkeys();
       unbindResize();
       window.clearTimeout(stallTimer);

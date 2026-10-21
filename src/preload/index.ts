@@ -10,6 +10,7 @@ import type {
   SearchLiveOrder,
   AddCoinPayload,
   RecommendDislikePayload,
+  DanmakuCloudConfig,
   SendDanmakuPayload,
   WatchHeartbeatPayload,
   Theme,
@@ -215,6 +216,30 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_VIDEO_AI_SUMMARY, bvid, cid, upMid),
     dislikeRecommend: (payload: RecommendDislikePayload) =>
       ipcRenderer.invoke(IPC.BILI_RECOMMEND_DISLIKE, payload),
+    getMentionSuggest: (keyword: string) =>
+      ipcRenderer.invoke(IPC.BILI_MENTION_SUGGEST, keyword),
+    getDanmakuHistoryDates: (cid: number, month: string) =>
+      ipcRenderer.invoke(IPC.BILI_DM_HISTORY_DATES, cid, month),
+    getDanmakuHistory: (cid: number, date: string) =>
+      ipcRenderer.invoke(IPC.BILI_DM_HISTORY, cid, date),
+    syncDanmakuConfig: (config: DanmakuCloudConfig) =>
+      ipcRenderer.invoke(IPC.BILI_DM_CLOUD_CONFIG, config),
+    getVideoSnapshot: (bvid: string, cid: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIDEO_SNAPSHOT, bvid, cid),
+    getVipCenter: () => ipcRenderer.invoke(IPC.BILI_VIP_CENTER),
+    claimVipExperience: () => ipcRenderer.invoke(IPC.BILI_VIP_EXPERIENCE),
+    getVipPrivileges: () => ipcRenderer.invoke(IPC.BILI_VIP_PRIVILEGES),
+    receiveVipPrivilege: (type: number) =>
+      ipcRenderer.invoke(IPC.BILI_VIP_PRIVILEGE_RECEIVE, type),
+    getExpReward: () => ipcRenderer.invoke(IPC.BILI_EXP_REWARD),
+    getCoinLog: () => ipcRenderer.invoke(IPC.BILI_COIN_LOG),
+    getExpLog: () => ipcRenderer.invoke(IPC.BILI_EXP_LOG),
+    getLiveSignInfo: () => ipcRenderer.invoke(IPC.BILI_LIVE_SIGN_INFO),
+    doLiveSign: () => ipcRenderer.invoke(IPC.BILI_LIVE_SIGN),
+    getFansMedals: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_FANS_MEDALS, page ?? 1),
+    wearFansMedal: (medalId: number | null) =>
+      ipcRenderer.invoke(IPC.BILI_FANS_MEDAL_WEAR, medalId),
     likeVideo: (aid: number, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_VIDEO_LIKE, aid, like),
     dislikeVideo: (aid: number, dislike: boolean) =>

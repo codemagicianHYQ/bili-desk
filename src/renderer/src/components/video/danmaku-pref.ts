@@ -1,3 +1,5 @@
+import type { DanmakuCloudConfig } from "@shared/types";
+
 const STORAGE_KEY = "bilidesk:danmaku-pref";
 
 export interface DanmakuPref {
@@ -113,6 +115,63 @@ export function readDanmakuPref(): DanmakuPref {
   }
 }
 
+const CLOUD_SYNCED_KEY = "bilidesk:danmaku-cloud-synced";
+const CLOUD_SYNC_DELAY_MS = 3000;
+let cloudTimer = 0;
+
+/** margin 底部留白 → 官网「显示区域」百分比 */
+function marginToArea(margin: DanmakuPref["margin"]): number {
+  const bottom = margin[1];
+  if (typeof bottom === "string") {
+    const reserved = Number.parseFloat(bottom);
+    const area = 100 - reserved;
+    return [25, 50, 75, 100].reduce((best, value) =>
+      Math.abs(value - area) < Math.abs(best - area) ? value : best,
+    );
+  }
+  return 100;
+}
+
+export function toDanmakuCloudConfig(pref: DanmakuPref): DanmakuCloudConfig {
+  return {
+    visible: pref.visible,
+    blockScroll: !pref.modes.includes(0),
+    blockTop: !pref.modes.includes(1),
+    blockBottom: !pref.modes.includes(2),
+    opacity: pref.opacity,
+    area: marginToArea(pref.margin),
+    // speed 是弹幕停留秒数，越大越慢；默认 5 对应官网 1.0 倍
+    speedPlus: DEFAULT_DANMAKU_PREF.speed / pref.speed,
+    fontScale: pref.fontSize / DEFAULT_DANMAKU_PREF.fontSize,
+    speedSync: pref.synchronousPlayback,
+  };
+}
+
+function scheduleCloudSync(pref: DanmakuPref): void {
+  window.clearTimeout(cloudTimer);
+  cloudTimer = window.setTimeout(() => {
+    const config = toDanmakuCloudConfig(pref);
+    const serialized = JSON.stringify(config);
+    try {
+      if (localStorage.getItem(CLOUD_SYNCED_KEY) === serialized) return;
+    } catch {
+      // ignore
+    }
+    void window.biliDesk.bili
+      .syncDanmakuConfig(config)
+      .then(() => {
+        try {
+          localStorage.setItem(CLOUD_SYNCED_KEY, serialized);
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {
+        // 同步失败不影响本地设置，下次改动再试
+      });
+  }, CLOUD_SYNC_DELAY_MS);
+}
+
 export function flushDanmakuPref(): void {
   window.clearTimeout(writeTimer);
   writeTimer = 0;
@@ -122,6 +181,7 @@ export function flushDanmakuPref(): void {
   } catch {
     // ignore quota / private mode
   }
+  scheduleCloudSync(pending);
   pending = null;
 }
 

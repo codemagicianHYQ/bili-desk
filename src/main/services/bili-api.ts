@@ -73,6 +73,16 @@ import type {
   VideoAiOutlineSection,
   VideoAiOutlinePoint,
   RecommendDislikePayload,
+  MentionSuggestItem,
+  DanmakuCloudConfig,
+  VideoSnapshot,
+  VipCenterInfo,
+  VipPrivilegeItem,
+  ExpRewardStatus,
+  MemberLogItem,
+  LiveSignInfo,
+  FansMedalItem,
+  FansMedalPage,
   AddCoinPayload,
   WatchHeartbeatPayload,
   CommentItem,
@@ -503,7 +513,10 @@ class BiliApiService {
    */
   keepLoginFresh(): Promise<boolean> {
     if (this.loginRefreshTask) return this.loginRefreshTask;
-    if (Date.now() - this.lastLoginCheckAt < BiliApiService.LOGIN_CHECK_GAP_MS) {
+    if (
+      Date.now() - this.lastLoginCheckAt <
+      BiliApiService.LOGIN_CHECK_GAP_MS
+    ) {
       return Promise.resolve(false);
     }
     this.lastLoginCheckAt = Date.now();
@@ -2674,6 +2687,421 @@ class BiliApiService {
     if (res.data?.code !== 0) {
       throw new Error(formatBiliApiError(res.data, "反馈失败"));
     }
+  }
+
+  private requireLogin(action: string): string {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error(`请先登录后再${action}`);
+    return csrf;
+  }
+
+  private assertOk(
+    res: AxiosResponse,
+    fallback: string,
+  ): Record<string, unknown> {
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, fallback));
+    }
+    return (res.data?.data ?? {}) as Record<string, unknown>;
+  }
+
+  async getVipCenter(): Promise<VipCenterInfo> {
+    this.requireLogin("查看大会员");
+    const res = await this.client.get("/x/vip/web/user/info", {
+      validateStatus: () => true,
+    });
+    const data = this.assertOk(res, "大会员信息获取失败");
+    return {
+      vipType: Number(data.vip_type) || 0,
+      active: Number(data.vip_status) === 1,
+      dueDate: Number(data.vip_due_date) || 0,
+    };
+  }
+
+  /** 大会员每日 +10 经验，已领过时 B 站返回错误文案 */
+  async claimVipExperience(): Promise<string> {
+    const csrf = this.requireLogin("领取经验");
+    const res = await this.client.post(
+      "/x/vip/experience/add",
+      new URLSearchParams({ csrf }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://account.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+    this.assertOk(res, "领取大会员经验失败");
+    return "已领取今日大会员经验";
+  }
+
+  private static readonly VIP_PRIVILEGE_NAMES: Record<number, string> = {
+    1: "B 币券",
+    2: "会员购优惠券",
+    3: "漫画福利券",
+    4: "会员购包邮券",
+    5: "漫画商城优惠券",
+    6: "装扮体验卡",
+    7: "课堂优惠券",
+  };
+
+  async getVipPrivileges(): Promise<VipPrivilegeItem[]> {
+    this.requireLogin("查看大会员权益");
+    const res = await this.client.get("/x/vip/privilege/my", {
+      validateStatus: () => true,
+    });
+    const data = this.assertOk(res, "大会员权益获取失败");
+    const list = Array.isArray(data.list)
+      ? (data.list as Record<string, unknown>[])
+      : [];
+    return list.map((item) => {
+      const type = Number(item.type) || 0;
+      return {
+        type,
+        name: BiliApiService.VIP_PRIVILEGE_NAMES[type] ?? `权益 ${type}`,
+        received: Number(item.state) === 1,
+        expireTime: Number(item.expire_time ?? item.period_end_unix) || 0,
+      };
+    });
+  }
+
+  async receiveVipPrivilege(type: number): Promise<void> {
+    const csrf = this.requireLogin("领取权益");
+    const res = await this.client.post(
+      "/x/vip/privilege/receive",
+      new URLSearchParams({ type: String(type), csrf }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://account.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+    this.assertOk(res, "领取权益失败");
+  }
+
+  async getExpReward(): Promise<ExpRewardStatus> {
+    this.requireLogin("查看经验任务");
+    const res = await this.client.get("/x/member/web/exp/reward", {
+      validateStatus: () => true,
+    });
+    const data = this.assertOk(res, "经验任务获取失败");
+    return {
+      login: Boolean(data.login),
+      watch: Boolean(data.watch),
+      share: Boolean(data.share),
+      coinExp: Number(data.coins) || 0,
+    };
+  }
+
+  private async getMemberLog(
+    path: string,
+    fallback: string,
+  ): Promise<MemberLogItem[]> {
+    this.requireLogin("查看记录");
+    const res = await this.client.get(path, {
+      params: { jsonp: "jsonp" },
+      headers: { Referer: "https://account.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    const data = this.assertOk(res, fallback);
+    const list = Array.isArray(data.list)
+      ? (data.list as Record<string, unknown>[])
+      : [];
+    return list.map((item) => ({
+      time: String(item.time ?? ""),
+      delta: Number(item.delta) || 0,
+      reason: String(item.reason ?? "").trim(),
+    }));
+  }
+
+  getCoinLog(): Promise<MemberLogItem[]> {
+    return this.getMemberLog("/x/member/web/coin/log", "硬币记录获取失败");
+  }
+
+  getExpLog(): Promise<MemberLogItem[]> {
+    return this.getMemberLog("/x/member/web/exp/log", "经验记录获取失败");
+  }
+
+  async getLiveSignInfo(): Promise<LiveSignInfo> {
+    this.requireLogin("查看直播签到");
+    const res = await this.liveClient.get(
+      "/xlive/web-ucenter/v1/sign/WebGetSignInfo",
+      { validateStatus: () => true },
+    );
+    const data = this.assertOk(res, "直播签到信息获取失败");
+    return {
+      signed: Number(data.status) === 1,
+      text: String(data.text ?? data.specialText ?? "").trim(),
+      days: Number(data.hadSignDays) || 0,
+    };
+  }
+
+  async doLiveSign(): Promise<string> {
+    this.requireLogin("直播签到");
+    const res = await this.liveClient.get("/xlive/web-ucenter/v1/sign/DoSign", {
+      validateStatus: () => true,
+    });
+    const data = this.assertOk(res, "直播签到失败");
+    return String(data.text ?? "").trim() || "签到成功";
+  }
+
+  async getFansMedals(page = 1): Promise<FansMedalPage> {
+    this.requireLogin("查看粉丝勋章");
+    const pn = Math.max(1, page);
+    const res = await this.liveClient.get(
+      "/xlive/app-ucenter/v1/fansMedal/panel",
+      { params: { page: pn, page_size: 50 }, validateStatus: () => true },
+    );
+    const data = this.assertOk(res, "粉丝勋章获取失败");
+    const rows = [
+      ...(pn === 1 && Array.isArray(data.special_list)
+        ? (data.special_list as Record<string, unknown>[])
+        : []),
+      ...(Array.isArray(data.list)
+        ? (data.list as Record<string, unknown>[])
+        : []),
+    ];
+    const seen = new Set<number>();
+    const list: FansMedalItem[] = [];
+    for (const row of rows) {
+      const medal = (row.medal ?? {}) as Record<string, unknown>;
+      const anchor = (row.anchor_info ?? {}) as Record<string, unknown>;
+      const room = (row.room_info ?? {}) as Record<string, unknown>;
+      const medalId = Number(medal.medal_id) || 0;
+      if (!medalId || seen.has(medalId)) continue;
+      seen.add(medalId);
+      list.push({
+        medalId,
+        name: String(medal.medal_name ?? "").trim(),
+        level: Number(medal.level) || 0,
+        intimacy: Number(medal.intimacy) || 0,
+        nextIntimacy: Number(medal.next_intimacy) || 0,
+        todayFeed: Number(medal.today_feed) || 0,
+        dayLimit: Number(medal.day_limit) || 0,
+        wearing: Number(medal.wearing_status) === 1,
+        upMid: Number(medal.target_id) || 0,
+        upName: String(anchor.nick_name ?? "").trim(),
+        upFace: this.normalizeVideoCoverUrl(String(anchor.avatar ?? "")),
+        roomId: Number(room.room_id) || 0,
+        living: Number(room.living_status) === 1,
+      });
+    }
+    const pageInfo = (data.page_info ?? {}) as Record<string, unknown>;
+    const totalPage = Number(pageInfo.total_page) || 0;
+    return {
+      list,
+      page: pn,
+      hasMore: totalPage > 0 ? pn < totalPage : Boolean(pageInfo.has_more),
+    };
+  }
+
+  /** 传 null 表示摘下当前勋章 */
+  async wearFansMedal(medalId: number | null): Promise<void> {
+    const csrf = this.requireLogin("佩戴勋章");
+    const body = new URLSearchParams({ csrf_token: csrf, csrf });
+    if (medalId) body.set("medal_id", String(medalId));
+    const res = await this.liveClient.post(
+      medalId
+        ? "/xlive/web-room/v1/fansMedal/wear"
+        : "/xlive/web-room/v1/fansMedal/take_off",
+      body,
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        validateStatus: () => true,
+      },
+    );
+    this.assertOk(res, medalId ? "佩戴勋章失败" : "摘下勋章失败");
+  }
+
+  /** 发动态 @ 联想：官网同款，关注的人排前面 */
+  async getMentionSuggest(keyword: string): Promise<MentionSuggestItem[]> {
+    const term = keyword.trim();
+    const res = await this.client.get(
+      "/x/polymer/web-dynamic/v1/mention/search",
+      {
+        params: { keyword: term },
+        headers: { Referer: "https://t.bilibili.com/" },
+        validateStatus: () => true,
+      },
+    );
+    if (res.data?.code !== 0) {
+      if (!term) return [];
+      const page = await this.searchUsers(term, 1);
+      return page.users.slice(0, 10).map((user) => ({
+        mid: user.mid,
+        name: user.name,
+        face: user.face,
+        fans: user.fans,
+        followed: user.isFollowing,
+      }));
+    }
+
+    const groups = Array.isArray(res.data?.data?.groups)
+      ? (res.data.data.groups as Record<string, unknown>[])
+      : [];
+    const seen = new Set<number>();
+    const list: MentionSuggestItem[] = [];
+    for (const group of groups) {
+      const followed = Number(group.group_type) === 2;
+      const items = Array.isArray(group.items)
+        ? (group.items as Record<string, unknown>[])
+        : [];
+      for (const item of items) {
+        const mid = Number(item.uid ?? item.mid) || 0;
+        const name = String(item.name ?? item.uname ?? "").trim();
+        if (!mid || !name || seen.has(mid)) continue;
+        seen.add(mid);
+        list.push({
+          mid,
+          name,
+          face: this.normalizeVideoCoverUrl(String(item.face ?? "")),
+          fans: Number(item.fans) || 0,
+          followed,
+        });
+      }
+    }
+    return list.slice(0, 12);
+  }
+
+  /** 某月里有历史弹幕的日期（YYYY-MM-DD），需要登录 */
+  async getDanmakuHistoryDates(cid: number, month: string): Promise<string[]> {
+    if (!isLoggedIn()) throw new Error("历史弹幕需要登录后查看");
+    const res = await this.client.get("/x/v2/dm/history/index", {
+      params: { type: 1, oid: cid, month },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "历史弹幕日期获取失败"));
+    }
+    const list = res.data?.data;
+    return Array.isArray(list)
+      ? list.map((item) => String(item)).filter(Boolean)
+      : [];
+  }
+
+  /** 指定日期的历史弹幕快照，需要登录 */
+  async getDanmakuHistory(cid: number, date: string): Promise<DanmakuItem[]> {
+    if (!isLoggedIn()) throw new Error("历史弹幕需要登录后查看");
+    const res = await this.client.get("/x/v2/dm/history", {
+      params: { type: 1, oid: cid, date },
+      responseType: "text",
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    const text =
+      typeof res.data === "string" ? res.data : String(res.data ?? "");
+    if (text.trimStart().startsWith("{")) {
+      try {
+        throw new Error(
+          formatBiliApiError(JSON.parse(text), "历史弹幕获取失败"),
+        );
+      } catch (err) {
+        if (err instanceof SyntaxError) return [];
+        throw err;
+      }
+    }
+    return parseDanmakuXml(text);
+  }
+
+  /** 把播放器弹幕设置同步到账号（网页播放器配置），未登录静默跳过 */
+  async syncDanmakuConfig(config: DanmakuCloudConfig): Promise<void> {
+    const csrf = getCsrf();
+    if (!csrf) return;
+    const clampScale = (value: number) =>
+      Math.min(1.6, Math.max(0.4, Number(value) || 1)).toFixed(2);
+    const body = new URLSearchParams({
+      dm_switch: String(config.visible),
+      blockscroll: String(config.blockScroll),
+      blocktop: String(config.blockTop),
+      blockbottom: String(config.blockBottom),
+      opacity: Math.min(1, Math.max(0, config.opacity)).toFixed(2),
+      dmarea: String(config.area),
+      speedplus: clampScale(config.speedPlus),
+      fontsize: clampScale(config.fontScale),
+      speedsync: String(config.speedSync),
+      csrf,
+    });
+    const res = await this.client.post("/x/v2/dm/web/config", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "弹幕设置同步失败"));
+    }
+  }
+
+  /** 进度条悬停预览图；图片转成 data URL，渲染层才能拼接到同一张画布 */
+  async getVideoSnapshot(
+    bvid: string,
+    cid: number,
+  ): Promise<VideoSnapshot | null> {
+    await this.ensureBuvid3();
+    const referer = `https://www.bilibili.com/video/${bvid}`;
+    const res = await this.client.get("/x/player/videoshot", {
+      params: { bvid, cid, index: 1 },
+      headers: { Referer: referer },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) return null;
+
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const urls = (Array.isArray(data.image) ? data.image : [])
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean)
+      .slice(0, 30)
+      .map((url) => (url.startsWith("//") ? `https:${url}` : url));
+    if (urls.length === 0) return null;
+
+    const column = Number(data.img_x_len) || 10;
+    const row = Number(data.img_y_len) || 10;
+    const images: string[] = [];
+    for (const url of urls) {
+      try {
+        const img = await axios.get<ArrayBuffer>(url, {
+          responseType: "arraybuffer",
+          headers: { ...defaultHeaders(), Referer: referer },
+          timeout: 12000,
+        });
+        const type = String(img.headers["content-type"] || "image/jpeg");
+        images.push(
+          `data:${type};base64,${Buffer.from(img.data).toString("base64")}`,
+        );
+      } catch {
+        break;
+      }
+    }
+    if (images.length === 0) return null;
+
+    const indexList = Array.isArray(data.index) ? data.index : [];
+    const capacity = images.length * column * row;
+    const frameCount =
+      indexList.length > 1
+        ? Math.min(indexList.length - 1, capacity)
+        : capacity;
+    return {
+      images,
+      column,
+      row,
+      frameWidth: Number(data.img_x_size) || 160,
+      frameHeight: Number(data.img_y_size) || 90,
+      frameCount,
+    };
   }
 
   async dislikeVideo(aid: number, dislike: boolean): Promise<void> {

@@ -10,6 +10,7 @@ import type {
   MessageFeedKind,
   MessageSessionFilter,
   RecommendDislikePayload,
+  DanmakuCloudConfig,
   SuggestFavFolderPayload,
   ToViewAddResult,
   UpVideosOrder,
@@ -615,8 +616,41 @@ export function registerBiliIpc(): void {
     (_e, bvid: string, cid: number, upMid: number) =>
       biliApi.getVideoAiSummary(bvid, cid, upMid),
   );
-  handleIpc(IPC.BILI_RECOMMEND_DISLIKE, (_e, payload: RecommendDislikePayload) =>
-    biliApi.dislikeRecommend(payload),
+  handleIpc(
+    IPC.BILI_RECOMMEND_DISLIKE,
+    (_e, payload: RecommendDislikePayload) => biliApi.dislikeRecommend(payload),
+  );
+  handleIpc(IPC.BILI_MENTION_SUGGEST, (_e, keyword: string) =>
+    biliApi.getMentionSuggest(keyword),
+  );
+  handleIpc(IPC.BILI_DM_HISTORY_DATES, (_e, cid: number, month: string) =>
+    biliApi.getDanmakuHistoryDates(cid, month),
+  );
+  handleIpc(IPC.BILI_DM_HISTORY, (_e, cid: number, date: string) =>
+    biliApi.getDanmakuHistory(cid, date),
+  );
+  handleIpc(IPC.BILI_DM_CLOUD_CONFIG, (_e, config: DanmakuCloudConfig) =>
+    biliApi.syncDanmakuConfig(config),
+  );
+  handleIpc(IPC.BILI_VIDEO_SNAPSHOT, (_e, bvid: string, cid: number) =>
+    biliApi.getVideoSnapshot(bvid, cid),
+  );
+  handleIpc(IPC.BILI_VIP_CENTER, () => biliApi.getVipCenter());
+  handleIpc(IPC.BILI_VIP_EXPERIENCE, () => biliApi.claimVipExperience());
+  handleIpc(IPC.BILI_VIP_PRIVILEGES, () => biliApi.getVipPrivileges());
+  handleIpc(IPC.BILI_VIP_PRIVILEGE_RECEIVE, (_e, type: number) =>
+    biliApi.receiveVipPrivilege(type),
+  );
+  handleIpc(IPC.BILI_EXP_REWARD, () => biliApi.getExpReward());
+  handleIpc(IPC.BILI_COIN_LOG, () => biliApi.getCoinLog());
+  handleIpc(IPC.BILI_EXP_LOG, () => biliApi.getExpLog());
+  handleIpc(IPC.BILI_LIVE_SIGN_INFO, () => biliApi.getLiveSignInfo());
+  handleIpc(IPC.BILI_LIVE_SIGN, () => biliApi.doLiveSign());
+  handleIpc(IPC.BILI_FANS_MEDALS, (_e, page: number) =>
+    biliApi.getFansMedals(page),
+  );
+  handleIpc(IPC.BILI_FANS_MEDAL_WEAR, (_e, medalId: number | null) =>
+    biliApi.wearFansMedal(medalId),
   );
   handleIpc(IPC.BILI_DM_FILTERS, () => biliApi.getDanmakuFilters());
   handleIpc(
