@@ -11,40 +11,24 @@ import { collectionGroupKey } from "@shared/utils/collection-groups";
 import { appStore } from "../store/app-store";
 import { aiService } from "./ai-service";
 import { biliApi } from "./bili-api";
-import { matchTitleToCategory } from "./fav-classifier";
+import {
+  type Evidence,
+  isConfident,
+  scoreEvidence,
+  suggestedTreeText,
+} from "./collection-taxonomy";
 
 const MAX_PAGES = 30;
 const PAGE_DELAY_MS = 300;
+const SAMPLE_DELAY_MS = 600;
+const BACKOFF_MS = 4000;
+const TAG_SAMPLE_VIDEOS = 3;
+const SAMPLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const AI_BATCH_SIZE = 40;
-
-/** 给 AI 的参考目录：一级尽量从这里选，二级可按内容补充 */
-const SUGGESTED_TREE: Array<[string, string[]]> = [
-  [
-    "计算机",
-    [
-      "前端",
-      "后端",
-      "算法",
-      "数据库",
-      "运维",
-      "网络安全",
-      "操作系统",
-      "计算机基础",
-      "编程语言",
-      "移动开发",
-      "嵌入式",
-      "游戏开发",
-      "工具效率",
-    ],
-  ],
-  ["AI", ["大模型", "Agent", "AI视频", "AI绘画", "AI工具", "机器学习"]],
-  ["学习", ["考研", "英语", "数学", "职场", "读书"]],
-  ["科技", ["数码", "硬件", "科普"]],
-  ["娱乐", ["游戏", "影视", "音乐", "动画", "搞笑"]],
-  ["生活", ["美食", "运动健身", "旅行", "财经", "人文历史"]],
-];
-
-const AI_L3_RENAME: Record<string, string> = { LLM: "大模型" };
+/** 只看名称 + 标题就足够确定时，不再抓标签 */
+const CONFIDENT_SCORE = 12;
+/** 加上标签后仍达不到就交给 AI / 留在未分组 */
+const MIN_SCORE = 6;
 
 type ProgressFn = (progress: CollectionClassifyProgress) => void;
 
@@ -147,93 +131,67 @@ export function renameCollectionGroup(
   return groups;
 }
 
-function ruleGroup(text: string): CollectionGroup | null {
-  const matched = matchTitleToCategory(text);
-  if (!matched) return null;
-  if (matched.l1 === "计算机" && matched.l2 === "人工智能") {
-    const l3 = matched.l3 ?? "";
-    return { l1: "AI", l2: AI_L3_RENAME[l3] ?? (l3 || "综合"), source: "rule" };
-  }
-  return { l1: matched.l1, l2: matched.l2 ?? matched.l3 ?? "", source: "rule" };
-}
-
-function classifyByName(item: UserCollectionItem): CollectionGroup | null {
-  const group = ruleGroup(`${item.title} ${item.description}`.slice(0, 200));
-  return group?.l2 ? group : null;
-}
-
-/** 合集内视频标题逐条过规则后投票 */
-function classifyByVideoTitles(titles: string[]): CollectionGroup | null {
-  const exact = new Map<string, { group: CollectionGroup; count: number }>();
-  const byL1 = new Map<string, number>();
-  for (const title of titles) {
-    const group = ruleGroup(title);
-    if (!group) continue;
-    byL1.set(group.l1, (byL1.get(group.l1) ?? 0) + 1);
-    if (!group.l2) continue;
-    const key = `${group.l1}/${group.l2}`;
-    const entry = exact.get(key);
-    if (entry) entry.count++;
-    else exact.set(key, { group, count: 1 });
-  }
-  const best = [...exact.values()].sort((a, b) => b.count - a.count)[0];
-  const minVotes = titles.length <= 3 ? 1 : 2;
-  if (best && best.count >= minVotes) return best.group;
-  const bestL1 = [...byL1].sort((a, b) => b[1] - a[1])[0];
-  if (bestL1 && bestL1[1] >= minVotes) {
-    return { l1: bestL1[0], l2: "综合", source: "rule" };
-  }
-  return null;
-}
-
-const ZONE_RULES: Array<[RegExp, string, string?]> = [
-  [/人工智能|\bAI\b|AIGC/i, "AI"],
-  [/计算机|软件|编程|程序|网络技术|开发/, "计算机"],
-  [/数码|手机|电脑|装机|科工|极客|汽车|摄影/, "科技"],
-  [
-    /科学|科普|社科|人文|历史|财经|商业|校园|学习|职业|职场|设计|技能|知识|演讲|公开课/,
-    "学习",
-  ],
-  [/游戏|电竞|单机|网游|手游|桌游|音游|GMV|Mugen/i, "娱乐", "游戏"],
-  [/音乐|翻唱|演奏|VOCALOID|MV|乐评|说唱|乐器/i, "娱乐", "音乐"],
-  [/影视|电影|电视剧|纪录|综艺|剧集|影评/, "娱乐", "影视"],
-  [/动画|番剧|国创|动漫|MAD|手书|鬼畜|搞笑|明星|舞蹈|宅舞/i, "娱乐"],
-  [
-    /美食|运动|健身|篮球|足球|体育|旅|出行|生活|日常|家居|手工|绘画|宠物|动物|时尚|美妆|穿搭|情感|亲子|三农|户外|骑行|健康|医疗/,
-    "生活",
-  ],
-];
-
-function classifyByZone(zone: string): CollectionGroup | null {
-  if (!zone) return null;
-  for (const [pattern, l1, l2] of ZONE_RULES) {
-    if (pattern.test(zone)) return { l1, l2: l2 ?? zone, source: "rule" };
-  }
-  return { l1: "其他", l2: zone, source: "rule" };
-}
-
 interface CollectionSample {
   titles: string[];
-  firstBvid: string;
+  bvids: string[];
+  tags?: string[];
+  at: number;
 }
 
-async function sampleCollection(
+type SampleCache = Record<string, CollectionSample>;
+
+async function fetchSample(
   item: UserCollectionItem,
 ): Promise<CollectionSample> {
   const page =
     item.kind === "season"
-      ? await biliApi.getSeasonArchives(item.ownerMid ?? selfMid(), item.id, 1)
+      ? await biliApi.getFavSeasonArchives(item.id, 1, 20)
       : await biliApi.getSeriesArchives(item.id, 1);
   return {
     titles: page.videos.map((video) => video.title).filter(Boolean),
-    firstBvid: page.videos[0]?.bvid ?? "",
+    bvids: page.videos.map((video) => video.bvid).filter(Boolean),
+    at: Date.now(),
   };
+}
+
+async function fetchTags(bvids: string[]): Promise<string[]> {
+  const tags = new Set<string>();
+  for (const bvid of bvids.slice(0, TAG_SAMPLE_VIDEOS)) {
+    await sleep(SAMPLE_DELAY_MS);
+    try {
+      for (const tag of await biliApi.getVideoTagNames(bvid)) tags.add(tag);
+    } catch {
+      await sleep(BACKOFF_MS);
+    }
+  }
+  return [...tags];
+}
+
+function buildEvidence(
+  item: UserCollectionItem,
+  sample: CollectionSample | undefined,
+): Evidence[] {
+  const evidence: Evidence[] = [
+    { text: item.title, weight: 3 },
+    { text: item.description, weight: 2 },
+  ];
+  for (const title of sample?.titles ?? []) {
+    evidence.push({ text: title, weight: 1 });
+  }
+  for (const tag of sample?.tags ?? []) {
+    evidence.push({ text: tag, weight: 1 });
+  }
+  return evidence;
+}
+
+function toGroup(match: { l1: string; l2: string }): CollectionGroup {
+  return { l1: match.l1, l2: match.l2, source: "rule" };
 }
 
 async function classifyBatchByAi(
   batch: UserCollectionItem[],
   knownGroups: CollectionGroup[],
-  samples: Map<string, CollectionSample>,
+  samples: SampleCache,
 ): Promise<Map<string, CollectionGroup>> {
   const known = Array.from(
     new Set(knownGroups.map((group) => `${group.l1}/${group.l2}`)),
@@ -241,10 +199,10 @@ async function classifyBatchByAi(
   const system = [
     "你是 B 站视频合集整理助手，把每个合集归入「一级/二级」两层分类。",
     "参考目录（一级尽量从这里选，二级可按内容补充，一级总数不超过 10 个）：",
-    ...SUGGESTED_TREE.map(([l1, l2s]) => `- ${l1}：${l2s.join("、")}`),
+    ...suggestedTreeText(),
     known.length > 0 ? `已经在用的分类请优先复用：${known.join("、")}` : "",
-    "规则：编程 / 开发 / 计算机课程归「计算机」并细分方向；大模型、AI 应用、AI 生成内容归「AI」，AI 生成或讲 AI 视频制作的归「AI/AI视频」。",
-    "合集名不明确时以「视频示例」的标题为准。每个合集都必须给出分类，不许留空。",
+    "规则：编程 / 开发 / 计算机课程归「计算机」并细分方向；大模型、AI 应用、AI 生成内容归「AI」；摄影、剪辑、设计、绘画等动手技能归「技能」。",
+    "合集名不明确时以「视频示例」和「标签」为准。每个合集都必须给出分类，不许留空。",
     "二级分类 2~6 个字，要具体，不要用「其他」「综合」除非实在无法判断。",
     '只返回 JSON 数组，不要其它文字：[{"i":序号,"l1":"一级","l2":"二级"}]',
   ]
@@ -255,15 +213,20 @@ async function classifyBatchByAi(
       const desc = item.description
         ? ` —— ${item.description.replace(/\s+/g, " ").slice(0, 60)}`
         : "";
-      const titles = samples.get(collectionGroupKey(item))?.titles ?? [];
-      const sample =
+      const sample = samples[collectionGroupKey(item)];
+      const titles = sample?.titles ?? [];
+      const titleText =
         titles.length > 0
           ? `\n   视频示例：${titles
               .slice(0, 8)
               .map((title) => title.slice(0, 40))
               .join(" | ")}`
           : "";
-      return `${index}. ${item.title}${desc}${sample}`;
+      const tagText =
+        sample?.tags && sample.tags.length > 0
+          ? `\n   标签：${sample.tags.slice(0, 12).join("、")}`
+          : "";
+      return `${index}. ${item.title}${desc}${titleText}${tagText}`;
     })
     .join("\n");
 
@@ -314,57 +277,75 @@ export async function classifyCollections(
   }
   for (const item of targets) delete groups[collectionGroupKey(item)];
 
+  const samples: SampleCache = { ...appStore.get("collectionSamples") };
+  const now = Date.now();
+  const saveSamples = () => appStore.set("collectionSamples", samples);
+
   const total = targets.length;
   let done = 0;
-  const assign = (item: UserCollectionItem, group: CollectionGroup) => {
-    groups[collectionGroupKey(item)] = group;
-    done++;
-  };
+  let ruleCount = 0;
+  let tagCount = 0;
+  let fetchFailed = 0;
+  let failStreak = 0;
+  const pending: UserCollectionItem[] = [];
 
-  let nameCount = 0;
-  let pending: UserCollectionItem[] = [];
-  for (const item of targets) {
-    const group = classifyByName(item);
-    if (group) {
-      assign(item, group);
-      nameCount++;
-    } else pending.push(item);
-  }
-  report(done, total, `按名称归类 ${nameCount} 个，开始抓取合集内视频…`);
+  for (let index = 0; index < targets.length; index++) {
+    const item = targets[index];
+    const key = collectionGroupKey(item);
+    report(done, total, `分析 ${index + 1}/${total}：${item.title}`);
 
-  const samples = new Map<string, CollectionSample>();
-  let videoCount = 0;
-  const afterVideo: UserCollectionItem[] = [];
-  for (let index = 0; index < pending.length; index++) {
-    const item = pending[index];
-    report(
-      done,
-      total,
-      `看合集内视频标题 ${index + 1}/${pending.length}：${item.title}`,
-    );
-    if (index > 0) await sleep(PAGE_DELAY_MS);
-    try {
-      const sample = await sampleCollection(item);
-      samples.set(collectionGroupKey(item), sample);
-      const group = classifyByVideoTitles(sample.titles);
-      if (group) {
-        assign(item, group);
-        videoCount++;
-        continue;
+    let sample = samples[key];
+    if (!sample || now - sample.at > SAMPLE_TTL_MS) {
+      await sleep(SAMPLE_DELAY_MS);
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          sample = await fetchSample(item);
+          samples[key] = sample;
+          failStreak = 0;
+          break;
+        } catch {
+          if (attempt === 1) {
+            report(done, total, "B 站限流了，歇一会儿再继续…");
+            await sleep(BACKOFF_MS * Math.min(failStreak + 1, 4));
+          }
+        }
       }
-    } catch {
-      // 抓不到视频时交给后面的 AI / 分区兜底
+      if (!samples[key]) {
+        fetchFailed++;
+        failStreak++;
+      }
     }
-    afterVideo.push(item);
+
+    let match = scoreEvidence(buildEvidence(item, sample));
+    if (!isConfident(match, CONFIDENT_SCORE) && sample && sample.bvids.length) {
+      if (!sample.tags) {
+        report(done, total, `看视频标签 ${index + 1}/${total}：${item.title}`);
+        sample.tags = await fetchTags(sample.bvids);
+      }
+      match = scoreEvidence(buildEvidence(item, sample));
+      if (isConfident(match, MIN_SCORE)) tagCount++;
+    }
+
+    if (match && isConfident(match, MIN_SCORE)) {
+      groups[key] = toGroup(match);
+      ruleCount++;
+      done++;
+    } else pending.push(item);
+
+    if (index % 20 === 19) {
+      saveSamples();
+      appStore.set("collectionGroups", groups);
+    }
   }
-  pending = afterVideo;
+  saveSamples();
   appStore.set("collectionGroups", groups);
 
   let aiCount = 0;
   let aiError = "";
   const useAi = hasAiConfigured();
+  let leftover = pending;
   if (useAi && pending.length > 0) {
-    const leftover: UserCollectionItem[] = [];
+    leftover = [];
     for (let start = 0; start < pending.length; start += AI_BATCH_SIZE) {
       const batch = pending.slice(start, start + AI_BATCH_SIZE);
       report(
@@ -381,8 +362,9 @@ export async function classifyCollections(
         for (const item of batch) {
           const group = matched.get(collectionGroupKey(item));
           if (group) {
-            assign(item, group);
+            groups[collectionGroupKey(item)] = group;
             aiCount++;
+            done++;
           } else leftover.push(item);
         }
       } catch (err) {
@@ -392,40 +374,35 @@ export async function classifyCollections(
       }
       appStore.set("collectionGroups", groups);
     }
-    pending = leftover;
   }
 
-  let zoneCount = 0;
-  for (let index = 0; index < pending.length; index++) {
-    const item = pending[index];
-    const bvid = samples.get(collectionGroupKey(item))?.firstBvid;
-    if (!bvid) continue;
-    report(
-      done,
-      total,
-      `按 B 站分区兜底 ${index + 1}/${pending.length}：${item.title}`,
+  // 没 AI 时：有一点倾向就先归过去，比堆在未分组强；完全没线索的才留下
+  let weakCount = 0;
+  for (const item of leftover) {
+    const match = scoreEvidence(
+      buildEvidence(item, samples[collectionGroupKey(item)]),
     );
-    if (index > 0) await sleep(PAGE_DELAY_MS);
-    try {
-      const group = classifyByZone(await biliApi.getVideoZoneName(bvid));
-      if (group) {
-        assign(item, group);
-        zoneCount++;
-      }
-    } catch {
-      // ignore
+    if (match && match.score >= 3 && match.score > match.runnerUp) {
+      groups[collectionGroupKey(item)] = toGroup(match);
+      weakCount++;
+      done++;
     }
   }
   appStore.set("collectionGroups", groups);
 
   const ungrouped = total - done;
-  const parts = [`名称 ${nameCount}`, `视频标题 ${videoCount}`];
+  const parts = [`规则 ${ruleCount}（其中靠视频标签 ${tagCount}）`];
   if (useAi) parts.push(`AI ${aiCount}`);
-  parts.push(`分区 ${zoneCount}`);
+  if (weakCount > 0) parts.push(`低把握 ${weakCount}`);
   if (ungrouped > 0) parts.push(`未分组 ${ungrouped}`);
-  let message = `已整理 ${total} 个合集（${parts.join("，")}）`;
+  let message = `已整理 ${total} 个合集：${parts.join("，")}`;
+  if (fetchFailed > 0) {
+    message += `；${fetchFailed} 个合集的视频没抓到（B 站限流），过几分钟点「整理新增」会补上`;
+  }
   if (aiError) message += `；AI 调用失败：${aiError}`;
-  else if (!useAi) message += "；配置 AI 后二级分类会更细";
+  else if (!useAi && weakCount > 0) {
+    message += "；低把握的建议配置 AI 后再「全部重整」";
+  }
   report(total, total, message);
   return { items, groups, message };
 }

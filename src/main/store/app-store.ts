@@ -53,6 +53,11 @@ interface StoreSchema {
   lastUpActivityScanAt: number;
   /** 合集 AI / 规则整理结果，key 见 collectionGroupKey */
   collectionGroups: CollectionGroupMap;
+  /** 合集分类用的视频标题 / 标签缓存，避免重整时重复抓取 */
+  collectionSamples: Record<
+    string,
+    { titles: string[]; bvids: string[]; tags?: string[]; at: number }
+  >;
 }
 
 const defaults: StoreSchema = {
@@ -85,6 +90,7 @@ const defaults: StoreSchema = {
   upActivityCache: [],
   lastUpActivityScanAt: 0,
   collectionGroups: {},
+  collectionSamples: {},
 };
 
 export const appStore = new Store<StoreSchema>({

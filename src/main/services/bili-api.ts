@@ -2123,15 +2123,18 @@ class BiliApiService {
   }
 
   /** 稿件分区名（如 计算机技术 / 单机游戏），取不到返回空串 */
-  async getVideoZoneName(bvid: string): Promise<string> {
+  async getVideoTagNames(bvid: string): Promise<string[]> {
     await this.ensureBuvid3();
-    const res = await this.client.get("/x/web-interface/view", {
+    const res = await this.client.get("/x/tag/archive/tags", {
       params: { bvid },
+      headers: { Referer: "https://www.bilibili.com/" },
       validateStatus: () => true,
     });
-    const view = res.data?.data as Record<string, unknown> | undefined;
-    if (res.data?.code !== 0 || !view) return "";
-    return String(view.tname_v2 || view.tname || "").trim();
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "视频标签获取失败");
+    }
+    const list = (res.data?.data as Record<string, unknown>[] | null) ?? [];
+    return list.map((tag) => String(tag.tag_name ?? "").trim()).filter(Boolean);
   }
 
   async getVideo(bvid: string): Promise<VideoDetail> {
@@ -11213,27 +11216,123 @@ class BiliApiService {
   ): Promise<UpVideosPage> {
     await this.ensureBuvid3();
 
-    const params = await signParams({
+    const baseParams = {
       mid,
       season_id: seasonId,
       page_num: page,
       page_size: 30,
-    });
+      web_location: "333.1387",
+      dm_img_list: "[]",
+      dm_img_str: "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
+      dm_cover_img_str:
+        "QU5HTEUgKEludGVsLCBJbnRlbChSKSBVSEQgR3JhcGhpY3MgRGlyZWN0M0QxMSB2c181XzAgcHNfNV8wLCBEM0QxMSlHb29nbGUgSW5jLiAoSW50ZWw",
+      dm_img_inter: '{"ds":[],"wh":[0,0,0],"of":["","",""]}',
+    };
 
-    const res = await this.client.get(
-      "/x/polymer/web-space/seasons_archives_list",
-      {
-        params,
-        headers: { Referer: `https://space.bilibili.com/${mid}/lists` },
-        validateStatus: () => true,
-      },
-    );
-
-    if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "合集视频获取失败");
+    let lastMessage = "";
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const res = await this.client.get(
+        "/x/polymer/web-space/seasons_archives_list",
+        {
+          params: await signParams(baseParams),
+          headers: { Referer: `https://space.bilibili.com/${mid}/lists` },
+          validateStatus: () => true,
+        },
+      );
+      const code = Number(res.data?.code);
+      if (code === 0) {
+        return this.normalizeArchivesPage(res.data?.data, mid, page);
+      }
+      lastMessage = String(res.data?.message ?? "");
+      const blocked = code === -352 || code === -412 || res.status === 412;
+      if (!blocked) break;
+      if (attempt === 1) {
+        invalidateWbiCache();
+        await sleep(800);
+      }
     }
 
-    return this.normalizeArchivesPage(res.data?.data, mid, page);
+    try {
+      return await this.getFavSeasonArchives(seasonId, page);
+    } catch {
+      throw new Error(
+        lastMessage && !/^-?\d+$/.test(lastMessage)
+          ? lastMessage
+          : "合集视频获取被 B 站风控拦截，请稍后再试",
+      );
+    }
+  }
+
+  /** 收藏夹里的合集接口：不需要 WBI，风控比空间接口宽松 */
+  async getFavSeasonArchives(
+    seasonId: number,
+    page = 1,
+    pageSize = 30,
+  ): Promise<UpVideosPage> {
+    await this.ensureBuvid3();
+    const apiSize = 20;
+    const start = (page - 1) * pageSize;
+    const firstPn = Math.floor(start / apiSize) + 1;
+    const lastPn = Math.floor((start + pageSize - 1) / apiSize) + 1;
+
+    let medias: Record<string, unknown>[] = [];
+    let total = 0;
+    let offset = start - (firstPn - 1) * apiSize;
+    for (let pn = firstPn; pn <= lastPn; pn++) {
+      const res = await this.client.get("/x/space/fav/season/list", {
+        params: { season_id: seasonId, pn, ps: apiSize },
+        headers: { Referer: "https://www.bilibili.com/" },
+        validateStatus: () => true,
+      });
+      if (res.data?.code !== 0) {
+        if (pn === firstPn) {
+          throw new Error((res.data?.message as string) || "合集视频获取失败");
+        }
+        break;
+      }
+      const data = res.data?.data as Record<string, unknown> | undefined;
+      const info = data?.info as Record<string, unknown> | undefined;
+      const list = (data?.medias as Record<string, unknown>[] | null) ?? [];
+      total = Number(info?.media_count) || total;
+      if (list.length > apiSize) {
+        // 接口有时忽略 ps/pn，一次返回整个合集
+        medias = list;
+        offset = start;
+        break;
+      }
+      medias.push(...list);
+      if (list.length < apiSize) break;
+    }
+    const pageItems = medias.slice(offset, offset + pageSize);
+    total = total || start + pageItems.length;
+
+    const videos: VideoItem[] = pageItems
+      .filter((item) => item.bvid)
+      .map((item) => {
+        const upper = item.upper as Record<string, unknown> | undefined;
+        const cnt = item.cnt_info as Record<string, unknown> | undefined;
+        return {
+          bvid: String(item.bvid),
+          aid: Number(item.id) || 0,
+          title: String(item.title ?? ""),
+          cover: this.normalizeVideoCoverUrl(String(item.cover ?? "")),
+          duration: Number(item.duration) || 0,
+          play: Number(cnt?.play) || 0,
+          danmaku: Number(cnt?.danmaku) || 0,
+          owner: {
+            mid: Number(upper?.mid) || 0,
+            name: String(upper?.name ?? ""),
+            face: String(upper?.face ?? ""),
+          },
+          pubdate: Number(item.pubtime ?? item.ctime) || 0,
+        };
+      });
+    return {
+      videos,
+      page,
+      hasMore: page * pageSize < total,
+      total,
+    };
   }
 
   async getSeriesArchives(seriesId: number, page = 1): Promise<UpVideosPage> {
