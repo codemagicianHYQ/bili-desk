@@ -2122,6 +2122,18 @@ class BiliApiService {
     return results;
   }
 
+  /** 稿件分区名（如 计算机技术 / 单机游戏），取不到返回空串 */
+  async getVideoZoneName(bvid: string): Promise<string> {
+    await this.ensureBuvid3();
+    const res = await this.client.get("/x/web-interface/view", {
+      params: { bvid },
+      validateStatus: () => true,
+    });
+    const view = res.data?.data as Record<string, unknown> | undefined;
+    if (res.data?.code !== 0 || !view) return "";
+    return String(view.tname_v2 || view.tname || "").trim();
+  }
+
   async getVideo(bvid: string): Promise<VideoDetail> {
     await this.ensureBuvid3();
     const params = await signParams({ bvid });

@@ -20,7 +20,7 @@ import type {
   HistoryFilters,
   IntegrityScanProgress,
   CollectionClassifyProgress,
-  CollectionListKind,
+  CollectionClassifyMode,
   IntegrityScanScope,
   UpActivityArchive,
   UpActivityScanProgress,
@@ -688,11 +688,16 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_BANGUMI_FOLLOW, mid, type ?? 1, page ?? 1),
     getSubscribedCollections: (page?: number) =>
       ipcRenderer.invoke(IPC.BILI_SUBSCRIBED_COLLECTIONS, page ?? 1),
-    getAllCollections: (listKind: CollectionListKind) =>
-      ipcRenderer.invoke(IPC.BILI_COLLECTIONS_ALL, listKind),
+    getLocalCollections: () => ipcRenderer.invoke(IPC.BILI_COLLECTIONS_LOCAL),
     getCollectionGroups: () => ipcRenderer.invoke(IPC.BILI_COLLECTION_GROUPS),
-    classifyCollections: (listKind: CollectionListKind) =>
-      ipcRenderer.invoke(IPC.BILI_COLLECTION_CLASSIFY, listKind),
+    classifyCollections: (mode: CollectionClassifyMode) =>
+      ipcRenderer.invoke(IPC.BILI_COLLECTION_CLASSIFY, mode),
+    setCollectionGroup: (
+      key: string,
+      group: { l1: string; l2: string } | null,
+    ) => ipcRenderer.invoke(IPC.BILI_COLLECTION_GROUP_SET, key, group),
+    renameCollectionGroup: (l1: string, l2: string | null, name: string) =>
+      ipcRenderer.invoke(IPC.BILI_COLLECTION_GROUP_RENAME, l1, l2, name),
     onCollectionClassifyProgress: (
       callback: (progress: CollectionClassifyProgress) => void,
     ) => {

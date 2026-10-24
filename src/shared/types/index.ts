@@ -1593,8 +1593,12 @@ export type CollectionListKind = "subscribed" | "created";
 export interface CollectionGroup {
   l1: string;
   l2: string;
-  source: "rule" | "ai";
+  /** manual 为手动移动，重新整理时不覆盖 */
+  source: "rule" | "ai" | "manual";
 }
+
+/** new：只整理还没分类的；all：除手动外全部重来 */
+export type CollectionClassifyMode = "new" | "all";
 
 /** key 为 `${kind}:${id}`，见 collectionGroupKey */
 export type CollectionGroupMap = Record<string, CollectionGroup>;
@@ -1606,7 +1610,6 @@ export interface CollectionClassifyResult {
 }
 
 export interface CollectionClassifyProgress {
-  listKind: CollectionListKind;
   done: number;
   total: number;
   message: string;
@@ -2130,13 +2133,20 @@ export interface BiliDeskApi {
       page?: number,
     ) => Promise<BangumiFollowPage>;
     getSubscribedCollections: (page?: number) => Promise<UserCollectionsPage>;
-    getAllCollections: (
-      listKind: CollectionListKind,
-    ) => Promise<UserCollectionItem[]>;
+    getLocalCollections: () => Promise<UserCollectionItem[]>;
     getCollectionGroups: () => Promise<CollectionGroupMap>;
     classifyCollections: (
-      listKind: CollectionListKind,
+      mode: CollectionClassifyMode,
     ) => Promise<CollectionClassifyResult>;
+    setCollectionGroup: (
+      key: string,
+      group: { l1: string; l2: string } | null,
+    ) => Promise<CollectionGroupMap>;
+    renameCollectionGroup: (
+      l1: string,
+      l2: string | null,
+      name: string,
+    ) => Promise<CollectionGroupMap>;
     onCollectionClassifyProgress: (
       callback: (progress: CollectionClassifyProgress) => void,
     ) => () => void;

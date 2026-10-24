@@ -20,13 +20,15 @@ import type {
   ChatShareCard,
   DanmakuFilterKind,
   DynamicPublishOptions,
-  CollectionListKind,
+  CollectionClassifyMode,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
 import {
   classifyCollections,
-  fetchAllCollections,
+  fetchLocalCollections,
   getCollectionGroups,
+  renameCollectionGroup,
+  setCollectionGroup,
 } from "../services/collection-classifier";
 import { messageApi } from "../services/message-api";
 import { localToViewRepo } from "../db/repositories/local-toview";
@@ -783,23 +785,28 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_SUBSCRIBED_COLLECTIONS, (_e, page?: number) =>
     biliApi.getSubscribedCollections(page),
   );
-  handleIpc(IPC.BILI_COLLECTIONS_ALL, (_e, listKind: CollectionListKind) =>
-    fetchAllCollections(listKind === "created" ? "created" : "subscribed"),
-  );
+  handleIpc(IPC.BILI_COLLECTIONS_LOCAL, () => fetchLocalCollections());
   ipcMain.handle(IPC.BILI_COLLECTION_GROUPS, () => getCollectionGroups());
+  ipcMain.handle(
+    IPC.BILI_COLLECTION_GROUP_SET,
+    (_e, key: string, group: { l1: string; l2: string } | null) =>
+      setCollectionGroup(String(key), group),
+  );
+  ipcMain.handle(
+    IPC.BILI_COLLECTION_GROUP_RENAME,
+    (_e, l1: string, l2: string | null, name: string) =>
+      renameCollectionGroup(String(l1), l2 == null ? null : String(l2), name),
+  );
   handleIpc(
     IPC.BILI_COLLECTION_CLASSIFY,
-    (event, listKind: CollectionListKind) =>
-      classifyCollections(
-        listKind === "created" ? "created" : "subscribed",
-        (progress) => {
-          try {
-            event.sender.send(IPC.BILI_COLLECTION_CLASSIFY_PROGRESS, progress);
-          } catch {
-            // sender may be gone
-          }
-        },
-      ),
+    (event, mode: CollectionClassifyMode) =>
+      classifyCollections(mode === "all" ? "all" : "new", (progress) => {
+        try {
+          event.sender.send(IPC.BILI_COLLECTION_CLASSIFY_PROGRESS, progress);
+        } catch {
+          // sender may be gone
+        }
+      }),
   );
   handleIpc(IPC.BILI_UGC_SEASON_SUBSCRIBED, (_e, seasonId: number) =>
     biliApi.getUgcSeasonSubscribed(seasonId),
