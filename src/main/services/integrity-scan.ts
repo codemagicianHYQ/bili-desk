@@ -131,6 +131,11 @@ function emitProgress(
   onProgress?.(patch);
 }
 
+const FOLLOWING_DELAY_MS = 300;
+const FOLLOWING_BACKOFF_MS = 3000;
+/** 连续这么多个被限流就停下，避免把风控结果当成异常 */
+const FOLLOWING_MAX_BLOCKED_STREAK = 12;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -338,7 +343,11 @@ async function scanToView(
 
 async function scanFollowing(
   onProgress?: (p: IntegrityScanProgress) => void,
-): Promise<{ items: AbnormalFollowingRecord[]; warnings: string[] }> {
+): Promise<{
+  items: AbnormalFollowingRecord[];
+  warnings: string[];
+  aborted?: boolean;
+}> {
   const items: AbnormalFollowingRecord[] = [];
   const warnings: string[] = [];
   const now = Math.floor(Date.now() / 1000);
@@ -371,48 +380,75 @@ async function scanFollowing(
     total: followings.length,
   });
 
+  let blockedTotal = 0;
+  let blockedStreak = 0;
+  let aborted = false;
   await mapPool(
     followings,
-    3,
+    2,
     async (up) => {
+      if (aborted) return null;
+      // 已注销的号在关注列表里就显示成「账号已注销」，不用再请求
+      if (up.uname === "账号已注销") {
+        items.push({
+          mid: up.mid,
+          name: up.uname,
+          face: up.face,
+          sign: up.sign,
+          reason: "deleted",
+          reasonText: "账号已注销",
+          detectedAt: now,
+        });
+        return null;
+      }
       try {
         const status = await biliApi.getUserAccountStatus(up.mid);
-        if (status.silence || status.deleted || status.unavailable) {
+        if (status.blocked) {
+          blockedTotal++;
+          blockedStreak++;
+          if (blockedStreak >= FOLLOWING_MAX_BLOCKED_STREAK) aborted = true;
+          else await sleep(FOLLOWING_BACKOFF_MS * Math.min(blockedStreak, 4));
+          return null;
+        }
+        blockedStreak = 0;
+        if (status.silence || status.deleted) {
           items.push({
             mid: up.mid,
             name: status.name || up.uname,
             face: status.face || up.face,
             sign: up.sign,
-            reason: status.deleted
-              ? "deleted"
-              : status.silence
-                ? "silenced"
-                : "unavailable",
-            reasonText: status.deleted
-              ? "账号已注销/不存在"
-              : status.silence
-                ? "账号被封禁"
-                : "空间不可用",
+            reason: status.deleted ? "deleted" : "silenced",
+            reasonText: status.deleted ? "账号已注销/不存在" : "账号被封禁",
             detectedAt: now,
           });
         }
       } catch {
         // 单条失败不中断
       }
-      await sleep(220);
+      await sleep(FOLLOWING_DELAY_MS);
       return null;
     },
     (done, total) => {
       emitProgress(onProgress, {
         phase: "following",
-        message: `检测关注 UP ${done}/${total}`,
+        message: aborted
+          ? "B 站限流，正在收尾…"
+          : `检测关注 UP ${done}/${total}`,
         current: done,
         total,
       });
     },
   );
 
-  return { items, warnings };
+  if (aborted) {
+    warnings.push(
+      "B 站连续限流，已提前停止；已检测到的结果保留，过一阵再扫一次补全",
+    );
+  } else if (blockedTotal > 0) {
+    warnings.push(`${blockedTotal} 个 UP 被限流没检测到，可稍后重扫`);
+  }
+
+  return { items, warnings, aborted };
 }
 
 function dedupeVideos(list: InvalidVideoRecord[]): InvalidVideoRecord[] {

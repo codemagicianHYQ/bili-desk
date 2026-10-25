@@ -6177,46 +6177,32 @@ class BiliApiService {
     face: string;
     silence: boolean;
     deleted: boolean;
-    unavailable: boolean;
+    /** 被风控 / 限流拦下，状态未知，不能当成异常 */
+    blocked: boolean;
   }> {
     await this.ensureBuvid3();
-    const accParams = await signParams({ mid: String(mid) });
-    const res = await this.client.get("/x/space/wbi/acc/info", {
-      params: accParams,
+    const res = await this.client.get("/x/web-interface/card", {
+      params: { mid },
       headers: { Referer: `https://space.bilibili.com/${mid}` },
       validateStatus: () => true,
     });
+    const base = { mid, name: "", face: "", silence: false, deleted: false };
 
     const code = res.data?.code as number | undefined;
-    if (code === -404 || code === -403 || code === 22015) {
-      return {
-        mid,
-        name: "",
-        face: "",
-        silence: false,
-        deleted: true,
-        unavailable: true,
-      };
-    }
-    if (code !== 0) {
-      return {
-        mid,
-        name: "",
-        face: "",
-        silence: false,
-        deleted: false,
-        unavailable: true,
-      };
+    if (code === -404) return { ...base, deleted: true, blocked: false };
+    if (res.status !== 200 || code !== 0) {
+      return { ...base, blocked: true };
     }
 
-    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const card = (res.data?.data?.card ?? {}) as Record<string, unknown>;
+    const name = String(card.name ?? "");
     return {
       mid,
-      name: String(data.name ?? ""),
-      face: String(data.face ?? "").replace(/^http:/, "https:"),
-      silence: Number(data.silence) === 1,
-      deleted: Number(data.is_deleted) === 1,
-      unavailable: false,
+      name,
+      face: String(card.face ?? "").replace(/^http:/, "https:"),
+      silence: Number(card.spacesta) < 0,
+      deleted: name === "账号已注销",
+      blocked: false,
     };
   }
 
