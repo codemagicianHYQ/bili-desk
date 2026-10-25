@@ -63,19 +63,3 @@ function matchTitleToUpCategory(text: string): UpCategoryMatch | null {
 
   return null;
 }
-
-export function classifyUpProfile(up: {
-  uname: string;
-  sign: string;
-  official?: { title: string };
-}): UpCategoryMatch | null {
-  const text = `${up.uname} ${up.sign} ${up.official?.title ?? ""}`;
-  return classifyUpText(text);
-}
-
-export function classifyUpFromVideoTitles(
-  titles: string[],
-): UpCategoryMatch | null {
-  if (titles.length === 0) return null;
-  return classifyUpText(titles.join("\n"));
-}

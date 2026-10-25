@@ -6864,14 +6864,10 @@ class BiliApiService {
     });
   }
 
+  /** 分类任务批量调用：只打一枪空间接口；失败（多为限流）直接抛给调用方退避 */
   async getRecentVideoTitles(mid: number, limit = 5): Promise<string[]> {
-    // 分类任务批量调用：只打一枪空间接口，避免拖垮主进程
-    try {
-      const page = await this.fetchSpaceArcList(mid, 1, "pubdate");
-      return page.videos.slice(0, limit).map((video) => video.title);
-    } catch {
-      return [];
-    }
+    const page = await this.fetchSpaceArcList(mid, 1, "pubdate");
+    return page.videos.slice(0, limit).map((video) => video.title);
   }
 
   async getUpVideos(

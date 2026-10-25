@@ -1,4 +1,5 @@
 import { taxonomyRepo } from "../db/repositories/taxonomy";
+import { scoreEvidence, type TaxonomyMatch } from "./collection-taxonomy";
 import type { FavResource } from "@shared/types";
 import {
   FOLDER_TOPIC_ALIASES,
@@ -406,11 +407,13 @@ const TITLE_RULES: ScoredRule[] = [
       k("日语|\\bjlpt\\b|五十音", 34),
       k("\\bn[1-3]\\b(?=.*日语)|日语.*n[1-3]", 30),
     ],
+    exclude: /改编|翻唱|名曲|歌曲|suno|\bmv\b/i,
   },
   {
     l1: "学习",
     l2: "外语",
     keywords: [k("外语|韩语|法语|德语|西班牙语", 28)],
+    exclude: /改编|翻唱|名曲|歌曲|suno|\bmv\b/i,
   },
   {
     l1: "学习",
@@ -471,7 +474,9 @@ const TITLE_RULES: ScoredRule[] = [
   {
     l1: "生活",
     l2: "旅游",
-    keywords: [k("旅游|旅行|\\bvlog\\b|自驾|攻略|景点|酒店", 24)],
+    keywords: [
+      k("旅游|旅行|自驾|景点|酒店|citywalk|(旅游|旅行|地图|城市)版?攻略", 24),
+    ],
   },
   {
     l1: "生活",
@@ -573,10 +578,88 @@ function pickMatch(rule: ScoredRule): { l1: string; l2?: string; l3?: string } {
   return { l1: rule.l1, l2: rule.l2, l3: rule.l3 };
 }
 
-export function matchTitleToCategory(
-  title: string,
-): { l1: string; l2?: string; l3?: string } | null {
+type FavMatch = { l1: string; l2?: string; l3?: string };
+
+/** 打分目录和收藏夹历史命名不同的地方，映射回老名字，避免同义夹重复建 */
+const SCORED_TO_FAV: Record<string, FavMatch> = {
+  "计算机/编程语言": { l1: "计算机" },
+  "计算机/计算机基础": { l1: "计算机" },
+  "计算机/开发工具": { l1: "计算机" },
+  "计算机/网络安全": { l1: "计算机", l2: "安全" },
+  "计算机/网络工程": { l1: "计算机", l2: "计算机网络" },
+  "AI/大模型": { l1: "计算机", l2: "人工智能", l3: "LLM" },
+  "AI/Agent": { l1: "计算机", l2: "人工智能", l3: "Agent" },
+  "AI/AI绘画": { l1: "计算机", l2: "人工智能" },
+  "AI/AI视频": { l1: "计算机", l2: "人工智能" },
+  "AI/机器学习": { l1: "计算机", l2: "人工智能" },
+  "AI/AI工具": { l1: "计算机", l2: "人工智能" },
+  "生活/骑行": { l1: "生活", l2: "自行车" },
+  "生活/旅行户外": { l1: "生活", l2: "旅游" },
+  "生活/运动健身": { l1: "生活", l2: "健身" },
+  "科技/数码": { l1: "生活", l2: "数码" },
+  "科技/科普": { l1: "生活", l2: "科普" },
+  "财经商业/投资理财": { l1: "生活", l2: "财经" },
+};
+
+const INTERVIEW_RE = /面试|八股|面经|简历|校招|秋招|春招|offer|求职/;
+
+function favMatchFromScored(scored: TaxonomyMatch, text: string): FavMatch {
+  if (scored.l1 === "学习" && scored.l2 === "职场" && INTERVIEW_RE.test(text)) {
+    return { l1: "学习", l2: "面试" };
+  }
+  return (
+    SCORED_TO_FAV[`${scored.l1}/${scored.l2}`] ?? {
+      l1: scored.l1,
+      l2: scored.l2,
+    }
+  );
+}
+
+/**
+ * 计算机方向沿用细分到三级的关键词规则；其余方向交给证据打分目录，
+ * 老规则里「社会人文」「科普」这类兜底只在打分也说不出时才用。
+ */
+export function matchTitleToCategory(title: string): FavMatch | null {
   const text = title.normalize("NFKC").toLowerCase();
+  const legacy = matchLegacyRules(text);
+  if (legacy.match?.l1 === "计算机" && !legacy.weak) return legacy.match;
+
+  const scored = scoreEvidence([{ text, weight: 1 }]);
+  const usable = scored && scored.score >= 2 && scored.score > scored.runnerUp;
+  if (!usable) return legacy.match;
+
+  const fromScored = favMatchFromScored(scored, text);
+  if (
+    legacy.match &&
+    legacy.match.l1 === fromScored.l1 &&
+    legacy.match.l2 === fromScored.l2
+  ) {
+    return legacy.match;
+  }
+  const decisive =
+    scored.score >= 3 &&
+    (scored.runnerUp === 0 || scored.score >= scored.runnerUp * 1.4);
+  if (!legacy.match || legacy.weak || decisive) return fromScored;
+  return legacy.match;
+}
+
+const LEGACY_CATCH_ALL_L2 = new Set(["社会人文", "科普"]);
+
+function matchLegacyRules(text: string): {
+  match: FavMatch | null;
+  weak: boolean;
+} {
+  const match = matchLegacyRulesRaw(text);
+  if (!match) return { match: null, weak: false };
+  const weak =
+    match.fromFallback === true ||
+    (match.l2 !== undefined && LEGACY_CATCH_ALL_L2.has(match.l2));
+  return { match: { l1: match.l1, l2: match.l2, l3: match.l3 }, weak };
+}
+
+function matchLegacyRulesRaw(
+  text: string,
+): (FavMatch & { fromFallback?: boolean }) | null {
   const ranked = TITLE_RULES.map((rule) => ({
     rule,
     score: ruleScore(text, rule),
@@ -613,7 +696,8 @@ export function matchTitleToCategory(
     return pickMatch(bestCs.rule);
   }
 
-  return fallbackCategory(text);
+  const fallback = fallbackCategory(text);
+  return fallback ? { ...fallback, fromFallback: true } : null;
 }
 
 function resolveCloseL3(
@@ -656,7 +740,7 @@ function fallbackCategory(
   if (/搞笑|沙雕|整活|鬼畜|综艺/.test(text)) {
     return { l1: "娱乐", l2: "影视" };
   }
-  if (/攻略|通关|抽卡/.test(text)) {
+  if (/游戏攻略|通关|抽卡/.test(text)) {
     return { l1: "娱乐", l2: "游戏" };
   }
   if (/穿搭|护肤|彩妆|好物推荐/.test(text)) {
@@ -771,7 +855,6 @@ export function findCanonicalExistingFolder(
   }
   return bestScore >= CANONICAL_FOLDER_MIN_SCORE ? bestName : null;
 }
-
 
 function existingFolderHintScore(
   folderTitle: string,

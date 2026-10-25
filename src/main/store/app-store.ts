@@ -58,6 +58,8 @@ interface StoreSchema {
     string,
     { titles: string[]; bvids: string[]; tags?: string[]; at: number }
   >;
+  /** 关注分类用的 UP 近期稿件标题缓存，key 为 mid */
+  upTitleCache: Record<string, { titles: string[]; at: number }>;
 }
 
 const defaults: StoreSchema = {
@@ -91,6 +93,7 @@ const defaults: StoreSchema = {
   lastUpActivityScanAt: 0,
   collectionGroups: {},
   collectionSamples: {},
+  upTitleCache: {},
 };
 
 export const appStore = new Store<StoreSchema>({

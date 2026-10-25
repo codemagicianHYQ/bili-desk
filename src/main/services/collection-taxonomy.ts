@@ -34,14 +34,14 @@ const RULES: TaxonomyRule[] = [
     l1: "计算机",
     l2: "编程语言",
     strong:
-      /python|java(?!script)|c\+\+|c语言|golang|\brust\b|编程|kotlin|c#|\.net/,
-    medium: /程序员|写代码|代码|源码/,
+      /python|java(?!script)|c\+\+|c语言|golang|\brust\b|编程|kotlin|c#|\.net|码农|写代码/,
+    medium: /程序员|代码|源码|开发者/,
   },
   {
     l1: "计算机",
     l2: "前端",
     strong:
-      /前端|vue|react|javascript|typescript|\bcss\b|\bhtml|小程序开发|uni-?app|webpack|vite\b|node\.?js/,
+      /前端|vue|react|javascript|typescript|\bcss\b|\bhtml|小程序开发|uni-?app|webpack|vite\b|node\.?js|渡一|移动端适配|\bvw\b|vmin|\bbfc\b/,
   },
   {
     l1: "计算机",
@@ -57,18 +57,26 @@ const RULES: TaxonomyRule[] = [
   {
     l1: "计算机",
     l2: "运维",
-    strong: /linux|docker|k8s|kubernetes|运维|nginx|服务器部署|devops/,
+    strong:
+      /linux|docker|k8s|kubernetes|运维|nginx|服务器部署|devops|云计算|云原生/,
   },
   {
     l1: "计算机",
     l2: "网络安全",
-    strong: /网络安全|渗透测试|漏洞|黑客|\bctf\b|逆向工程/,
+    strong:
+      /网络安全|渗透测试|漏洞|黑客|白帽|\bctf\b|逆向|反编译|破解|安全攻防|钓鱼攻击/,
+  },
+  {
+    l1: "计算机",
+    l2: "网络工程",
+    strong:
+      /网络工程|ccie|hcie|交换机|路由器|组网|\bnas\b|软路由|端口映射|\bping\b|ipv6|\bdns\b|webrtc|\bwhep\b|网络协议|输入(网址|url)/,
   },
   {
     l1: "计算机",
     l2: "计算机基础",
     strong:
-      /操作系统|计算机网络|计算机组成|编译原理|\b408\b|计算机基础|计算机科学/,
+      /操作系统|计算机网络|计算机组成|编译原理|\b408\b|计算机基础|计算机科学|计算机图形学|体系结构|数字逻辑/,
     medium: /计算机|\btcp\b|\bhttp|cpu原理|内存管理/,
   },
   {
@@ -81,7 +89,8 @@ const RULES: TaxonomyRule[] = [
   {
     l1: "计算机",
     l2: "游戏开发",
-    strong: /游戏开发|unity|虚幻引擎|unreal|godot|独立游戏开发/,
+    strong:
+      /游戏开发|unity|虚幻引擎|unreal|\bue5\b|godot|独立游戏|qframework|蓝图开发|开发游戏|做游戏|开发.{0,20}游戏/,
   },
   {
     l1: "计算机",
@@ -91,7 +100,8 @@ const RULES: TaxonomyRule[] = [
   {
     l1: "计算机",
     l2: "嵌入式",
-    strong: /嵌入式|单片机|stm32|arduino|esp32|树莓派|fpga|电路设计|pcb/,
+    strong:
+      /嵌入式|单片机|stm32|arduino|esp32|\besp\b|树莓派|fpga|电路|pcb|电子积木|物联网|\brtos\b|电赛|lvgl|\bros\b/,
   },
 
   // AI
@@ -104,7 +114,7 @@ const RULES: TaxonomyRule[] = [
     l1: "AI",
     l2: "AI视频",
     strong:
-      /ai视频|ai短片|ai动画|ai电影|sora|可灵|runway|即梦|海螺ai|数字人|ai生成视频/,
+      /ai视频|ai短片|ai动画|ai电影|ai\s?mv|sora|可灵|runway|即梦|海螺ai|数字人|ai生成视频|seedance|veo|ai全民制作人|用ai(做|记录|制作)/,
   },
   {
     l1: "AI",
@@ -115,18 +125,21 @@ const RULES: TaxonomyRule[] = [
     l1: "AI",
     l2: "大模型",
     strong:
-      /大模型|chatgpt|\bgpt|deepseek|\bllm|claude|gemini|kimi|通义|文心一言|豆包|qwen|llama|提示词|prompt/,
+      /大模型|chatgpt|\bgpt|deepseek|\bllm|claude|gemini|kimi|通义|文心一言|豆包|qwen|llama|提示词|prompt|\bvllm\b|\brag\b|langchain|ai\s?infra|ai早报|ai新闻/,
+    medium: /token/,
+    exclude: /区块链|币圈|web3/,
   },
   {
     l1: "AI",
     l2: "机器学习",
     strong:
-      /机器学习|深度学习|神经网络|pytorch|tensorflow|transformer|强化学习|计算机视觉/,
+      /机器学习|深度学习|神经网络|pytorch|tensorflow|transformer|强化学习|计算机视觉|逻辑回归|线性回归|感知机|\bmlp\b|layernorm|batchnorm|反向传播|梯度下降/,
   },
   {
     l1: "AI",
     l2: "AI工具",
-    strong: /aigc|人工智能|ai工具|ai编程|cursor|copilot|ai办公/,
+    strong:
+      /aigc|人工智能|ai工具|ai编程|vibe\s?coding|cursor|copilot|codex|ai办公|ai工程师|ai产品|ai应用|ai创业/,
     medium: /\bai\b|ai[\u4e00-\u9fa5]/,
   },
 
@@ -135,7 +148,7 @@ const RULES: TaxonomyRule[] = [
     l1: "技能",
     l2: "摄影摄像",
     strong:
-      /摄影|拍摄|摄像|布光|打光|构图|运镜|稳定器|延时|航拍|无人机|单反|微单|相机|胶片|人像拍|拍照技巧|视频拍/,
+      /摄影|拍摄|摄像|布光|打光|构图|运镜|稳定器|延时摄影|航拍|无人机|单反|微单|相机|胶片|人像拍|拍照技巧|视频拍|大疆|索尼|佳能|尼康|富士|电影感/,
     medium: /镜头|影棚|对焦|光圈|快门|曝光|调色|灯光|器材/,
   },
   {
@@ -148,8 +161,9 @@ const RULES: TaxonomyRule[] = [
     l1: "技能",
     l2: "设计",
     strong:
-      /平面设计|ui设计|\bux\b|photoshop|\bps\b|figma|海报|logo|字体设计|排版|c4d|blender|建模|3d|室内设计|配色/,
-    medium: /设计/,
+      /平面设计|ui设计|\bux\b|photoshop|ps教程|figma|海报|logo|字体设计|排版|c4d|blender|3dmax|maya|建模|室内设计|建筑设计|配色/,
+    medium: /设计|3d/,
+    exclude: /数学建模|数模/,
   },
   {
     l1: "技能",
@@ -171,7 +185,7 @@ const RULES: TaxonomyRule[] = [
   {
     l1: "技能",
     l2: "手工",
-    strong: /手工|木工|编织|折纸|模型制作|手作|刺绣/,
+    strong: /手工|木工|编织|折纸|模型制作|手作|刺绣|3d打印|种植|园艺|嫁接/,
   },
 
   // 科技
@@ -179,8 +193,8 @@ const RULES: TaxonomyRule[] = [
     l1: "科技",
     l2: "数码",
     strong:
-      /数码|手机|笔记本|显卡|装机|耳机|平板|ipad|iphone|macbook|开箱|显示器|键盘|鼠标/,
-    medium: /电脑|芯片|评测|处理器|cpu|充电/,
+      /数码|手机|笔记本|显卡|装机|耳机|平板|ipad|iphone|macbook|mac\s?mini|开箱|显示器|键盘|鼠标|拆机|主板|电源|固态|ssd|内存条|pixel|华为|小米|apple|苹果全家桶|迷你主机|mini主机/,
+    medium: /电脑|芯片|评测|处理器|cpu|充电|硬件|半导体|安卓/,
   },
   {
     l1: "科技",
@@ -193,7 +207,9 @@ const RULES: TaxonomyRule[] = [
   {
     l1: "科技",
     l2: "汽车",
-    strong: /汽车|新能源车|电动车|试驾|赛车|特斯拉|比亚迪|小米su7|车评/,
+    strong:
+      /汽车|新能源车|电动车|试驾|赛车|车手|特斯拉|比亚迪|小米su7|车评|二手车|车知识|刹车|\bf1\b|motogp|摩托|ctcc|方程式|车队/,
+    exclude: /自行车|公路车|单车/,
   },
   {
     l1: "科技",
@@ -204,20 +220,22 @@ const RULES: TaxonomyRule[] = [
   {
     l1: "科技",
     l2: "航天天文",
-    strong: /航天|火箭|卫星|宇宙|天文|星系|黑洞|太空|空间站|行星/,
+    strong: /航天|火箭|卫星|天文|星系|黑洞|太空|空间站|行星|恒星/,
+    medium: /宇宙/,
+    exclude: /小宇宙|平行宇宙|漫威宇宙|全宇宙/,
   },
   {
     l1: "科技",
     l2: "工程基建",
-    strong:
-      /基建|桥梁|隧道|高铁|机械|制造|工业|发明|造船|港口|飞机|发动机|核电|大坝/,
-    medium: /工程/,
+    strong: /基建|桥梁|高铁|制造业|工业|造船|港口|发动机|核电|大坝|工业机器人/,
+    medium: /工程|机械|制造|发明|飞机|隧道|机器人|机械臂/,
+    exclude: /纸飞机|机械硬盘|机械键盘|软件工程|机器人之梦|隧道尽头|镜头/,
   },
   {
     l1: "科技",
     l2: "科普",
     strong:
-      /科普|冷知识|物理|化学|生物学|地理|地球|海洋|自然科学|科学实验|百科/,
+      /科普|冷知识|物理|化学|生物学|地理|地球|海洋|自然科学|科学实验|百科|量子|元素|实验室|神经科学|认知科学/,
     medium: /为什么|原理|科学|揭秘|真相/,
   },
 
@@ -231,6 +249,7 @@ const RULES: TaxonomyRule[] = [
     l1: "学习",
     l2: "外语",
     strong: /英语|单词|口语|日语|韩语|外语|语法|听力|english/,
+    exclude: /改编|翻唱|名曲|歌曲|suno|\bmv\b/,
   },
   {
     l1: "学习",
@@ -240,12 +259,15 @@ const RULES: TaxonomyRule[] = [
   {
     l1: "学习",
     l2: "职场",
-    strong: /职场|面试|求职|简历|校招|秋招|春招|打工人|副业|升职/,
+    strong:
+      /职场|面试|求职|简历|校招|秋招|春招|打工人|升职|职业规划|offer|面经|八股/,
+    medium: /实习|副业|产品经理/,
   },
   {
     l1: "学习",
     l2: "大学",
-    strong: /大学生|大学|校园|学长|学姐|保研|留学|研究生|读研|博士/,
+    strong: /大学生|校园|学长|学姐|保研|留学|读研|考博|科研/,
+    medium: /大学|研究生|博士/,
   },
   {
     l1: "学习",
@@ -255,7 +277,10 @@ const RULES: TaxonomyRule[] = [
   {
     l1: "学习",
     l2: "心理思维",
-    strong: /心理|思维|认知|逻辑|情绪|自律|个人成长|学习方法|效率/,
+    strong:
+      /心理|思维|情绪|自律|个人成长|学习方法|学习法|焦虑|内耗|拖延|潜意识|多巴胺|\badhd\b|孤独/,
+    medium: /逻辑|效率|认知/,
+    exclude: /逻辑回归|逻辑电路|数字逻辑|基础认知/,
   },
   {
     l1: "学习",
@@ -269,12 +294,12 @@ const RULES: TaxonomyRule[] = [
     l1: "人文社科",
     l2: "历史",
     strong:
-      /历史|朝代|古代|三国|秦朝|汉朝|唐朝|宋朝|明朝|清朝|考古|文物|二战|近代史|通史|帝国/,
+      /历史|讲史|朝代|古代|三国|秦朝|汉朝|唐朝|宋朝|明朝|清朝|晚清|乾隆|康熙|中世纪|考古|文物|二战|近代史|通史|帝国|典籍/,
   },
   {
     l1: "人文社科",
     l2: "社会时事",
-    strong: /社会|时事|时评|热点|新闻|国际|地缘|政治|社会学|民生/,
+    strong: /社会|时事|时评|热点|新闻|国际|地缘|政治|社会学|民生|人类学/,
   },
   {
     l1: "人文社科",
@@ -286,61 +311,75 @@ const RULES: TaxonomyRule[] = [
     l2: "人物纪实",
     strong: /纪实|纪录片|人物|传记|访谈|真实事件|奇闻|案件|悬案/,
     medium: /故事/,
+    exclude: /商业访谈/,
   },
 
   // 财经商业
   {
     l1: "财经商业",
     l2: "投资理财",
-    strong: /股票|基金|理财|投资|炒股|a股|美股|房价|房产|保险|存款/,
+    strong:
+      /股票|基金|理财|投资|炒股|股市|股海|a股|大a|美股|港股|美盘|房价|房产|保险|存款|复盘|交易员|交易策略|期货|黄金|韭菜|雪球|量化|定投|纳斯达克|游资|券商|爆仓|牛市|熊市|涨停|reits|币圈|比特币|加密货币/,
   },
   {
     l1: "财经商业",
     l2: "商业产业",
-    strong: /商业|产业|企业|公司|行业|品牌|营销|赚钱|生意|供应链|创业|电商/,
+    strong:
+      /商业|产业|企业|营销|赚钱|(?<!人)生意|供应链|创业|电商|商业访谈|消费趋势|出海/,
+    medium: /公司|行业|品牌/,
   },
   {
     l1: "财经商业",
     l2: "经济",
-    strong: /经济|财经|金融|货币|通胀|\bgdp\b|银行|关税/,
+    strong: /经济|财经|金融|货币|通胀|\bgdp\b|银行|关税|养老金|社保|网贷|借钱/,
   },
 
   // 生活
   {
     l1: "生活",
     l2: "美食",
-    strong: /美食|做饭|菜谱|吃播|探店|烹饪|烘焙|料理|食谱|家常菜/,
+    strong:
+      /美食|做饭|菜谱|吃播|探店|烹饪|烘焙|料理|食谱|家常菜|吃货|干饭|自助餐|烧烤|\bbbq\b|调酒|鸡尾酒|早茶|小吃|海鲜/,
   },
   {
     l1: "生活",
     l2: "运动健身",
     strong:
-      /健身|减脂|增肌|运动|篮球|足球|跑步|体育|\bnba\b|瑜伽|羽毛球|游泳|拳击/,
+      /健身|减脂|增肌|运动|篮球|足球|跑步|跑鞋|马拉松|runner|体育|\bnba\b|瑜伽|羽毛球|游泳|拳击|体态/,
+  },
+  {
+    l1: "生活",
+    l2: "骑行",
+    strong:
+      /自行车|公路车|山地车|折叠车|小轮车|骑行|单车|环法|禧玛诺|变速|车架/,
   },
   {
     l1: "生活",
     l2: "旅行户外",
-    strong: /旅行|旅游|户外|探险|越野|徒步|露营|骑行|自驾|景点|环球/,
+    strong:
+      /旅行|旅游|户外|探险|越野|徒步|露营|自驾|景点|环球|环游|穷游|房车|签证|出国|citywalk|逛吃|自由行|(地图|城市|出行|景点)版?攻略/,
   },
   {
     l1: "生活",
     l2: "健康",
-    strong: /健康|医学|医生|养生|疾病|睡眠|中医|营养/,
+    strong:
+      /健康|医学|医生|医师|养生|疾病|睡眠|中医|营养|降压|康复|脊椎|药物|副作用/,
   },
   {
     l1: "生活",
     l2: "宠物",
-    strong: /宠物|猫咪|狗狗|萌宠|养猫|养狗|动物/,
+    strong: /宠物|猫咪|狗狗|萌宠|养猫|养狗|动物|猫仆|喵星人|汪星人/,
+    exclude: /电子宠物|桌宠|桌面宠物/,
   },
   {
     l1: "生活",
     l2: "时尚美妆",
-    strong: /穿搭|美妆|护肤|时尚|发型|化妆|服装/,
+    strong: /穿搭|美妆|护肤|时尚|发型|化妆|服装|ootd|单品|鞋子|球鞋/,
   },
   {
     l1: "生活",
     l2: "家居",
-    strong: /家居|装修|收纳|租房|户型|家电/,
+    strong: /家居|装修|收纳|租房|户型|家电|绿植/,
   },
   {
     l1: "生活",
@@ -354,18 +393,22 @@ const RULES: TaxonomyRule[] = [
     l1: "娱乐",
     l2: "游戏",
     strong:
-      /游戏|电竞|steam|原神|王者荣耀|英雄联盟|\blol\b|minecraft|我的世界|单机|手游|黑神话|实况|通关|攻略/,
-    exclude: /游戏开发/,
+      /游戏|电竞|steam|原神|王者荣耀|英雄联盟|\blol\b|minecraft|我的世界|单机|手游|黑神话|实况|通关|三角洲|诺手|上分/,
+    medium: /攻略/,
+    exclude:
+      /游戏开发|独立游戏|开发游戏|做游戏|开发.{0,20}游戏|游戏行业|旅游|旅行|citywalk|逛吃|实习攻略/,
   },
   {
     l1: "娱乐",
     l2: "音乐",
-    strong: /音乐|翻唱|演奏|钢琴|吉他|说唱|歌曲|乐队|\bmv\b|乐理|编曲|唱歌/,
+    strong:
+      /音乐|翻唱|演奏|钢琴|吉他|说唱|歌曲|乐队|\bmv\b|乐理|编曲|唱歌|声乐|作曲|音乐人|歌手|网易云|qq音乐|歌单|指弹|扫弦|古典乐|rapper/,
+    medium: /改编|名曲|suno|纯音乐|原创曲/,
   },
   {
     l1: "娱乐",
     l2: "影视",
-    strong: /电影|影视|电视剧|影评|剧集|美剧|日剧|韩剧|追剧/,
+    strong: /电影|影视|电视剧|影评|剧集|美剧|日剧|韩剧|追剧|恐怖片|漫威/,
     medium: /解说/,
   },
   {
@@ -458,6 +501,13 @@ export const SUGGESTED_L1 = [
   "生活",
   "娱乐",
 ];
+
+export function taxonomyTree(): Array<{ name: string; children: string[] }> {
+  return SUGGESTED_L1.map((l1) => ({
+    name: l1,
+    children: RULES.filter((rule) => rule.l1 === l1).map((rule) => rule.l2),
+  }));
+}
 
 export function suggestedTreeText(): string[] {
   return SUGGESTED_L1.map((l1) => {

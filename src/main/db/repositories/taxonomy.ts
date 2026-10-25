@@ -42,45 +42,19 @@ interface DbSchema {
 
 const UP_L1_COLORS: Record<string, string> = {
   计算机: "#3b82f6",
+  AI: "#06b6d4",
+  技能: "#ec4899",
+  科技: "#6366f1",
   学习: "#8b5cf6",
+  人文社科: "#a16207",
+  财经商业: "#eab308",
   娱乐: "#f59e0b",
   生活: "#22c55e",
   其他: "#94a3b8",
 };
 
-const UP_TAXONOMY_SEED: Array<{ name: string; children: string[] }> = [
-  {
-    name: "计算机",
-    children: [
-      "前端",
-      "后端",
-      "人工智能",
-      "嵌入式",
-      "硬核科技",
-      "计算机网络",
-      "数据库",
-      "运维",
-      "算法",
-    ],
-  },
-  { name: "学习", children: ["数学", "考研", "外语", "面试", "课程"] },
-  { name: "娱乐", children: ["游戏", "影视", "音乐", "动漫"] },
-  {
-    name: "生活",
-    children: [
-      "美食",
-      "旅游",
-      "健身",
-      "数码",
-      "财经",
-      "科普",
-      "历史人文",
-      "自行车",
-      "运动着装",
-    ],
-  },
-  { name: "其他", children: ["综合"] },
-];
+/** 关注分组按分类结果按需创建，新库只预置「未分组」 */
+const UP_TAXONOMY_SEED: Array<{ name: string; children: string[] }> = [];
 
 function buildSeedUpGroups(): DbUpGroup[] {
   const groups: DbUpGroup[] = [
@@ -895,7 +869,6 @@ export class TaxonomyRepository {
   }
 
   getUpGroups(): UpGroup[] {
-    this.ensureExtendedUpTaxonomy();
     const data = getDbData();
     return data.upGroups
       .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -912,50 +885,26 @@ export class TaxonomyRepository {
       }));
   }
 
-  ensureExtendedUpTaxonomy(): void {
+  /** 删掉没有成员的自动分组（手动建的保留），一级下没子分组也一并删 */
+  pruneEmptyAiUpGroups(): void {
     const data = getDbData();
-    let changed = false;
-
-    for (const [index, seed] of UP_TAXONOMY_SEED.entries()) {
-      let l1 = data.upGroups.find(
-        (group) => group.parentId === null && group.name === seed.name,
-      );
-      if (!l1) {
-        l1 = {
-          id: nextId(data, "upGroup"),
-          name: seed.name,
-          color: UP_L1_COLORS[seed.name] ?? "#64748b",
-          isAiGenerated: true,
-          sortOrder: index + 1,
-          parentId: null,
-        };
-        data.upGroups.push(l1);
-        changed = true;
-      }
-
-      for (const [childIndex, childName] of seed.children.entries()) {
-        const exists = data.upGroups.some(
-          (group) => group.parentId === l1!.id && group.name === childName,
-        );
-        if (exists) continue;
-
-        data.upGroups.push({
-          id: nextId(data, "upGroup"),
-          name: childName,
-          color: l1.color,
-          isAiGenerated: true,
-          sortOrder: childIndex,
-          parentId: l1.id,
-        });
-        changed = true;
-      }
-    }
-
-    if (changed) saveDb(data);
+    const used = new Set(data.upMemberMap.map((member) => member.upGroupId));
+    data.upGroups = data.upGroups.filter(
+      (group) =>
+        group.parentId === null || !group.isAiGenerated || used.has(group.id),
+    );
+    const parents = new Set(data.upGroups.map((group) => group.parentId));
+    data.upGroups = data.upGroups.filter(
+      (group) =>
+        group.parentId !== null ||
+        group.name === "未分组" ||
+        !group.isAiGenerated ||
+        parents.has(group.id),
+    );
+    saveDb(data);
   }
 
   getUpGroupTree(): UpGroupTreeNode[] {
-    this.ensureExtendedUpTaxonomy();
     const data = getDbData();
 
     return data.upGroups
@@ -1015,7 +964,6 @@ export class TaxonomyRepository {
   }
 
   createUpClassificationWriter() {
-    this.ensureExtendedUpTaxonomy();
     const data = getDbData();
 
     const persist = () => saveDb(data);
@@ -1074,7 +1022,6 @@ export class TaxonomyRepository {
   }
 
   getUpLeafGroups(): Array<{ id: number; path: string }> {
-    this.ensureExtendedUpTaxonomy();
     const data = getDbData();
     const l1Map = new Map(
       data.upGroups
