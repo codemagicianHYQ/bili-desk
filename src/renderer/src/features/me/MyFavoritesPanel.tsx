@@ -4,7 +4,11 @@ import type { FavMediaItem, OpusFavItem } from "@shared/types";
 import { OpusAppLink } from "@/components/opus/OpusAppLink";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
-import { cn, formatCount } from "@/lib/utils";
+import {
+  cn,
+  formatCount,
+  formatDuration as formatVideoDuration,
+} from "@/lib/utils";
 import { FileText, Loader2, Video } from "lucide-react";
 
 function formatError(err: unknown): string {
@@ -22,9 +26,7 @@ type FavTab = "video" | "opus";
 
 function formatDuration(seconds: number): string {
   if (!seconds) return "";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
+  return formatVideoDuration(seconds);
 }
 
 export function MyFavoritesPanel() {

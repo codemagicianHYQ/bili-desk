@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type {
   AbnormalFollowingRecord,
-  IntegrityScanProgress,
   IntegrityScanResult,
   IntegrityScanScope,
   InvalidVideoRecord,
@@ -11,6 +10,7 @@ import type {
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
+import { integrityScanTask, useBackgroundTask } from "@/lib/background-task";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -56,11 +56,15 @@ function emptyArchive(): IntegrityScanResult {
 
 export function IntegrityPage() {
   const user = useAppStore((s) => s.user);
-  const [tab, setTab] = useState<TabId>("favorites");
+  const scan = useBackgroundTask(integrityScanTask);
+  const scanning = scan.running;
+  const progress = scan.progress;
+  const [tab, setTab] = useState<TabId>(() => {
+    const { running, meta } = integrityScanTask.getState();
+    return running && meta ? meta : "favorites";
+  });
   const [archive, setArchive] = useState<IntegrityScanResult>(emptyArchive);
   const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState<IntegrityScanProgress | null>(null);
   const [error, setError] = useState("");
 
   const loadArchive = useCallback(async () => {
@@ -81,44 +85,42 @@ export function IntegrityPage() {
   }, [loadArchive]);
 
   useEffect(() => {
-    return window.biliDesk.bili.onIntegrityProgress((p) => setProgress(p));
-  }, []);
+    if (scan.running || scan.acknowledged) return;
+    integrityScanTask.acknowledge();
+    const result = scan.result;
+    if (!result) {
+      setError(scan.error || "扫描失败");
+      return;
+    }
+    setArchive(result);
+    if (result.warnings && result.warnings.length > 0) {
+      setError(
+        `扫描完成，但有 ${result.warnings.length} 处跳过：${result.warnings.slice(0, 3).join("；")}${result.warnings.length > 3 ? "…" : ""}`,
+      );
+    }
+  }, [scan]);
 
   const currentTab = TABS.find((item) => item.id === tab) ?? TABS[0];
 
-  const runScan = async () => {
+  const runScan = () => {
     if (!user?.isLogin) {
       setError("请先登录");
       return;
     }
-    setScanning(true);
     setError("");
-    setProgress({
-      phase: tab,
-      message: `开始${currentTab.scanLabel}…`,
-      current: 0,
-      total: 0,
-    });
-    try {
-      const result = await window.biliDesk.bili.scanIntegrity(tab);
-      setArchive(result);
-      setProgress({
-        phase: "done",
-        message: "扫描完成",
-        current: 1,
-        total: 1,
-      });
-      if (result.warnings && result.warnings.length > 0) {
-        setError(
-          `扫描完成，但有 ${result.warnings.length} 处跳过：${result.warnings.slice(0, 3).join("；")}${result.warnings.length > 3 ? "…" : ""}`,
-        );
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "扫描失败");
-      setProgress(null);
-    } finally {
-      setScanning(false);
-    }
+    const scanTab = tab;
+    void integrityScanTask
+      .run(
+        () => window.biliDesk.bili.scanIntegrity(scanTab),
+        {
+          phase: scanTab,
+          message: `开始${currentTab.scanLabel}…`,
+          current: 0,
+          total: 0,
+        },
+        scanTab,
+      )
+      .catch(() => undefined);
   };
 
   const favVideos = useMemo(
@@ -192,7 +194,7 @@ export function IntegrityPage() {
         </div>
       </div>
 
-      {(scanning || (progress && progress.phase !== "done")) && (
+      {scanning && (
         <div className="rounded-xl border border-border bg-secondary/40 px-4 py-3 text-sm">
           <div className="flex items-center gap-2 text-foreground">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -233,7 +235,6 @@ export function IntegrityPage() {
             onClick={() => {
               setTab(item.id);
               setError("");
-              setProgress(null);
             }}
             className={cn(
               "rounded-lg px-3 py-1.5 text-sm transition-colors",

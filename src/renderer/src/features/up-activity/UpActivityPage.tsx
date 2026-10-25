@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import type {
   UpActivityArchive,
   UpActivityRecord,
-  UpActivityScanProgress,
   UpActivitySource,
   UpActivityTimeFilter,
 } from "@shared/types";
@@ -13,6 +12,7 @@ import { PaginationBar } from "@/components/ui/pagination-bar";
 import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { useAppStore } from "@/stores/app-store";
 import { useFollowingStore } from "@/stores/following-store";
+import { upActivityScanTask, useBackgroundTask } from "@/lib/background-task";
 import { cn } from "@/lib/utils";
 import {
   Activity,
@@ -119,8 +119,9 @@ export function UpActivityPage() {
   const user = useAppStore((s) => s.user);
   const [archive, setArchive] = useState<UpActivityArchive>(emptyArchive);
   const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState<UpActivityScanProgress | null>(null);
+  const scan = useBackgroundTask(upActivityScanTask);
+  const scanning = scan.running;
+  const progress = scan.progress;
   const [error, setError] = useState("");
   const [sources, setSources] = useState<Set<UpActivitySource>>(
     () => new Set(["video", "dynamic"]),
@@ -162,8 +163,21 @@ export function UpActivityPage() {
   }, [loadArchive]);
 
   useEffect(() => {
-    return window.biliDesk.bili.onUpActivityProgress((p) => setProgress(p));
-  }, []);
+    if (scan.running || scan.acknowledged) return;
+    upActivityScanTask.acknowledge();
+    const result = scan.result;
+    if (!result) {
+      setError(scan.error || "扫描失败");
+      return;
+    }
+    setArchive(result);
+    setPage(1);
+    if (result.warnings?.length) {
+      setError(
+        `扫描完成，部分 UP 失败 ${result.warnings.length} 个：${result.warnings.slice(0, 2).join("；")}${result.warnings.length > 2 ? "…" : ""}`,
+      );
+    }
+  }, [scan]);
 
   const toggleSource = (id: UpActivitySource) => {
     setSources((prev) => {
@@ -179,40 +193,20 @@ export function UpActivityPage() {
     setPage(1);
   };
 
-  const runScan = async () => {
+  const runScan = () => {
     if (!user?.isLogin) {
       setError("请先登录");
       return;
     }
-    setScanning(true);
     setError("");
-    setProgress({
-      phase: "followings",
-      message: "开始扫描…",
-      current: 0,
-      total: 0,
-    });
-    try {
-      const result = await window.biliDesk.bili.scanUpActivity();
-      setArchive(result);
-      setPage(1);
-      setProgress({
-        phase: "done",
-        message: "扫描完成",
-        current: 1,
-        total: 1,
-      });
-      if (result.warnings?.length) {
-        setError(
-          `扫描完成，部分 UP 失败 ${result.warnings.length} 个：${result.warnings.slice(0, 2).join("；")}${result.warnings.length > 2 ? "…" : ""}`,
-        );
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "扫描失败");
-      setProgress(null);
-    } finally {
-      setScanning(false);
-    }
+    void upActivityScanTask
+      .run(() => window.biliDesk.bili.scanUpActivity(), {
+        phase: "followings",
+        message: "开始扫描…",
+        current: 0,
+        total: 0,
+      })
+      .catch(() => undefined);
   };
 
   const filtered = useMemo(() => {
@@ -334,7 +328,7 @@ export function UpActivityPage() {
         </div>
       </div>
 
-      {(scanning || (progress && progress.phase !== "done")) && (
+      {scanning && (
         <div className="rounded-xl border border-border bg-secondary/40 px-4 py-3 text-sm">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />

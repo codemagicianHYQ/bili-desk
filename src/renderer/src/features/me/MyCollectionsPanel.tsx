@@ -20,6 +20,10 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { VideoCard } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
+import {
+  collectionClassifyTask,
+  useBackgroundTask,
+} from "@/lib/background-task";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn, formatCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -123,9 +127,17 @@ export function MyCollectionsPanel({
   const [groups, setGroups] = useState<CollectionGroupMap>({});
   const [groupSelection, setGroupSelection] =
     useState<CollectionGroupSelection>({ l1: null, l2: null });
-  const [classifying, setClassifying] = useState(false);
-  const [classifyMessage, setClassifyMessage] = useState("");
-  const [classifyPercent, setClassifyPercent] = useState(0);
+  const classifyTask = useBackgroundTask(collectionClassifyTask);
+  const classifying = classifyTask.running;
+  const classifyProgress = classifyTask.progress;
+  const classifyPercent =
+    classifying && classifyProgress && classifyProgress.total > 0
+      ? Math.round((classifyProgress.done / classifyProgress.total) * 100)
+      : 0;
+  const [resultMessage, setClassifyMessage] = useState("");
+  const classifyMessage = classifying
+    ? (classifyProgress?.message ?? "正在启动整理…")
+    : resultMessage;
   const [moveItem, setMoveItem] = useState<UserCollectionItem | null>(null);
 
   const [selected, setSelected] = useState<UserCollectionItem | null>(null);
@@ -207,15 +219,20 @@ export function MyCollectionsPanel({
       .getCollectionGroups()
       .then(setGroups)
       .catch(() => setGroups({}));
-    return window.biliDesk.bili.onCollectionClassifyProgress((progress) => {
-      setClassifyMessage(progress.message);
-      setClassifyPercent(
-        progress.total > 0
-          ? Math.round((progress.done / progress.total) * 100)
-          : 0,
-      );
-    });
   }, []);
+
+  useEffect(() => {
+    if (classifyTask.running || classifyTask.acknowledged) return;
+    collectionClassifyTask.acknowledge();
+    const result = classifyTask.result;
+    if (!result) {
+      setClassifyMessage(classifyTask.error || "整理失败");
+      return;
+    }
+    setLocalItems(result.items);
+    setGroups(result.groups);
+    setClassifyMessage(result.message);
+  }, [classifyTask]);
 
   useEffect(() => {
     if (localMode) return;
@@ -271,22 +288,12 @@ export function MyCollectionsPanel({
     if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
   };
 
-  const runClassify = async (classifyMode: "new" | "all") => {
+  const runClassify = (classifyMode: "new" | "all") => {
     if (classifying) return;
-    setClassifying(true);
-    setClassifyPercent(0);
-    setClassifyMessage("正在启动 AI 整理…");
-    try {
-      const result =
-        await window.biliDesk.bili.classifyCollections(classifyMode);
-      setLocalItems(result.items);
-      setGroups(result.groups);
-      setClassifyMessage(result.message);
-    } catch (err) {
-      setClassifyMessage(formatError(err));
-    } finally {
-      setClassifying(false);
-    }
+    setClassifyMessage("");
+    void collectionClassifyTask
+      .run(() => window.biliDesk.bili.classifyCollections(classifyMode), null)
+      .catch(() => undefined);
   };
 
   const renameGroup = async (l1: string, l2: string | null, name: string) => {
