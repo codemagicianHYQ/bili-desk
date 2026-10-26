@@ -34,6 +34,7 @@ import { messageApi } from "../services/message-api";
 import { localToViewRepo } from "../db/repositories/local-toview";
 import {
   buildFavClassifyText,
+  matchTitleToCategory,
   pickClassifyCommentSnippets,
   suggestExistingFavFolderTitle,
 } from "../services/fav-classifier";
@@ -193,6 +194,26 @@ export function registerBiliIpc(): void {
     biliApi.updateMyFace(file),
   );
   ipcMain.handle(IPC.BILI_WALLET, () => biliApi.getWallet());
+  ipcMain.handle(
+    IPC.BILI_CLASSIFY_TITLES,
+    (_e, items: Array<{ key: string; title: string; upper?: string }>) => {
+      const out: Record<string, { l1: string; l2?: string; l3?: string }> = {};
+      for (const item of Array.isArray(items) ? items : []) {
+        if (!item?.key) continue;
+        const text = buildFavClassifyText({
+          title: String(item.title ?? ""),
+          upper: { name: String(item.upper ?? "") },
+        });
+        const matched = matchTitleToCategory(text);
+        if (!matched) continue;
+        const entry: { l1: string; l2?: string; l3?: string } = { l1: matched.l1 };
+        if (matched.l2) entry.l2 = matched.l2;
+        if (matched.l3) entry.l3 = matched.l3;
+        out[item.key] = entry;
+      }
+      return out;
+    },
+  );
   ipcMain.handle(IPC.BILI_VIDEO_LIKE, (_e, aid: number, like: boolean) =>
     biliApi.likeVideo(aid, like),
   );

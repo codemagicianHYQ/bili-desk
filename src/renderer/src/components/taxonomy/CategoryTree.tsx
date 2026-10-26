@@ -8,6 +8,8 @@ interface CategoryTreeProps {
   selection: LocalCategorySelection
   onSelect: (selection: LocalCategorySelection) => void
   onRename?: (level: 'l1' | 'l2' | 'l3', id: number, currentName: string) => void
+  allLabel?: string
+  allCount?: number
 }
 
 function CategoryRow({
@@ -70,7 +72,14 @@ function CategoryRow({
   )
 }
 
-export function CategoryTree({ tree, selection, onSelect, onRename }: CategoryTreeProps) {
+export function CategoryTree({
+  tree,
+  selection,
+  onSelect,
+  onRename,
+  allLabel = '全部收藏',
+  allCount
+}: CategoryTreeProps) {
   const [expandedL1, setExpandedL1] = useState<Set<number>>(new Set(tree.map((n) => n.id)))
   const [expandedL2, setExpandedL2] = useState<Set<number>>(new Set())
 
@@ -98,7 +107,8 @@ export function CategoryTree({ tree, selection, onSelect, onRename }: CategoryTr
   return (
     <div className="space-y-0.5 text-sm">
       <CategoryRow
-        name="全部收藏"
+        name={allLabel}
+        {...(allCount != null ? { count: allCount } : {})}
         active={isActive('all', null)}
         depth={0}
         onClick={() => onSelect({ level: 'all', id: null })}

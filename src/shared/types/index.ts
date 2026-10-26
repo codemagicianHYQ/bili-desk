@@ -1871,6 +1871,10 @@ export interface BiliDeskApi {
     updateMyProfile: (input: { name?: string; sign?: string }) => Promise<void>;
     updateMyFace: (file: BinaryImageFile) => Promise<string>;
     getWallet: () => Promise<WalletBalance>;
+    /** 与收藏夹本地分类同一套标题打分，返回 key → 分类路径；分不出的不返回 */
+    classifyTitles: (
+      items: Array<{ key: string; title: string; upper?: string }>,
+    ) => Promise<Record<string, { l1: string; l2?: string; l3?: string }>>;
     getComments: (
       aid: number,
       page?: number,

@@ -150,6 +150,7 @@ export const IPC = {
   BILI_PROFILE_UPDATE: "bili:profile-update",
   BILI_PROFILE_FACE: "bili:profile-face",
   BILI_WALLET: "bili:wallet",
+  BILI_CLASSIFY_TITLES: "bili:classify-titles",
   BILI_DM_FILTERS: "bili:dm-filters",
   BILI_DM_FILTER_ADD: "bili:dm-filter-add",
   BILI_DM_RECALL: "bili:dm-recall",

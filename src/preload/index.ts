@@ -296,6 +296,10 @@ const api = {
     updateMyFace: (file: BinaryImageFile) =>
       ipcRenderer.invoke(IPC.BILI_PROFILE_FACE, file),
     getWallet: () => ipcRenderer.invoke(IPC.BILI_WALLET),
+    classifyTitles: (
+      items: Array<{ key: string; title: string; upper?: string }>,
+    ) =>
+      ipcRenderer.invoke(IPC.BILI_CLASSIFY_TITLES, items),
     getComments: (
       aid: number,
       page?: number,

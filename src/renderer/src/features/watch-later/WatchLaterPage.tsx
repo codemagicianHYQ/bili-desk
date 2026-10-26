@@ -1,15 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { ToViewItem } from "@shared/types";
+import type { LocalCategorySelection, ToViewItem } from "@shared/types";
+import { CategoryTree } from "@/components/taxonomy/CategoryTree";
+import {
+  buildWatchLaterTree,
+  filterBySelection,
+  OTHER_CATEGORY,
+  type CategoryPath,
+} from "./watch-later-categories";
 import { useAppStore } from "@/stores/app-store";
 import { TOVIEW_MAX, useWatchLaterStore } from "@/stores/watch-later-store";
 import { VideoCard } from "@/components/video/VideoCard";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { cn, formatDuration } from "@/lib/utils";
-import { Check, Clock, Loader2, Trash2 } from "lucide-react";
+import { Check, Clock, FolderTree, Loader2, Trash2 } from "lucide-react";
 
 const PAGE_SIZE = 30;
+const CLASSIFY_CHUNK = 200;
+const SHOW_CATEGORIES_KEY = "bilidesk.watchLater.showCategories";
+const ALL_SELECTION: LocalCategorySelection = { level: "all", id: null };
 
 type WatchLaterTab = "official" | "local";
 
@@ -134,10 +144,82 @@ export function WatchLaterPage() {
   const [batchRemoving, setBatchRemoving] = useState(false);
   const [clearing, setClearing] = useState(false);
 
+  const [showCategories, setShowCategories] = useState(
+    () => localStorage.getItem(SHOW_CATEGORIES_KEY) !== "0",
+  );
+  const [categoryPaths, setCategoryPaths] = useState<Map<string, CategoryPath>>(
+    () => new Map(),
+  );
+  const [classifying, setClassifying] = useState(false);
+  const [selectionByTab, setSelectionByTab] = useState<
+    Record<WatchLaterTab, LocalCategorySelection>
+  >({ official: ALL_SELECTION, local: ALL_SELECTION });
+  const requestedRef = useRef<Set<string>>(new Set());
+  const pathsRef = useRef(categoryPaths);
+  pathsRef.current = categoryPaths;
+
   const isLocalTab = tab === "local";
-  const videos = isLocalTab ? localVideos : officialVideos;
+  const tabVideos = isLocalTab ? localVideos : officialVideos;
   const count = isLocalTab ? localCount : officialCount;
   const officialFull = officialCount >= TOVIEW_MAX;
+  const selection = selectionByTab[tab];
+
+  const { tree, idsByBvid } = useMemo(
+    () => buildWatchLaterTree(tabVideos, categoryPaths),
+    [tabVideos, categoryPaths],
+  );
+  const videos = useMemo(
+    () =>
+      showCategories
+        ? filterBySelection(tabVideos, idsByBvid, selection)
+        : tabVideos,
+    [showCategories, tabVideos, idsByBvid, selection],
+  );
+
+  useEffect(() => {
+    const pending = [...officialVideos, ...localVideos].filter(
+      (item) => !requestedRef.current.has(item.bvid),
+    );
+    if (pending.length === 0) return;
+    for (const item of pending) requestedRef.current.add(item.bvid);
+    let cancelled = false;
+    setClassifying(true);
+    void (async () => {
+      for (let start = 0; start < pending.length; start += CLASSIFY_CHUNK) {
+        const chunk = pending.slice(start, start + CLASSIFY_CHUNK);
+        let result: Record<string, CategoryPath> = {};
+        try {
+          result = await window.biliDesk.bili.classifyTitles(
+            chunk.map((item) => ({
+              key: item.bvid,
+              title: item.title,
+              upper: item.owner?.name ?? "",
+            })),
+          );
+        } catch {
+          result = {};
+        }
+        if (cancelled) return;
+        setCategoryPaths((prev) => {
+          const next = new Map(prev);
+          for (const item of chunk) {
+            next.set(item.bvid, result[item.bvid] ?? { l1: OTHER_CATEGORY });
+          }
+          return next;
+        });
+      }
+      if (!cancelled) setClassifying(false);
+    })();
+    return () => {
+      cancelled = true;
+      for (const item of pending) {
+        if (!pathsRef.current.has(item.bvid)) {
+          requestedRef.current.delete(item.bvid);
+        }
+      }
+      setClassifying(false);
+    };
+  }, [officialVideos, localVideos]);
 
   const totalPages = Math.max(1, Math.ceil(videos.length / PAGE_SIZE));
   const pageVideos = useMemo(() => {
@@ -162,6 +244,24 @@ export function WatchLaterPage() {
   useEffect(() => {
     if (!editing) setSelectedBvids(new Set());
   }, [editing]);
+
+  useEffect(() => {
+    setPage(1);
+    setSelectedBvids(new Set());
+  }, [selection]);
+
+  useEffect(() => {
+    if (selection.level === "all" || videos.length > 0 || classifying) return;
+    setSelectionByTab((prev) => ({ ...prev, [tab]: ALL_SELECTION }));
+  }, [selection, videos.length, classifying, tab]);
+
+  useEffect(() => {
+    localStorage.setItem(SHOW_CATEGORIES_KEY, showCategories ? "1" : "0");
+  }, [showCategories]);
+
+  const selectCategory = (next: LocalCategorySelection) => {
+    setSelectionByTab((prev) => ({ ...prev, [tab]: next }));
+  };
 
   const toggleSelect = (bvid: string) => {
     setSelectedBvids((prev) => {
@@ -256,79 +356,93 @@ export function WatchLaterPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-              {!isLocalTab && officialCount > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={clearing}
-                  onClick={() => {
-                    if (!window.confirm("清空 B 站官方稍后再看？本地列表不受影响。")) {
-                      return;
-                    }
-                    setClearing(true);
-                    void clearOfficial()
-                      .catch(() => undefined)
-                      .finally(() => setClearing(false));
-                  }}
-                >
-                  {clearing ? "清空中..." : "清空官方"}
-                </Button>
-              )}
-          {videos.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              {editing ? (
-                <>
+            {tabVideos.length > 0 && (
+              <Button
+                size="sm"
+                variant={showCategories ? "secondary" : "outline"}
+                className="gap-1"
+                title="按收藏夹同一套标准自动分类"
+                onClick={() => setShowCategories((prev) => !prev)}
+              >
+                <FolderTree className="h-4 w-4" />
+                {showCategories ? "隐藏分类" : "自动分类"}
+              </Button>
+            )}
+            {!isLocalTab && officialCount > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={clearing}
+                onClick={() => {
+                  if (
+                    !window.confirm("清空 B 站官方稍后再看？本地列表不受影响。")
+                  ) {
+                    return;
+                  }
+                  setClearing(true);
+                  void clearOfficial()
+                    .catch(() => undefined)
+                    .finally(() => setClearing(false));
+                }}
+              >
+                {clearing ? "清空中..." : "清空官方"}
+              </Button>
+            )}
+            {tabVideos.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {editing ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={selectAllOnPage}
+                      disabled={batchRemoving}
+                    >
+                      全选本页
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={clearSelection}
+                      disabled={batchRemoving || selectedBvids.size === 0}
+                    >
+                      取消选择
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="gap-1"
+                      disabled={batchRemoving || selectedBvids.size === 0}
+                      onClick={() => void handleBatchRemove()}
+                    >
+                      {batchRemoving ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      删除
+                      {selectedBvids.size > 0 ? ` (${selectedBvids.size})` : ""}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={batchRemoving}
+                      onClick={() => setEditing(false)}
+                    >
+                      完成
+                    </Button>
+                  </>
+                ) : (
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={selectAllOnPage}
-                    disabled={batchRemoving}
+                    onClick={() => setEditing(true)}
                   >
-                    全选本页
+                    编辑
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={clearSelection}
-                    disabled={batchRemoving || selectedBvids.size === 0}
-                  >
-                    取消选择
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    className="gap-1"
-                    disabled={batchRemoving || selectedBvids.size === 0}
-                    onClick={() => void handleBatchRemove()}
-                  >
-                    {batchRemoving ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                    删除
-                    {selectedBvids.size > 0 ? ` (${selectedBvids.size})` : ""}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={batchRemoving}
-                    onClick={() => setEditing(false)}
-                  >
-                    完成
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEditing(true)}
-                >
-                  编辑
-                </Button>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
           </div>
         </div>
         {officialFull && (
@@ -338,62 +452,98 @@ export function WatchLaterPage() {
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="p-6">
-          {!isLocalTab && error && videos.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-red-400">
-              <p>{error}</p>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void fetch()}
-              >
-                重试
-              </Button>
+      <div className="flex min-h-0 flex-1">
+        {showCategories && tabVideos.length > 0 && (
+          <aside className="flex w-56 shrink-0 flex-col border-r border-border">
+            <div className="flex items-center justify-between px-3 pb-1 pt-3 text-xs text-muted-foreground">
+              <span>{isLocalTab ? "本地 · 分类" : "官方 · 分类"}</span>
+              {classifying && (
+                <span className="flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  分类中
+                </span>
+              )}
             </div>
-          ) : videos.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
-              <Clock className="h-10 w-10 opacity-40" />
-              <p className="text-sm">
-                {isLocalTab ? "本地稍后再看还是空的" : "暂无稍后再看视频"}
-              </p>
-              <p className="text-xs">
-                {isLocalTab
-                  ? "官方满员后，新添加的视频会自动出现在这里"
-                  : "在视频卡片或播放页点击时钟图标即可添加"}
-              </p>
+            <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto p-2">
+              <CategoryTree
+                key={tab}
+                tree={tree}
+                selection={selection}
+                onSelect={selectCategory}
+                allLabel="全部"
+                allCount={tabVideos.length}
+              />
             </div>
-          ) : (
-            <div className={cn("grid gap-4", GRID_COLS_CLASS[homeGridColumns])}>
-              {pageVideos.map((item) => (
-                <WatchLaterCard
-                  key={item.bvid}
-                  item={item}
-                  editing={editing}
-                  selected={selectedBvids.has(item.bvid)}
-                  onToggleSelect={() => toggleSelect(item.bvid)}
-                  onRemove={() => remove(item.aid, item.bvid)}
-                />
-              ))}
+          </aside>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="p-6">
+              {!isLocalTab && error && tabVideos.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-red-400">
+                  <p>{error}</p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void fetch()}
+                  >
+                    重试
+                  </Button>
+                </div>
+              ) : tabVideos.length > 0 && videos.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">
+                  这个分类下暂时没有视频
+                </div>
+              ) : videos.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
+                  <Clock className="h-10 w-10 opacity-40" />
+                  <p className="text-sm">
+                    {isLocalTab ? "本地稍后再看还是空的" : "暂无稍后再看视频"}
+                  </p>
+                  <p className="text-xs">
+                    {isLocalTab
+                      ? "官方满员后，新添加的视频会自动出现在这里"
+                      : "在视频卡片或播放页点击时钟图标即可添加"}
+                  </p>
+                </div>
+              ) : (
+                <div
+                  className={cn("grid gap-4", GRID_COLS_CLASS[homeGridColumns])}
+                >
+                  {pageVideos.map((item) => (
+                    <WatchLaterCard
+                      key={item.bvid}
+                      item={item}
+                      editing={editing}
+                      selected={selectedBvids.has(item.bvid)}
+                      onToggleSelect={() => toggleSelect(item.bvid)}
+                      onRemove={() => remove(item.aid, item.bvid)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
+          </div>
+
+          {videos.length > 0 && (
+            <PaginationBar
+              className="shrink-0 bg-background"
+              page={page}
+              totalPages={totalPages}
+              disabled={batchRemoving}
+              onPageChange={setPage}
+              info={
+                <>
+                  {showCategories && selection.level !== "all"
+                    ? `本分类 ${videos.length} 个 · `
+                    : ""}
+                  第 {page} / {totalPages} 页 · 本页 {pageVideos.length} 个
+                </>
+              }
+            />
           )}
         </div>
       </div>
-
-      {videos.length > 0 && (
-        <PaginationBar
-          className="shrink-0 bg-background"
-          page={page}
-          totalPages={totalPages}
-          disabled={batchRemoving}
-          onPageChange={setPage}
-          info={
-            <>
-              第 {page} / {totalPages} 页 · 本页 {pageVideos.length} 个
-            </>
-          }
-        />
-      )}
     </div>
   );
 }
