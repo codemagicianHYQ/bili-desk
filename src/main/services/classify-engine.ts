@@ -2,12 +2,8 @@ import { aiService } from "./ai-service";
 import { biliApi } from "./bili-api";
 import { taxonomyRepo } from "../db/repositories/taxonomy";
 import { appStore } from "../store/app-store";
-import {
-  isConfident,
-  scoreEvidence,
-  suggestedTreeText,
-} from "./collection-taxonomy";
-import { buildUpEvidence, cleanUpSign } from "./up-evidence";
+import { suggestedTreeText, taxonomyTree } from "./collection-taxonomy";
+import { cleanUpSign, classifyUpEvidence } from "./up-evidence";
 
 const TITLE_FETCH_DELAY_MS = 350;
 const TITLE_BACKOFF_MS = 4000;
@@ -17,7 +13,51 @@ const TITLE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const TITLE_MAX_FAIL_STREAK = 15;
 /** 只看资料就能确定时不再抓标题 */
 const CONFIDENT_SCORE = 12;
-const MIN_SCORE = 6;
+
+/** AI 常给的同义名，归回目录里的名字，避免长出「计算机/人工智能」这种重复分支 */
+const AI_L1_ALIASES: Record<string, string> = {
+  人工智能: "AI",
+  ai: "AI",
+  编程: "计算机",
+  互联网: "计算机",
+  财经: "财经商业",
+  商业: "财经商业",
+  人文: "人文社科",
+  历史: "人文社科",
+  社会: "人文社科",
+  教育: "学习",
+  知识: "学习",
+  游戏: "娱乐",
+  音乐: "娱乐",
+  影视: "娱乐",
+  美食: "生活",
+  数码: "科技",
+};
+
+/** AI 只能从现有目录里挑；挑不中就返回 null，交给低把握兜底 */
+function normalizeAiPick(
+  l1Raw: string,
+  l2Raw: string,
+): { l1: string; l2: string } | null {
+  const tree = taxonomyTree();
+  const l1Name = l1Raw.trim();
+  const l1 =
+    tree.find((node) => node.name === l1Name)?.name ??
+    AI_L1_ALIASES[l1Name] ??
+    AI_L1_ALIASES[l1Name.toLowerCase()];
+  const l2Name = l2Raw.trim();
+  if (l1) {
+    const children = tree.find((node) => node.name === l1)?.children ?? [];
+    const l2 =
+      children.find((name) => name === l2Name) ??
+      children.find((name) => l2Name && (name.includes(l2Name) || l2Name.includes(name)));
+    if (l2) return { l1, l2 };
+  }
+  for (const node of tree) {
+    if (node.children.includes(l2Name)) return { l1: node.name, l2: l2Name };
+  }
+  return null;
+}
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -53,10 +93,7 @@ export class ClassifyEngine {
       source: string,
       confidence: number,
     ) => {
-      const group = writer.findOrCreateL2(
-        writer.findOrCreateL1(l1).id,
-        l2 || "综合",
-      );
+      const group = writer.findOrCreateL2(writer.findOrCreateL1(l1).id, l2);
       assignments.push({ mid, groupId: group.id, source, confidence });
     };
 
@@ -103,8 +140,10 @@ export class ClassifyEngine {
         }
 
         let titles: string[] = [];
-        let match = scoreEvidence(buildUpEvidence(up, titles));
-        if (!isConfident(match, CONFIDENT_SCORE)) {
+        let { match, level } = classifyUpEvidence(up, titles);
+        const profileOnly =
+          level === "rule" && match != null && match.score >= CONFIDENT_SCORE;
+        if (!profileOnly) {
           const cached = titleCache[String(up.mid)];
           if (cached && now - cached.at < TITLE_TTL_MS) {
             titles = cached.titles;
@@ -123,16 +162,12 @@ export class ClassifyEngine {
           }
           const latest = latestTitles.get(up.mid);
           if (titles.length === 0 && latest) titles = [latest];
-          const withTitles = scoreEvidence(buildUpEvidence(up, titles));
-          if (
-            !isConfident(match, MIN_SCORE) &&
-            isConfident(withTitles, MIN_SCORE)
-          )
-            titleHelped++;
-          match = withTitles;
+          const withTitles = classifyUpEvidence(up, titles);
+          if (level !== "rule" && withTitles.level === "rule") titleHelped++;
+          ({ match, level } = withTitles);
         }
 
-        if (match && isConfident(match, MIN_SCORE)) {
+        if (match && level === "rule") {
           assign(up.mid, match.l1, match.l2, "rule", 100);
           ruleCount++;
         } else {
@@ -160,7 +195,7 @@ export class ClassifyEngine {
           }
           try {
             const response = await aiService.chat(
-              `你是 B 站 UP 主分类助手，把 UP 归入「一级/二级」两层分类。参考目录（一级从这里选，二级可按内容补充）：\n${tree}\n以近期视频标题为主要依据，签名只作参考。只返回 JSON: {"l1":"一级","l2":"二级"}`,
+              `你是 B 站 UP 主分类助手，把 UP 归入「一级/二级」两层分类。一级和二级都只能从下面目录里原样选，不要自造名字：\n${tree}\n以近期视频标题为主要依据，签名只作参考；实在判断不了就返回 {"l1":"","l2":""}。只返回 JSON: {"l1":"一级","l2":"二级"}`,
               [
                 `UP昵称: ${up.uname}`,
                 `签名: ${cleanUpSign(up.sign)}`,
@@ -178,19 +213,12 @@ export class ClassifyEngine {
               l1?: string;
               l2?: string;
             } | null;
-            const l1 = String(parsed?.l1 ?? "")
-              .trim()
-              .slice(0, 8);
-            if (l1) {
-              assign(
-                up.mid,
-                l1,
-                String(parsed?.l2 ?? "")
-                  .trim()
-                  .slice(0, 10),
-                "ai",
-                80,
-              );
+            const picked = normalizeAiPick(
+              String(parsed?.l1 ?? ""),
+              String(parsed?.l2 ?? ""),
+            );
+            if (picked) {
+              assign(up.mid, picked.l1, picked.l2, "ai", 80);
               aiCount++;
               continue;
             }
@@ -204,8 +232,8 @@ export class ClassifyEngine {
       // 证据少但有倾向的先归过去（低把握），完全没线索的留在未分组
       let weakCount = 0;
       for (const { up, titles } of leftover) {
-        const match = scoreEvidence(buildUpEvidence(up, titles));
-        if (match && match.score >= 3 && match.score > match.runnerUp) {
+        const { match, level } = classifyUpEvidence(up, titles);
+        if (match && level) {
           assign(up.mid, match.l1, match.l2, "rule-weak", 40);
           weakCount++;
         }
