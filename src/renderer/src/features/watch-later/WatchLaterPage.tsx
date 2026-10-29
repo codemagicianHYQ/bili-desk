@@ -472,6 +472,7 @@ export function WatchLaterPage() {
                 onSelect={selectCategory}
                 allLabel="全部"
                 allCount={tabVideos.length}
+                showCollapseAll
               />
             </div>
           </aside>

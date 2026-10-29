@@ -191,6 +191,16 @@ export function PopularPage() {
 
   const activeTab = TABS.find((item) => item.id === tab) ?? TABS[0];
 
+  const weeklyByYear = useMemo(() => {
+    const groups = new Map<string, WeeklySeriesMeta[]>();
+    for (const item of weeklyList) {
+      const year = item.name.match(/^(\d{4})/)?.[1];
+      const label = year ? `${year} 年` : "更早";
+      groups.set(label, [...(groups.get(label) ?? []), item]);
+    }
+    return [...groups];
+  }, [weeklyList]);
+
   const loadPopular = useCallback(async () => {
     if (popularBusyRef.current) return;
     popularBusyRef.current = true;
@@ -528,11 +538,15 @@ export function PopularPage() {
               value={weeklyNumber}
               onChange={(event) => setWeeklyNumber(Number(event.target.value))}
             >
-              {weeklyList.slice(0, 40).map((item) => (
-                <option key={item.number} value={item.number}>
-                  {item.name || `第 ${item.number} 期`}
-                  {item.subject ? ` · ${item.subject}` : ""}
-                </option>
+              {weeklyByYear.map(([year, items]) => (
+                <optgroup key={year} label={year}>
+                  {items.map((item) => (
+                    <option key={item.number} value={item.number}>
+                      {item.name || `第 ${item.number} 期`}
+                      {item.subject ? ` · ${item.subject}` : ""}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           ) : null}
@@ -542,7 +556,7 @@ export function PopularPage() {
               value={musicListId}
               onChange={(event) => setMusicListId(Number(event.target.value))}
             >
-              {musicPeriods.slice(0, 40).map((item) => (
+              {musicPeriods.map((item) => (
                 <option key={item.listId} value={item.listId}>
                   {formatMusicPeriod(item)}
                 </option>
