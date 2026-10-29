@@ -30,6 +30,7 @@ import type {
   VideoItem,
   MessageFeedKind,
   MessageSessionFilter,
+  FollowingOrder,
   MessageSettings,
   BinaryImageFile,
   ChatShareCard,
@@ -413,17 +414,26 @@ const api = {
       ),
     cleanFavResources: (mediaId: number) =>
       ipcRenderer.invoke(IPC.BILI_FAV_RESOURCES_CLEAN, mediaId),
-    getFollowings: (page?: number) =>
-      page != null
-        ? ipcRenderer.invoke(IPC.BILI_FOLLOWINGS, page)
-        : ipcRenderer.invoke(IPC.BILI_FOLLOWINGS),
+    getFollowings: (page?: number, order?: FollowingOrder) =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOWINGS, page ?? 1, order ?? "recent"),
     getFollowTags: () => ipcRenderer.invoke(IPC.BILI_FOLLOW_TAGS),
     createFollowTag: (name: string) =>
       ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_CREATE, name),
-    getFollowingsInTag: (tagId: number, page?: number) =>
-      page != null
-        ? ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_MEMBERS, tagId, page)
-        : ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_MEMBERS, tagId),
+    renameFollowTag: (tagId: number, name: string) =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_RENAME, tagId, name),
+    deleteFollowTag: (tagId: number) =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_DELETE, tagId),
+    getFollowingsInTag: (
+      tagId: number,
+      page?: number,
+      order?: FollowingOrder,
+    ) =>
+      ipcRenderer.invoke(
+        IPC.BILI_FOLLOW_TAG_MEMBERS,
+        tagId,
+        page ?? 1,
+        order ?? "recent",
+      ),
     getUserRelationList: (
       mid: number,
       type: "followings" | "followers",
@@ -863,6 +873,10 @@ const api = {
         : ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_CREATE, name),
     getUpGroupMemberMids: (selection: UpGroupSelection) =>
       ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_MEMBERS, selection),
+    renameUpGroup: (id: number, name: string) =>
+      ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_RENAME, id, name),
+    reorderUpGroups: (ids: number[]) =>
+      ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_REORDER, ids),
   },
   ai: {
     getConfig: () => ipcRenderer.invoke(IPC.AI_CONFIG_GET),

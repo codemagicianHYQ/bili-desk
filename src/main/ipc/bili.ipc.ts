@@ -21,6 +21,7 @@ import type {
   DanmakuFilterKind,
   DynamicPublishOptions,
   CollectionClassifyMode,
+  FollowingOrder,
 } from "@shared/types";
 import { biliApi } from "../services/bili-api";
 import {
@@ -377,17 +378,26 @@ export function registerBiliIpc(): void {
   ipcMain.handle(IPC.BILI_FAV_RESOURCES_CLEAN, (_e, mediaId: number) =>
     biliApi.cleanFavResources(mediaId),
   );
-  ipcMain.handle(IPC.BILI_FOLLOWINGS, (_e, page?: number) =>
-    biliApi.getFollowings(page),
+  ipcMain.handle(
+    IPC.BILI_FOLLOWINGS,
+    (_e, page?: number, order?: FollowingOrder) =>
+      biliApi.getFollowings(page, order ?? "recent"),
   );
   ipcMain.handle(IPC.BILI_FOLLOW_TAGS, () => biliApi.getFollowTags());
   ipcMain.handle(IPC.BILI_FOLLOW_TAG_CREATE, (_e, name: string) =>
     biliApi.createFollowTag(name),
   );
   ipcMain.handle(
+    IPC.BILI_FOLLOW_TAG_RENAME,
+    (_e, tagId: number, name: string) => biliApi.renameFollowTag(tagId, name),
+  );
+  ipcMain.handle(IPC.BILI_FOLLOW_TAG_DELETE, (_e, tagId: number) =>
+    biliApi.deleteFollowTag(tagId),
+  );
+  ipcMain.handle(
     IPC.BILI_FOLLOW_TAG_MEMBERS,
-    (_e, tagId: number, page?: number) =>
-      biliApi.getFollowingsInTag(tagId, page),
+    (_e, tagId: number, page?: number, order?: FollowingOrder) =>
+      biliApi.getFollowingsInTag(tagId, page, 50, order ?? "recent"),
   );
   handleIpc(
     IPC.BILI_USER_RELATION_LIST,

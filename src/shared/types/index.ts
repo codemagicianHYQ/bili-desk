@@ -653,7 +653,15 @@ export interface FollowingUp {
   mutual?: boolean;
   /** 当前登录用户是否已关注该用户 */
   isFollowing?: boolean;
+  /** 我关注对方的时间（秒），仅全量关注列表接口返回 */
+  followTime?: number;
 }
+
+/** 官方关注列表只有两种服务端顺序：最近关注、最常访问 */
+export type FollowingOrder = "recent" | "attention";
+
+/** UP 列表展示排序；最早关注 / 名称在本地排 */
+export type FollowingSort = "recent" | "attention" | "earliest" | "name";
 
 export interface FollowTag {
   tagId: number;
@@ -1977,12 +1985,18 @@ export interface BiliDeskApi {
       aids: number[],
     ) => Promise<void>;
     cleanFavResources: (mediaId: number) => Promise<CleanFavResourcesResult>;
-    getFollowings: (page?: number) => Promise<FollowingUp[]>;
+    getFollowings: (
+      page?: number,
+      order?: FollowingOrder,
+    ) => Promise<FollowingUp[]>;
     getFollowTags: () => Promise<FollowTag[]>;
     createFollowTag: (name: string) => Promise<FollowTag>;
+    renameFollowTag: (tagId: number, name: string) => Promise<void>;
+    deleteFollowTag: (tagId: number) => Promise<void>;
     getFollowingsInTag: (
       tagId: number,
       page?: number,
+      order?: FollowingOrder,
     ) => Promise<FollowingsPage>;
     getUserRelationList: (
       mid: number,
@@ -2291,6 +2305,8 @@ export interface BiliDeskApi {
     getUpGroupTree: () => Promise<UpGroupTreeNode[]>;
     createUpGroup: (name: string, color?: string) => Promise<UpGroup>;
     getUpGroupMemberMids: (selection: UpGroupSelection) => Promise<number[]>;
+    renameUpGroup: (id: number, name: string) => Promise<void>;
+    reorderUpGroups: (ids: number[]) => Promise<void>;
   };
   ai: {
     getConfig: () => Promise<AiConfig>;

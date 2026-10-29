@@ -78,6 +78,8 @@ export const IPC = {
   BILI_FOLLOWINGS: "bili:followings",
   BILI_FOLLOW_TAGS: "bili:follow-tags",
   BILI_FOLLOW_TAG_CREATE: "bili:follow-tag-create",
+  BILI_FOLLOW_TAG_RENAME: "bili:follow-tag-rename",
+  BILI_FOLLOW_TAG_DELETE: "bili:follow-tag-delete",
   BILI_FOLLOW_TAG_MEMBERS: "bili:follow-tag-members",
   BILI_USER_RELATION_LIST: "bili:user-relation-list",
   BILI_FOLLOW_USER_TAGS: "bili:follow-user-tags",
@@ -221,6 +223,8 @@ export const IPC = {
   TAXONOMY_UP_GROUPS: "taxonomy:up-groups",
   TAXONOMY_UP_GROUP_TREE: "taxonomy:up-group-tree",
   TAXONOMY_UP_GROUP_CREATE: "taxonomy:up-group-create",
+  TAXONOMY_UP_GROUP_RENAME: "taxonomy:up-group-rename",
+  TAXONOMY_UP_GROUP_REORDER: "taxonomy:up-group-reorder",
   TAXONOMY_UP_GROUP_MEMBERS: "taxonomy:up-group-members",
 
   AI_CONFIG_GET: "ai:config-get",

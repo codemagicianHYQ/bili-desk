@@ -18,7 +18,13 @@ type DbUpGroup = {
   isAiGenerated: boolean;
   sortOrder: number;
   parentId: number | null;
+  /** 用户改名前 AI/规则用的名字；重新分组按它找回同一个分组 */
+  sourceName?: string;
 };
+
+function upGroupMatches(group: DbUpGroup, name: string): boolean {
+  return group.name === name || group.sourceName === name;
+}
 
 interface DbSchema {
   categoryL1: CategoryL1[];
@@ -973,7 +979,7 @@ export class TaxonomyRepository {
         const existing = data.upGroups.find(
           (group) =>
             group.parentId === null &&
-            group.name === name &&
+            upGroupMatches(group, name) &&
             group.name !== "未分组",
         );
         if (existing) return existing;
@@ -993,7 +999,7 @@ export class TaxonomyRepository {
       },
       findOrCreateL2(l1Id: number, name: string): DbUpGroup {
         const existing = data.upGroups.find(
-          (group) => group.parentId === l1Id && group.name === name,
+          (group) => group.parentId === l1Id && upGroupMatches(group, name),
         );
         if (existing) return existing;
 
@@ -1036,6 +1042,35 @@ export class TaxonomyRepository {
         id: group.id,
         path: `${l1Map.get(group.parentId!) ?? "其他"} / ${group.name}`,
       }));
+  }
+
+  renameUpGroup(id: number, name: string): void {
+    const next = name.trim();
+    if (!next) throw new Error("分组名不能为空");
+    if (next === "未分组") throw new Error("不能用「未分组」作为名字");
+    const data = getDbData();
+    const group = data.upGroups.find((item) => item.id === id);
+    if (!group) throw new Error("分组不存在");
+    if (group.name === next) return;
+    const clash = data.upGroups.some(
+      (item) =>
+        item.id !== id && item.parentId === group.parentId && item.name === next,
+    );
+    if (clash) throw new Error("同级已有同名分组");
+    if (group.isAiGenerated && !group.sourceName) group.sourceName = group.name;
+    group.name = next;
+    saveDb(data);
+  }
+
+  /** ids 是同一父级下的分组，按传入顺序重排 */
+  reorderUpGroups(ids: number[]): void {
+    const data = getDbData();
+    const byId = new Map(data.upGroups.map((group) => [group.id, group]));
+    ids.forEach((id, index) => {
+      const group = byId.get(id);
+      if (group) group.sortOrder = index;
+    });
+    saveDb(data);
   }
 
   createUpGroup(name: string, color = "#FB7299"): UpGroup {

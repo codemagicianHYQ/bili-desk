@@ -78,6 +78,13 @@ export function registerTaxonomyIpc(): void {
       taxonomyRepo.createUpGroup(name, color),
   );
   ipcMain.handle(
+    IPC.TAXONOMY_UP_GROUP_RENAME,
+    (_e, id: number, name: string) => taxonomyRepo.renameUpGroup(id, name),
+  );
+  ipcMain.handle(IPC.TAXONOMY_UP_GROUP_REORDER, (_e, ids: number[]) =>
+    taxonomyRepo.reorderUpGroups(ids),
+  );
+  ipcMain.handle(
     IPC.TAXONOMY_UP_GROUP_MEMBERS,
     (_e, selection: UpGroupSelection) =>
       taxonomyRepo.getUpGroupMemberMids(selection),

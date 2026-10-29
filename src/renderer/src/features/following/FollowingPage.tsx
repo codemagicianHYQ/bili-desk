@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BILI_SPECIAL_FOLLOW_TAG_ID,
+  type FollowingOrder,
+  type FollowingSort,
   type FollowingUp,
   type UpGroupSelection,
   type UpGroupTreeNode,
@@ -14,7 +16,30 @@ import { FollowTagDialog } from "./FollowTagDialog";
 import { FollowingUpCard } from "./FollowingUpCard";
 import { UnfollowConfirmDialog } from "./UnfollowConfirmDialog";
 import { CreateFollowTagControl } from "@/components/following/CreateFollowTagControl";
+import { FollowTagList } from "@/components/following/FollowTagList";
 import { upRelationCache, upSpaceCache } from "@/lib/session-data-cache";
+
+type SidebarMode = "bilibili" | "local";
+
+const SORT_STORAGE_KEY = "bilidesk:following-sort";
+
+const SORT_OPTIONS: Array<{ value: FollowingSort; label: string }> = [
+  { value: "recent", label: "最近关注" },
+  { value: "attention", label: "最常访问" },
+  { value: "earliest", label: "最早关注" },
+  { value: "name", label: "名称" },
+];
+
+function readSort(): FollowingSort {
+  const saved = localStorage.getItem(SORT_STORAGE_KEY);
+  return SORT_OPTIONS.some((option) => option.value === saved)
+    ? (saved as FollowingSort)
+    : "recent";
+}
+
+function tagCacheKey(tagId: number, order: FollowingOrder): number | string {
+  return order === "attention" ? `${tagId}:attention` : tagId;
+}
 
 function isSpecialFollowTag(
   tagId: number | null,
@@ -80,6 +105,20 @@ export function FollowingPage() {
     (state) => state.patchSpecialFollowCount,
   );
   const refreshVersion = useFollowingStore((state) => state.refreshVersion);
+  const attentionRank = useFollowingStore((state) => state.attentionRank);
+  const ensureAttentionRank = useFollowingStore(
+    (state) => state.ensureAttentionRank,
+  );
+  const ensureAllFollowings = useFollowingStore(
+    (state) => state.ensureAllFollowings,
+  );
+
+  const [upSort, setUpSort] = useState<FollowingSort>(readSort);
+  const [sortLoading, setSortLoading] = useState(false);
+  const serverOrder: FollowingOrder =
+    upSort === "attention" ? "attention" : "recent";
+  /** 最早关注 / 名称要整组数据才排得准，B 站分组需拉完所有页 */
+  const needsFullTag = upSort === "earliest" || upSort === "name";
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("bilibili");
   const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
@@ -127,7 +166,12 @@ export function FollowingPage() {
   };
 
   const loadBilibiliPage = useCallback(
-    async (tagId: number, nextPage: number, append: boolean) => {
+    async (
+      tagId: number,
+      nextPage: number,
+      append: boolean,
+      order: FollowingOrder = "recent",
+    ) => {
       const seq = ++loadSeqRef.current;
 
       if (append) {
@@ -145,6 +189,7 @@ export function FollowingPage() {
         const result = await window.biliDesk.bili.getFollowingsInTag(
           tagId,
           nextPage,
+          order,
         );
         if (seq !== loadSeqRef.current) return;
 
@@ -152,7 +197,7 @@ export function FollowingPage() {
           const next = append
             ? [...prev, ...result.followings]
             : result.followings;
-          useFollowingStore.getState().putTagList(tagId, {
+          useFollowingStore.getState().putTagList(tagCacheKey(tagId, order), {
             followings: next,
             page: result.page,
             hasMore: result.hasMore,
@@ -237,13 +282,15 @@ export function FollowingPage() {
 
   useEffect(() => {
     if (sidebarMode !== "bilibili" || selectedTagId == null) return;
-    const cached = useFollowingStore.getState().getTagList(selectedTagId);
+    const cached = useFollowingStore
+      .getState()
+      .getTagList(tagCacheKey(selectedTagId, serverOrder));
     if (cached) {
       applyTagListCache(cached);
       return;
     }
-    void loadBilibiliPage(selectedTagId, 1, false);
-  }, [sidebarMode, selectedTagId, loadBilibiliPage]);
+    void loadBilibiliPage(selectedTagId, 1, false, serverOrder);
+  }, [sidebarMode, selectedTagId, loadBilibiliPage, serverOrder]);
 
   useEffect(() => {
     if (sidebarMode !== "local") return;
@@ -266,11 +313,13 @@ export function FollowingPage() {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     if (tagId === selectedTagId) {
       useFollowingStore.getState().clearTagList(tagId);
-      void loadBilibiliPage(tagId, 1, false);
+      void loadBilibiliPage(tagId, 1, false, serverOrder);
       return;
     }
 
-    const cached = useFollowingStore.getState().getTagList(tagId);
+    const cached = useFollowingStore
+      .getState()
+      .getTagList(tagCacheKey(tagId, serverOrder));
     if (cached) {
       applyTagListCache(cached);
     } else {
@@ -295,7 +344,7 @@ export function FollowingPage() {
       isLocalMode
     )
       return;
-    await loadBilibiliPage(selectedTagId, page + 1, true);
+    await loadBilibiliPage(selectedTagId, page + 1, true, serverOrder);
   }, [
     selectedTagId,
     hasMore,
@@ -304,6 +353,21 @@ export function FollowingPage() {
     isLocalMode,
     loadBilibiliPage,
     page,
+    serverOrder,
+  ]);
+
+  useEffect(() => {
+    if (!needsFullTag || isLocalMode || !hasMore || loading || loadingMore) {
+      return;
+    }
+    void loadMoreBilibili();
+  }, [
+    needsFullTag,
+    isLocalMode,
+    hasMore,
+    loading,
+    loadingMore,
+    loadMoreBilibili,
   ]);
 
   useEffect(() => {
@@ -347,7 +411,7 @@ export function FollowingPage() {
 
   const reloadCurrentList = useCallback(async () => {
     if (sidebarMode === "bilibili" && selectedTagId != null) {
-      await loadBilibiliPage(selectedTagId, 1, false);
+      await loadBilibiliPage(selectedTagId, 1, false, serverOrder);
       return;
     }
     if (sidebarMode === "local") {
@@ -359,6 +423,7 @@ export function FollowingPage() {
     localSelection,
     loadBilibiliPage,
     loadLocalGroupMembers,
+    serverOrder,
   ]);
 
   useEffect(() => {
@@ -507,6 +572,100 @@ export function FollowingPage() {
     ? !listReady
     : !sidebarReady || selectedTagId == null || !listReady || loading;
 
+  const changeSort = (next: FollowingSort) => {
+    localStorage.setItem(SORT_STORAGE_KEY, next);
+    setUpSort(next);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
+
+  useEffect(() => {
+    const needRank = upSort === "attention" && isLocalMode && !attentionRank;
+    const needAll = upSort === "earliest" && !allFollowings;
+    if (!needRank && !needAll) return;
+    setSortLoading(true);
+    void (needRank ? ensureAttentionRank() : ensureAllFollowings())
+      .catch((err) => setActionMessage(formatError(err)))
+      .finally(() => setSortLoading(false));
+  }, [
+    upSort,
+    isLocalMode,
+    attentionRank,
+    allFollowings,
+    ensureAttentionRank,
+    ensureAllFollowings,
+  ]);
+
+  /** 全量关注列表是按关注时间从新到旧排的，下标就是新旧顺序 */
+  const recencyIndex = useMemo(
+    () => new Map((allFollowings ?? []).map((up, index) => [up.mid, index])),
+    [allFollowings],
+  );
+
+  const displayFollowings = useMemo(() => {
+    if (upSort === "name") {
+      return [...followings].sort((a, b) =>
+        a.uname.localeCompare(b.uname, "zh-CN"),
+      );
+    }
+    if (upSort === "earliest") {
+      return [...followings].sort(
+        (a, b) =>
+          (recencyIndex.get(b.mid) ?? -1) - (recencyIndex.get(a.mid) ?? -1),
+      );
+    }
+    if (upSort === "attention" && isLocalMode && attentionRank) {
+      const last = attentionRank.size;
+      return [...followings].sort(
+        (a, b) =>
+          (attentionRank.get(a.mid) ?? last) -
+          (attentionRank.get(b.mid) ?? last),
+      );
+    }
+    return followings;
+  }, [followings, upSort, recencyIndex, isLocalMode, attentionRank]);
+
+  const handleTagRenamed = (tagId: number, name: string) => {
+    useFollowingStore.getState().renameFollowTagLocal(tagId, name);
+  };
+
+  const handleTagDeleted = (tagId: number) => {
+    useFollowingStore.getState().removeFollowTagLocal(tagId);
+    void useFollowingStore
+      .getState()
+      .refreshFollowTags()
+      .catch(() => undefined);
+    if (selectedTagId === tagId) {
+      const fallback = useFollowingStore
+        .getState()
+        .followTags.find((tag) => tag.tagId !== tagId);
+      if (fallback) handleSelectTag(fallback.tagId);
+    }
+  };
+
+  const handleUpGroupRename = async (id: number, name: string) => {
+    try {
+      await window.biliDesk.taxonomy.renameUpGroup(id, name);
+      await useFollowingStore.getState().reloadUpGroupTree();
+      setActionMessage(`已重命名为「${name}」`);
+    } catch (err) {
+      setActionMessage(formatError(err));
+    }
+  };
+
+  const handleUpGroupReorder = async (orders: number[][]) => {
+    try {
+      for (const ids of orders) {
+        await window.biliDesk.taxonomy.reorderUpGroups(ids);
+      }
+      await useFollowingStore.getState().reloadUpGroupTree();
+    } catch (err) {
+      setActionMessage(formatError(err));
+    }
+  };
+
+  const fullSortPending =
+    !isLocalMode && needsFullTag && (hasMore || loadingMore);
+
   return (
     <div className="flex h-full">
       <div className="flex w-60 shrink-0 flex-col border-r border-border">
@@ -568,59 +727,67 @@ export function FollowingPage() {
 
         <div className="scrollbar-none flex-1 overflow-y-auto p-2">
           {sidebarMode === "bilibili" ? (
-            <div className="space-y-0.5">
-              {followTags.map((tag) => (
-                <button
-                  key={tag.tagId}
-                  type="button"
-                  onClick={() => handleSelectTag(tag.tagId)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                    selectedTagId === tag.tagId
-                      ? "bg-primary/10 text-primary"
-                      : "text-foreground hover:bg-secondary",
-                  )}
-                >
-                  <Folder className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {tag.count}
-                  </span>
-                </button>
-              ))}
-              {followTags.length === 0 && (
-                <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-                  登录后可同步 B 站关注分组
-                </p>
-              )}
-            </div>
+            <FollowTagList
+              tags={followTags}
+              selectedTagId={selectedTagId}
+              onSelect={handleSelectTag}
+              onRenamed={handleTagRenamed}
+              onDeleted={handleTagDeleted}
+              onMessage={setActionMessage}
+            />
           ) : (
             <UpGroupTree
               tree={upGroupTree}
               selection={localSelection}
               uncategorizedCount={uncategorizedCount}
               onSelect={handleSelectLocalGroup}
+              onRename={(id, name) => void handleUpGroupRename(id, name)}
+              onReorder={(orders) => void handleUpGroupReorder(orders)}
             />
           )}
         </div>
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
-          {isLocalMode ? (
-            <>
-              本地分组「{localSelectionLabel}」：共 {followings.length} 个 UP
-            </>
-          ) : (
-            <>
-              B 站分组「{selectedTag?.name ?? "..."}」：已加载{" "}
-              {followings.length}
-              {selectedTag ? ` / ${selectedTag.count}` : ""} 个 UP
-            </>
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+          <div className="min-w-0 flex-1 truncate">
+            {isLocalMode ? (
+              <>
+                本地分组「{localSelectionLabel}」：共 {followings.length} 个 UP
+              </>
+            ) : (
+              <>
+                B 站分组「{selectedTag?.name ?? "..."}」：已加载{" "}
+                {followings.length}
+                {selectedTag ? ` / ${selectedTag.count}` : ""} 个 UP
+              </>
+            )}
+            {actionMessage && (
+              <span className="ml-2 text-foreground">{actionMessage}</span>
+            )}
+          </div>
+          {(sortLoading || fullSortPending) && (
+            <span className="flex shrink-0 items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {fullSortPending ? "正在拉取整组以排序…" : "正在准备排序…"}
+            </span>
           )}
-          {actionMessage && (
-            <span className="ml-2 text-foreground">{actionMessage}</span>
-          )}
+          <label className="flex shrink-0 items-center gap-1.5">
+            排序
+            <select
+              value={upSort}
+              onChange={(event) =>
+                changeSort(event.target.value as FollowingSort)
+              }
+              className="h-7 rounded-md border border-border bg-background/70 px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div ref={scrollRef} className="scrollbar-none flex-1 overflow-y-auto">
@@ -631,7 +798,7 @@ export function FollowingPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
-              {followings.map((up) => (
+              {displayFollowings.map((up) => (
                 <FollowingUpCard
                   key={up.mid}
                   up={up}

@@ -41,6 +41,7 @@ import type {
   FollowTag,
   FollowingUp,
   FollowingsPage,
+  FollowingOrder,
   BlacklistPage,
   BlacklistUser,
   UserRelationListPage,
@@ -6170,12 +6171,21 @@ class BiliApiService {
     return all;
   }
 
-  async getFollowings(page = 1): Promise<FollowingUp[]> {
+  async getFollowings(
+    page = 1,
+    order: FollowingOrder = "recent",
+  ): Promise<FollowingUp[]> {
     const mid = appStore.get("user")?.mid;
     if (!mid) return [];
 
     const res = await this.client.get("/x/relation/followings", {
-      params: { vmid: mid, pn: page, ps: 50, order: "desc" },
+      params: {
+        vmid: mid,
+        pn: page,
+        ps: 50,
+        order: "desc",
+        ...(order === "attention" ? { order_type: "attention" } : {}),
+      },
     });
 
     const list = res.data?.data?.list ?? [];
@@ -6437,6 +6447,7 @@ class BiliApiService {
     tagId: number,
     page = 1,
     pageSize = 50,
+    order: FollowingOrder = "recent",
   ): Promise<FollowingsPage> {
     if (!isLoggedIn()) {
       return { followings: [], page: 1, hasMore: false };
@@ -6445,7 +6456,12 @@ class BiliApiService {
     await this.ensureBuvid3();
 
     const res = await this.client.get("/x/relation/tag", {
-      params: { tagid: tagId, pn: page, ps: pageSize },
+      params: {
+        tagid: tagId,
+        pn: page,
+        ps: pageSize,
+        ...(order === "attention" ? { order_type: "attention" } : {}),
+      },
       headers: { Referer: "https://space.bilibili.com/" },
       validateStatus: () => true,
     });
@@ -6487,7 +6503,28 @@ class BiliApiService {
       special: (u.special as number) === 1,
       mutual: attribute === 6,
       isFollowing: attribute === 1 || attribute === 2 || attribute === 6,
+      ...(Number(u.mtime) > 0 ? { followTime: Number(u.mtime) } : {}),
     };
+  }
+
+  /** 重命名 B 站关注分组，对应官网 /x/relation/tag/update */
+  async renameFollowTag(tagId: number, name: string): Promise<void> {
+    const tag = name.trim();
+    if (!tag) throw new Error("请输入分组名称");
+    if (tag.length > 16) throw new Error("分组名称最多 16 个字");
+    if (tagId <= 0) throw new Error("系统分组不能重命名");
+    await this.postRelationForm("/x/relation/tag/update", {
+      tagid: String(tagId),
+      name: tag,
+    });
+  }
+
+  /** 删除 B 站关注分组，组内 UP 会回到默认分组 */
+  async deleteFollowTag(tagId: number): Promise<void> {
+    if (tagId <= 0) throw new Error("系统分组不能删除");
+    await this.postRelationForm("/x/relation/tag/del", {
+      tagid: String(tagId),
+    });
   }
 
   private async postRelationForm(

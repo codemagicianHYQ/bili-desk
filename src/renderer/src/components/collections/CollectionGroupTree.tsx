@@ -5,7 +5,15 @@ import {
   collectionGroupKey,
 } from "@shared/utils/collection-groups";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, Folder, Inbox, Layers } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Folder,
+  Inbox,
+  Layers,
+} from "lucide-react";
 
 export interface CollectionGroupSelection {
   /** null = 全部；UNGROUPED_COLLECTION_L1 = 未分组 */
@@ -128,6 +136,10 @@ export function CollectionGroupTree({
       return next;
     });
 
+  const allCollapsed = tree.every((l1) => collapsed.has(l1.name));
+  const toggleAll = () =>
+    setCollapsed(allCollapsed ? new Set() : new Set(tree.map((l1) => l1.name)));
+
   return (
     <div className="space-y-0.5">
       <button
@@ -139,6 +151,22 @@ export function CollectionGroupTree({
         <span className="flex-1">全部合集</span>
         <span className="text-xs text-muted-foreground">{total}</span>
       </button>
+
+      {tree.length > 0 && (
+        <button
+          type="button"
+          onClick={toggleAll}
+          className="flex w-full items-center justify-center gap-1 rounded-md px-1 py-1 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground"
+          title={allCollapsed ? "展开全部一级分类" : "折叠全部一级分类"}
+        >
+          {allCollapsed ? (
+            <ChevronsUpDown className="h-3 w-3" />
+          ) : (
+            <ChevronsDownUp className="h-3 w-3" />
+          )}
+          {allCollapsed ? "全部展开" : "全部折叠"}
+        </button>
+      )}
 
       {tree.map((l1) => {
         const open = !collapsed.has(l1.name);

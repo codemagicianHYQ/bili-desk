@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   BILI_SPECIAL_FOLLOW_TAG_ID,
   type FollowTag,
+  type FollowingOrder,
   type FollowingUp,
   type UpGroupSelection,
   type UpGroupTreeNode,
@@ -37,20 +38,29 @@ interface FollowingState {
   patchSpecialFollowCount: (delta: number) => void;
   refreshFollowTags: () => Promise<void>;
   addFollowTag: (tag: FollowTag) => void;
-  getTagList: (tagId: number) => TagListCache | undefined;
-  putTagList: (tagId: number, list: TagListCache) => void;
+  renameFollowTagLocal: (tagId: number, name: string) => void;
+  removeFollowTagLocal: (tagId: number) => void;
+  reloadUpGroupTree: () => Promise<void>;
+  /** mid → 官方「最常访问」名次，越小越常访问 */
+  attentionRank: Map<number, number> | null;
+  ensureAttentionRank: () => Promise<Map<number, number>>;
+  /** key 为 tagId，或 `${tagId}:attention`（最常访问顺序） */
+  getTagList: (key: number | string) => TagListCache | undefined;
+  putTagList: (key: number | string, list: TagListCache) => void;
   removeMidFromTagLists: (mid: number) => void;
   clearTagList: (tagId: number) => void;
   clearTagLists: () => void;
 }
 
-async function fetchAllFollowingsFromApi(): Promise<FollowingUp[]> {
+async function fetchAllFollowingsFromApi(
+  order: FollowingOrder = "recent",
+): Promise<FollowingUp[]> {
   const all: FollowingUp[] = [];
   const seen = new Set<number>();
   let page = 1;
 
   while (page <= 200) {
-    const batch = await window.biliDesk.bili.getFollowings(page);
+    const batch = await window.biliDesk.bili.getFollowings(page, order);
     if (batch.length === 0) break;
     let fresh = 0;
     for (const up of batch) {
@@ -76,6 +86,7 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
   sidebarReady: false,
   refreshing: false,
   refreshVersion: 0,
+  attentionRank: null,
 
   ensureAllFollowings: async ({ force = false } = {}) => {
     const { allFollowings, followingsLoadedAt, followingsLoading } = get();
@@ -180,7 +191,34 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
 
   invalidateFollowings: () => {
     tagListCache.clear();
-    set({ allFollowings: null, followingsLoadedAt: null });
+    set({ allFollowings: null, followingsLoadedAt: null, attentionRank: null });
+  },
+
+  ensureAttentionRank: async () => {
+    const cached = get().attentionRank;
+    if (cached) return cached;
+    const list = await fetchAllFollowingsFromApi("attention");
+    const rank = new Map(list.map((up, index) => [up.mid, index]));
+    set({ attentionRank: rank });
+    return rank;
+  },
+
+  renameFollowTagLocal: (tagId, name) => {
+    set({
+      followTags: get().followTags.map((tag) =>
+        tag.tagId === tagId ? { ...tag, name } : tag,
+      ),
+    });
+  },
+
+  removeFollowTagLocal: (tagId) => {
+    get().clearTagList(tagId);
+    get().clearTagList(0);
+    set({ followTags: get().followTags.filter((tag) => tag.tagId !== tagId) });
+  },
+
+  reloadUpGroupTree: async () => {
+    set({ upGroupTree: await window.biliDesk.taxonomy.getUpGroupTree() });
   },
 
   invalidateSidebar: () => {
@@ -242,11 +280,11 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
     set({ followTags: [...system, ...custom, tag] });
   },
 
-  putTagList: (tagId, list) => {
-    tagListCache.set(String(tagId), list);
+  putTagList: (key, list) => {
+    tagListCache.set(String(key), list);
   },
 
-  getTagList: (tagId) => tagListCache.get(String(tagId)),
+  getTagList: (key) => tagListCache.get(String(key)),
 
   removeMidFromTagLists: (mid) => {
     tagListCache.forEach((list, key) => {
@@ -259,6 +297,7 @@ export const useFollowingStore = create<FollowingState>((set, get) => ({
 
   clearTagList: (tagId) => {
     tagListCache.delete(String(tagId));
+    tagListCache.delete(`${tagId}:attention`);
   },
 
   clearTagLists: () => {
