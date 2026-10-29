@@ -11,12 +11,18 @@ import {
 } from "./collection-taxonomy";
 import { cleanUpSign, classifyUpEvidence } from "./up-evidence";
 
-const TITLE_FETCH_DELAY_MS = 350;
+/** 投稿接口风控很严，慢一点、带抖动 */
+const TITLE_FETCH_DELAY_MS = 1200;
+const TITLE_FETCH_JITTER_MS = 800;
 const TITLE_BACKOFF_MS = 4000;
 const TITLE_LIMIT = 15;
 const TITLE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-/** 连续这么多次抓标题失败（基本是被限流）就不再抓，剩下的只按资料分 */
-const TITLE_MAX_FAIL_STREAK = 15;
+/** 连续失败这么多次（基本是被限流）就歇一会儿再抓 */
+const TITLE_FAIL_STREAK_COOLDOWN = 5;
+const TITLE_COOLDOWN_MS = 2 * 60 * 1000;
+/** 歇过这么多次还被限流，这轮就不抓了；没抓到的下次浅层整理接着补 */
+const TITLE_MAX_COOLDOWNS = 3;
+const TITLE_CACHE_FLUSH_EVERY = 10;
 /** 只看资料就能确定时不再抓标题 */
 const CONFIDENT_SCORE = 12;
 /** 分类逻辑（阈值、兜底策略）改了就升这个号，让旧缓存被识别为旧规则 */
@@ -112,16 +118,18 @@ type FollowingUp = Awaited<ReturnType<typeof biliApi.getAllFollowings>>[number];
 /**
  * 浅层整理能不能直接用这条缓存：
  * 有分类的直接用（规则旧了也用，提示用户去深度整理）；
- * 没线索 / 低把握的，过了标题缓存期或者新配了 AI 才重判。
+ * 没线索 / 低把握的，只有真看过视频标题才算数；
+ * 当时没抓到标题（被限流）、新配了 AI、或者标题过期了都要重判。
  */
 function reusableInShallow(
   entry: UpClassifyCacheEntry,
-  now: number,
   useAi: boolean,
+  hasFreshTitles: boolean,
 ): boolean {
   if (entry.source === "rule" || entry.source === "ai") return true;
+  if (!hasFreshTitles) return false;
   if (useAi && !entry.aiTried) return false;
-  return now - entry.at < TITLE_TTL_MS;
+  return true;
 }
 
 /** 缓存表是后加的：第一次用时拿现有分组结果补上，标为旧规则，免得浅层整理全部重判 */
@@ -231,12 +239,20 @@ export class ClassifyEngine {
       }
     }
 
+    const titleCache = { ...appStore.get("upTitleCache") };
+    const hasFreshTitles = (mid: number, now: number) => {
+      const cachedTitles = titleCache[String(mid)];
+      return cachedTitles != null && now - cachedTitles.at < TITLE_TTL_MS;
+    };
+
     /** 这位 UP 这次能不能直接用缓存 */
     const cachedFor = (mid: number, now: number) => {
       const entry = cache[String(mid)];
       if (!entry) return null;
       if (mode === "shallow") {
-        return reusableInShallow(entry, now, useAi) ? entry : null;
+        return reusableInShallow(entry, useAi, hasFreshTitles(mid, now))
+          ? entry
+          : null;
       }
       // 深度整理：只复用本轮（中断前）已经按当前规则判断过的
       return entry.version === version && entry.at >= deepStartedAt
@@ -263,7 +279,6 @@ export class ClassifyEngine {
         return;
       }
 
-      const titleCache = { ...appStore.get("upTitleCache") };
       const latestTitles = new Map(
         (appStore.get("upActivityCache") ?? []).map((record) => [
           record.mid,
@@ -272,12 +287,16 @@ export class ClassifyEngine {
       );
       const now = Date.now();
       let failStreak = 0;
+      let cooldowns = 0;
       let titlesDisabled = false;
       let titleFetchFailed = 0;
+      let titlesFetched = 0;
       let ruleCount = 0;
       let titleHelped = 0;
       let reusedCount = 0;
       let reusedStale = 0;
+      /** 需要标题却没拿到的 UP：没线索 / 低把握的结果不写缓存，下次再补 */
+      const titlesMissing = new Set<number>();
       const pending: Array<{ up: FollowingUp; titles: string[] }> = [];
 
       for (let index = 0; index < followings.length; index++) {
@@ -314,17 +333,39 @@ export class ClassifyEngine {
           const cachedTitles = titleCache[String(up.mid)];
           if (cachedTitles && now - cachedTitles.at < TITLE_TTL_MS) {
             titles = cachedTitles.titles;
-          } else if (!titlesDisabled) {
-            await sleep(TITLE_FETCH_DELAY_MS);
+          } else if (titlesDisabled) {
+            titlesMissing.add(up.mid);
+          } else {
+            await sleep(
+              TITLE_FETCH_DELAY_MS + Math.random() * TITLE_FETCH_JITTER_MS,
+            );
             try {
               titles = await biliApi.getRecentVideoTitles(up.mid, TITLE_LIMIT);
               titleCache[String(up.mid)] = { titles, at: Date.now() };
               failStreak = 0;
+              titlesFetched++;
+              if (titlesFetched % TITLE_CACHE_FLUSH_EVERY === 0) {
+                appStore.set("upTitleCache", titleCache);
+              }
             } catch {
               titleFetchFailed++;
               failStreak++;
-              if (failStreak >= TITLE_MAX_FAIL_STREAK) titlesDisabled = true;
-              else await sleep(TITLE_BACKOFF_MS * Math.min(failStreak, 4));
+              titlesMissing.add(up.mid);
+              if (failStreak >= TITLE_FAIL_STREAK_COOLDOWN) {
+                appStore.set("upTitleCache", titleCache);
+                if (cooldowns >= TITLE_MAX_COOLDOWNS) {
+                  titlesDisabled = true;
+                } else {
+                  cooldowns++;
+                  taxonomyRepo.updateTask(taskId, {
+                    message: `B 站限流，歇 ${TITLE_COOLDOWN_MS / 60000} 分钟再继续抓视频标题（第 ${cooldowns}/${TITLE_MAX_COOLDOWNS} 次，已抓 ${titlesFetched} 位）…`,
+                  });
+                  await sleep(TITLE_COOLDOWN_MS);
+                  failStreak = 0;
+                }
+              } else {
+                await sleep(TITLE_BACKOFF_MS * Math.min(failStreak, 4));
+              }
             }
           }
           const latest = latestTitles.get(up.mid);
@@ -346,8 +387,6 @@ export class ClassifyEngine {
         } else {
           pending.push({ up, titles });
         }
-
-        if (index % 50 === 49) appStore.set("upTitleCache", titleCache);
       }
       appStore.set("upTitleCache", titleCache);
       flushCache(true);
@@ -430,9 +469,12 @@ export class ClassifyEngine {
           );
           weakCount++;
         }
-        if (!aiErrored.has(up.mid)) remember(up.mid, result);
+        if (!aiErrored.has(up.mid) && !titlesMissing.has(up.mid)) {
+          remember(up.mid, result);
+        }
       }
       flushCache(true);
+      appStore.set("upTitleCache", titleCache);
 
       taxonomyRepo.replaceAllUpMembers(assignments);
       taxonomyRepo.pruneEmptyAiUpGroups();
@@ -458,10 +500,18 @@ export class ClassifyEngine {
       if (reusedStale > 0) {
         message += `；其中 ${reusedStale} 位是旧规则的结果，分类规则已更新，建议做一次深度整理`;
       }
-      if (titlesDisabled) {
-        message += "；B 站限流，后半段没抓视频标题，过一阵再整理会用缓存补全";
-      } else if (titleFetchFailed > 0) {
-        message += `；${titleFetchFailed} 位的视频标题没抓到`;
+      if (titlesFetched > 0)
+        message += `；这次抓到 ${titlesFetched} 位的视频标题`;
+      const missingLeft = [...titlesMissing].filter(
+        (mid) =>
+          !assignments.some(
+            (item) => item.mid === mid && item.source !== "rule-weak",
+          ),
+      ).length;
+      if (missingLeft > 0) {
+        message += titlesDisabled
+          ? `；B 站限流，还有 ${missingLeft} 位没抓到视频标题，过半小时左右再点浅层整理会接着补`
+          : `；${missingLeft} 位的视频标题没抓到，下次浅层整理会重试`;
       }
       if (aiFailed > 0)
         message += `；AI 调用失败 ${aiFailed} 次，下次整理会重试这些 UP`;
