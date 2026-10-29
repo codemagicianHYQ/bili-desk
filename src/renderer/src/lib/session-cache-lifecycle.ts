@@ -1,5 +1,8 @@
 import { useFavoritesStore } from "@/stores/favorites-store";
-import { useFollowingStore } from "@/stores/following-store";
+import {
+  clearFollowingsSnapshots,
+  useFollowingStore,
+} from "@/stores/following-store";
 import { useHomeFeedStore } from "@/stores/home-feed-store";
 import { useHomeLiveStore } from "@/stores/home-live-store";
 import { useWatchLaterStore } from "@/stores/watch-later-store";
@@ -34,6 +37,7 @@ export function resetSessionCachesOnLogout() {
   useFavoritesStore.getState().clearFolderLists();
   useFollowingStore.getState().invalidateFollowings();
   useFollowingStore.getState().invalidateSidebar();
+  clearFollowingsSnapshots();
   useWatchLaterStore.getState().reset();
   useHomeFeedStore.setState({
     videos: [],

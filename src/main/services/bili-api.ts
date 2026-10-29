@@ -6180,18 +6180,34 @@ class BiliApiService {
     const mid = appStore.get("user")?.mid;
     if (!mid) return [];
 
-    const res = await this.client.get("/x/relation/followings", {
-      params: {
-        vmid: mid,
-        pn: page,
-        ps: 50,
-        order: "desc",
-        ...(order === "attention" ? { order_type: "attention" } : {}),
-      },
-    });
+    const params = {
+      vmid: mid,
+      pn: page,
+      ps: 50,
+      order: "desc",
+      ...(order === "attention" ? { order_type: "attention" } : {}),
+    };
 
-    const list = res.data?.data?.list ?? [];
-    return list.map((u: Record<string, unknown>) => this.mapFollowingUser(u));
+    // 被限流时 B 站返回非 0 code 而不是空列表；当成空页会把全量关注截断
+    let lastMessage = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await sleep(3000 * attempt);
+      const res = await this.client.get("/x/relation/followings", {
+        params,
+        validateStatus: () => true,
+      });
+      if (res.status === 200 && res.data?.code === 0) {
+        const list = res.data?.data?.list ?? [];
+        return list.map((u: Record<string, unknown>) =>
+          this.mapFollowingUser(u),
+        );
+      }
+      lastMessage =
+        res.status === 412 || res.data?.code === -412
+          ? BILI_RISK_CONTROL_MESSAGE
+          : (res.data?.message as string) || `HTTP ${res.status}`;
+    }
+    throw new Error(`关注列表第 ${page} 页获取失败：${lastMessage}`);
   }
 
   /** 分页拉全量关注，供失效/封禁扫描 */

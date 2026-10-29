@@ -94,6 +94,12 @@ export function FollowingPage() {
     (state) => state.uncategorizedCount,
   );
   const allFollowings = useFollowingStore((state) => state.allFollowings);
+  const followingsLoading = useFollowingStore(
+    (state) => state.followingsLoading,
+  );
+  const followingsProgress = useFollowingStore(
+    (state) => state.followingsProgress,
+  );
   const refreshSidebar = useFollowingStore((state) => state.refreshSidebar);
   const filterLocalFollowings = useFollowingStore(
     (state) => state.filterLocalFollowings,
@@ -922,7 +928,9 @@ export function FollowingPage() {
           {showListLoading ? (
             <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              加载关注列表...
+              {isLocalMode && followingsLoading && followingsProgress > 0
+                ? `正在从 B 站同步关注列表，已拿到 ${followingsProgress} 位（首次较慢，之后秒开）…`
+                : "加载关注列表..."}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
@@ -946,9 +954,10 @@ export function FollowingPage() {
 
               {followings.length === 0 && (
                 <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
-                  {isLocalMode
-                    ? "该本地分组暂无成员，可点击上方 ✨ 运行智能分组"
-                    : error || "该分组暂无关注的 UP"}
+                  {error ||
+                    (isLocalMode
+                      ? "该本地分组暂无成员，可点击上方 ✨ 运行智能分组"
+                      : "该分组暂无关注的 UP")}
                 </p>
               )}
             </div>
