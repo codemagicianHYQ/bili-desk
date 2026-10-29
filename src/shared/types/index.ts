@@ -873,6 +873,11 @@ export interface PopularVideoItem extends VideoItem {
   /** 例如「6万点赞」「1万分享」 */
   rcmdReason?: string;
   rank?: number;
+  /** B 站新版主分区，例如 1008 游戏 */
+  partitionId?: number;
+  partition?: string;
+  /** 子分区，例如「单机游戏」 */
+  subPartition?: string;
 }
 
 export interface PopularFeedPage {
@@ -1763,6 +1768,8 @@ export interface BiliDeskApi {
       ps?: number;
     }) => Promise<RecommendPage>;
     getPopularVideos: (page?: number) => Promise<PopularFeedPage>;
+    /** 综合热门全量（官方固定约 500 条），按热门顺序带 rank */
+    getAllPopularVideos: () => Promise<PopularVideoItem[]>;
     getWeeklySeriesList: () => Promise<WeeklySeriesMeta[]>;
     getWeeklySeries: (number: number) => Promise<WeeklySeriesDetail>;
     getPreciousVideos: () => Promise<PreciousVideosPage>;

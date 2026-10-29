@@ -6,6 +6,7 @@ export const IPC = {
 
   BILI_RECOMMEND: "bili:recommend",
   BILI_POPULAR: "bili:popular",
+  BILI_POPULAR_ALL: "bili:popular-all",
   BILI_WEEKLY_SERIES_LIST: "bili:weekly-series-list",
   BILI_WEEKLY_SERIES: "bili:weekly-series",
   BILI_PRECIOUS: "bili:precious",

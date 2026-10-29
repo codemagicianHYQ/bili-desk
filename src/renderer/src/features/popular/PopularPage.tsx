@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, Flame, Loader2, Music2, Star, Trophy } from "lucide-react";
+import {
+  BarChart3,
+  Flame,
+  Loader2,
+  Music2,
+  Star,
+  Trophy,
+  UserCheck,
+} from "lucide-react";
 import type {
   MusicRankItem,
   MusicRankPeriod,
@@ -11,6 +19,9 @@ import { RANKING_PARTITIONS } from "@shared/types";
 import { PopularVideoCard } from "@/components/video/PopularVideoCard";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
+import { PaginationBar } from "@/components/ui/pagination-bar";
+import { useAppStore } from "@/stores/app-store";
+import { useFollowingStore } from "@/stores/following-store";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 
 type PopularTab = "popular" | "weekly" | "precious" | "ranking" | "music";
@@ -59,7 +70,8 @@ const TABS: Array<{
   },
 ];
 
-const MAX_POPULAR_VIDEOS = 200;
+const POPULAR_PAGE_SIZE = 40;
+const OTHER_PARTITION = "其他";
 
 function formatError(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
@@ -134,15 +146,21 @@ function MusicRankCard({ item }: { item: MusicRankItem }) {
 
 export function PopularPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<PopularTab>("popular");
+  const isLogin = useAppStore((state) => Boolean(state.user?.isLogin));
+  const allFollowings = useFollowingStore((state) => state.allFollowings);
+  const ensureAllFollowings = useFollowingStore(
+    (state) => state.ensureAllFollowings,
+  );
 
   const [popularVideos, setPopularVideos] = useState<PopularVideoItem[]>([]);
-  const [popularHasMore, setPopularHasMore] = useState(true);
   const [popularLoading, setPopularLoading] = useState(false);
-  const [popularLoadingMore, setPopularLoadingMore] = useState(false);
   const [popularError, setPopularError] = useState("");
-  const popularPageRef = useRef(0);
+  const [popularPage, setPopularPage] = useState(1);
+  const [partition, setPartition] = useState<string | null>(null);
+  const [subPartition, setSubPartition] = useState<string | null>(null);
+  const [followOnly, setFollowOnly] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
   const popularBusyRef = useRef(false);
   const popularStartedRef = useRef(false);
   const preciousLoadedRef = useRef(false);
@@ -173,42 +191,125 @@ export function PopularPage() {
 
   const activeTab = TABS.find((item) => item.id === tab) ?? TABS[0];
 
-  const loadPopular = useCallback(async (reset = false) => {
+  const loadPopular = useCallback(async () => {
     if (popularBusyRef.current) return;
     popularBusyRef.current = true;
-    if (reset) {
-      setPopularLoading(true);
-      setPopularError("");
-      popularPageRef.current = 0;
-    } else {
-      setPopularLoadingMore(true);
-    }
-    const nextPage = reset ? 1 : popularPageRef.current + 1;
+    setPopularLoading(true);
+    setPopularError("");
     try {
-      const result = await window.biliDesk.bili.getPopularVideos(nextPage);
-      popularPageRef.current = result.page;
-      setPopularVideos((prev) => {
-        const merged = reset ? result.videos : [...prev, ...result.videos];
-        const seen = new Set<string>();
-        const unique: PopularVideoItem[] = [];
-        for (const video of merged) {
-          if (!video.bvid || seen.has(video.bvid)) continue;
-          seen.add(video.bvid);
-          unique.push(video);
-        }
-        return unique.slice(0, MAX_POPULAR_VIDEOS);
-      });
-      setPopularHasMore(
-        result.hasMore && result.videos.length > 0 && nextPage < 10,
-      );
+      const videos = await window.biliDesk.bili.getAllPopularVideos();
+      setPopularVideos(videos);
+      setPopularPage(1);
     } catch (err) {
       setPopularError(formatError(err, "热门列表加载失败"));
     } finally {
       popularBusyRef.current = false;
       setPopularLoading(false);
-      setPopularLoadingMore(false);
     }
   }, []);
+
+  const followedMids = useMemo(
+    () => new Set((allFollowings ?? []).map((up) => up.mid)),
+    [allFollowings],
+  );
+
+  const toggleFollowOnly = () => {
+    if (followOnly) {
+      setFollowOnly(false);
+      return;
+    }
+    setFollowOnly(true);
+    if (allFollowings) return;
+    setFollowLoading(true);
+    void ensureAllFollowings()
+      .catch(() => undefined)
+      .finally(() => setFollowLoading(false));
+  };
+
+  /** 关注筛选先生效，分区计数跟着变，选中的分区始终能看到当前条件下有几条 */
+  const followScoped = useMemo(
+    () =>
+      followOnly
+        ? popularVideos.filter((video) => followedMids.has(video.owner.mid))
+        : popularVideos,
+    [followOnly, popularVideos, followedMids],
+  );
+
+  const partitionCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const video of followScoped) {
+      const name = video.partition || OTHER_PARTITION;
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts].sort((a, b) => {
+      if (a[0] === OTHER_PARTITION) return 1;
+      if (b[0] === OTHER_PARTITION) return -1;
+      return b[1] - a[1];
+    });
+  }, [followScoped]);
+
+  const partitionScoped = useMemo(
+    () =>
+      partition
+        ? followScoped.filter(
+            (video) => (video.partition || OTHER_PARTITION) === partition,
+          )
+        : followScoped,
+    [followScoped, partition],
+  );
+
+  const subPartitionCounts = useMemo(() => {
+    if (!partition) return [];
+    const counts = new Map<string, number>();
+    for (const video of partitionScoped) {
+      const name = video.subPartition || OTHER_PARTITION;
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts].sort((a, b) => b[1] - a[1]);
+  }, [partition, partitionScoped]);
+
+  const filteredPopular = useMemo(
+    () =>
+      subPartition
+        ? partitionScoped.filter(
+            (video) => (video.subPartition || OTHER_PARTITION) === subPartition,
+          )
+        : partitionScoped,
+    [partitionScoped, subPartition],
+  );
+
+  const popularTotalPages = Math.max(
+    1,
+    Math.ceil(filteredPopular.length / POPULAR_PAGE_SIZE),
+  );
+  const popularPageVideos = useMemo(() => {
+    const start = (popularPage - 1) * POPULAR_PAGE_SIZE;
+    return filteredPopular.slice(start, start + POPULAR_PAGE_SIZE);
+  }, [filteredPopular, popularPage]);
+
+  useEffect(() => {
+    setPopularPage(1);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [partition, subPartition, followOnly]);
+
+  useEffect(() => {
+    if (partition && !partitionCounts.some(([name]) => name === partition)) {
+      setPartition(null);
+    }
+  }, [partition, partitionCounts]);
+
+  useEffect(() => {
+    if (
+      subPartition &&
+      !subPartitionCounts.some(([name]) => name === subPartition)
+    ) {
+      setSubPartition(null);
+    }
+  }, [subPartition, subPartitionCounts]);
+
+  useEffect(() => {
+    if (!isLogin) setFollowOnly(false);
+  }, [isLogin]);
 
   const loadWeeklyList = useCallback(async () => {
     setWeeklyLoading(true);
@@ -308,7 +409,7 @@ export function PopularPage() {
   useEffect(() => {
     if (tab !== "popular" || popularStartedRef.current) return;
     popularStartedRef.current = true;
-    void loadPopular(true);
+    void loadPopular();
   }, [tab, loadPopular]);
 
   useEffect(() => {
@@ -339,40 +440,13 @@ export function PopularPage() {
     if (tab === "music" && musicListId > 0) void loadMusicList(musicListId);
   }, [tab, musicListId, loadMusicList]);
 
-  const handleLoadMorePopular = useCallback(() => {
-    if (
-      tab !== "popular" ||
-      !popularHasMore ||
-      popularLoading ||
-      popularLoadingMore
-    ) {
-      return;
-    }
-    void loadPopular(false);
-  }, [tab, popularHasMore, popularLoading, popularLoadingMore, loadPopular]);
-
-  useEffect(() => {
-    if (tab !== "popular") return;
-    const root = scrollRef.current;
-    const target = sentinelRef.current;
-    if (!root || !target || !popularHasMore) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) handleLoadMorePopular();
-      },
-      { root, rootMargin: "240px" },
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [tab, popularHasMore, popularVideos.length, handleLoadMorePopular]);
-
   const displayVideos = useMemo(() => {
-    if (tab === "popular") return popularVideos;
+    if (tab === "popular") return popularPageVideos;
     if (tab === "weekly") return weeklyVideos;
     if (tab === "precious") return preciousVideos;
     if (tab === "ranking") return rankingVideos;
     return [];
-  }, [tab, popularVideos, weeklyVideos, preciousVideos, rankingVideos]);
+  }, [tab, popularPageVideos, weeklyVideos, preciousVideos, rankingVideos]);
 
   const loading =
     (tab === "popular" && popularLoading && popularVideos.length === 0) ||
@@ -393,7 +467,7 @@ export function PopularPage() {
             : musicError;
 
   const retry = () => {
-    if (tab === "popular") void loadPopular(true);
+    if (tab === "popular") void loadPopular();
     else if (tab === "weekly") {
       if (weeklyNumber) void loadWeeklySeries(weeklyNumber);
       else void loadWeeklyList();
@@ -496,6 +570,100 @@ export function PopularPage() {
             ))}
           </div>
         ) : null}
+
+        {tab === "popular" && popularVideos.length > 0 ? (
+          <div className="space-y-2 pb-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setPartition(null);
+                  setSubPartition(null);
+                }}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs transition-colors",
+                  partition === null
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-muted-foreground hover:text-foreground",
+                )}
+              >
+                全部 {followScoped.length}
+              </button>
+              {partitionCounts.map(([name, count]) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => {
+                    setPartition(name);
+                    setSubPartition(null);
+                  }}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-xs transition-colors",
+                    partition === name
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {name} {count}
+                </button>
+              ))}
+              {isLogin ? (
+                <button
+                  type="button"
+                  onClick={toggleFollowOnly}
+                  title="只看热门里我关注的 UP 主的视频"
+                  className={cn(
+                    "ml-auto flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
+                    followOnly
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {followLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <UserCheck className="h-3 w-3" />
+                  )}
+                  只看我关注的
+                  {followOnly && !followLoading
+                    ? ` ${followScoped.length}`
+                    : ""}
+                </button>
+              ) : null}
+            </div>
+            {partition && subPartitionCounts.length > 1 ? (
+              <div className="flex flex-wrap gap-1.5 border-l-2 border-primary/40 pl-2">
+                <button
+                  type="button"
+                  onClick={() => setSubPartition(null)}
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[11px] transition-colors",
+                    subPartition === null
+                      ? "bg-primary/20 text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  全部{partition}
+                </button>
+                {subPartitionCounts.map(([name, count]) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setSubPartition(name)}
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[11px] transition-colors",
+                      subPartition === name
+                        ? "bg-primary/20 text-primary"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {name} {count}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div ref={scrollRef} className="scrollbar-overlay flex-1 overflow-y-auto">
@@ -530,29 +698,20 @@ export function PopularPage() {
                       ? { ...video, rank: video.rank ?? index + 1 }
                       : video
                   }
-                  showRank={tab === "ranking"}
+                  showRank={
+                    tab === "ranking" ||
+                    (tab === "popular" && (partition !== null || followOnly))
+                  }
                 />
               ))}
             </div>
-            {tab === "popular" ? (
-              <div
-                ref={sentinelRef}
-                className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"
-              >
-                {popularLoadingMore ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    加载更多...
-                  </>
-                ) : popularHasMore ? (
-                  "继续下滑加载更多"
-                ) : displayVideos.length > 0 ? (
-                  "已经到底了"
-                ) : null}
-              </div>
-            ) : displayVideos.length === 0 ? (
+            {displayVideos.length === 0 ? (
               <p className="py-16 text-center text-sm text-muted-foreground">
-                暂无内容
+                {tab === "popular" && followOnly && followLoading
+                  ? "正在读取关注列表..."
+                  : tab === "popular" && followOnly
+                    ? "当前热门里没有你关注的 UP 主的视频"
+                    : "暂无内容"}
               </p>
             ) : (
               <div className="h-8" />
@@ -560,6 +719,23 @@ export function PopularPage() {
           </>
         )}
       </div>
+      {tab === "popular" && filteredPopular.length > POPULAR_PAGE_SIZE ? (
+        <PaginationBar
+          className="shrink-0 bg-background"
+          page={popularPage}
+          totalPages={popularTotalPages}
+          onPageChange={(next) => {
+            setPopularPage(next);
+            if (scrollRef.current) scrollRef.current.scrollTop = 0;
+          }}
+          info={
+            <>
+              共 {filteredPopular.length} 条 · 第 {popularPage} /{" "}
+              {popularTotalPages} 页
+            </>
+          }
+        />
+      ) : null}
     </div>
   );
 }

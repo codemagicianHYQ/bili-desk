@@ -162,6 +162,7 @@ const api = {
         : ipcRenderer.invoke(IPC.BILI_RECOMMEND),
     getPopularVideos: (page?: number) =>
       ipcRenderer.invoke(IPC.BILI_POPULAR, page ?? 1),
+    getAllPopularVideos: () => ipcRenderer.invoke(IPC.BILI_POPULAR_ALL),
     getWeeklySeriesList: () => ipcRenderer.invoke(IPC.BILI_WEEKLY_SERIES_LIST),
     getWeeklySeries: (number: number) =>
       ipcRenderer.invoke(IPC.BILI_WEEKLY_SERIES, number),

@@ -879,6 +879,37 @@ class BiliApiService {
     };
   }
 
+  /** 官方综合热门固定约 500 条，ps 最大 50，一次拉完前端再分区 / 分页 */
+  async getAllPopularVideos(): Promise<PopularVideoItem[]> {
+    await this.ensureBuvid3();
+    const all: PopularVideoItem[] = [];
+    const seen = new Set<string>();
+    for (let pn = 1; pn <= 15; pn++) {
+      const res = await this.client.get("/x/web-interface/popular", {
+        params: { pn, ps: 50 },
+        headers: { Referer: "https://www.bilibili.com/v/popular/all" },
+        validateStatus: () => true,
+      });
+      if (res.status === 412 || res.data?.code === -412) {
+        if (all.length > 0) break;
+        throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+      }
+      if (res.data?.code !== 0) {
+        if (all.length > 0) break;
+        throw new Error(formatBiliApiError(res.data, "热门列表获取失败"));
+      }
+      const list = (res.data?.data?.list ?? []) as unknown[];
+      for (const video of this.normalizePopularItems(list)) {
+        if (seen.has(video.bvid)) continue;
+        seen.add(video.bvid);
+        all.push({ ...video, rank: all.length + 1 });
+      }
+      if (res.data?.data?.no_more || list.length === 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return all;
+  }
+
   async getWeeklySeriesList(): Promise<WeeklySeriesMeta[]> {
     await this.ensureBuvid3();
     const res = await this.client.get("/x/web-interface/popular/series/list", {
@@ -1093,7 +1124,13 @@ class BiliApiService {
       .map((item, index) => {
         const owner = (item.owner ?? {}) as Record<string, unknown>;
         const stat = (item.stat ?? {}) as Record<string, unknown>;
+        const partitionId = Number(item.pid_v2) || 0;
+        const partition = String(item.pid_name_v2 ?? "").trim();
+        const subPartition = String(item.tnamev2 || item.tname || "").trim();
         return {
+          ...(partitionId ? { partitionId } : {}),
+          ...(partition ? { partition } : {}),
+          ...(subPartition ? { subPartition } : {}),
           bvid: String(item.bvid ?? ""),
           aid: Number(item.aid) || Number(item.id) || 0,
           title: String(item.title ?? ""),

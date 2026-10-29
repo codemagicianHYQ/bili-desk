@@ -60,6 +60,7 @@ export function registerBiliIpc(): void {
     (_e, options?: { freshIdx?: number; freshIdx1h?: number; ps?: number }) =>
       biliApi.getRecommend(options),
   );
+  handleIpc(IPC.BILI_POPULAR_ALL, () => biliApi.getAllPopularVideos());
   handleIpc(IPC.BILI_POPULAR, (_e, page?: number) =>
     biliApi.getPopularVideos(page ?? 1),
   );
