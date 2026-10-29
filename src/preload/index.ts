@@ -31,6 +31,7 @@ import type {
   MessageFeedKind,
   MessageSessionFilter,
   FollowingOrder,
+  UpClassifyMode,
   MessageSettings,
   BinaryImageFile,
   ChatShareCard,
@@ -890,7 +891,9 @@ const api = {
     setConfig: (config: Partial<AiConfig>) =>
       ipcRenderer.invoke(IPC.AI_CONFIG_SET, config),
     testConnection: () => ipcRenderer.invoke(IPC.AI_TEST),
-    runUpClassification: () => ipcRenderer.invoke(IPC.AI_RUN_UP_CLASSIFY),
+    runUpClassification: (mode?: UpClassifyMode) =>
+      ipcRenderer.invoke(IPC.AI_RUN_UP_CLASSIFY, mode ?? "shallow"),
+    getUpClassifyInfo: () => ipcRenderer.invoke(IPC.AI_UP_CLASSIFY_INFO),
     getTaskStatus: (taskId: number) =>
       ipcRenderer.invoke(IPC.AI_TASK_STATUS, taskId),
   },

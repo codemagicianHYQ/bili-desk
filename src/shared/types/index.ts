@@ -1808,6 +1808,20 @@ export interface AiConfig {
   model: string;
 }
 
+/** shallow 只判断新关注 / 没判断过的 UP；deep 按当前规则全部重判 */
+export type UpClassifyMode = "shallow" | "deep";
+
+export interface UpClassifyInfo {
+  /** 有缓存分类的 UP 数 */
+  cached: number;
+  /** 其中用旧规则判断的 */
+  stale: number;
+  /** 上次深度整理没跑完（规则没变时可以接着跑） */
+  deepPending: boolean;
+  /** 正在跑的分类任务 */
+  runningTaskId: number | null;
+}
+
 export interface ClassificationTask {
   id: number;
   type: string;
@@ -2351,7 +2365,8 @@ export interface BiliDeskApi {
     testConnection: () => Promise<
       { ok: true; reply: string } | { ok: false; message: string }
     >;
-    runUpClassification: () => Promise<{ taskId: number }>;
+    runUpClassification: (mode?: UpClassifyMode) => Promise<{ taskId: number }>;
+    getUpClassifyInfo: () => Promise<UpClassifyInfo>;
     getTaskStatus: (taskId: number) => Promise<ClassificationTask | null>;
   };
   app: {

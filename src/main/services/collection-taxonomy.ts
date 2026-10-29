@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /**
  * 合集分类的打分目录：合集名、简介、视频标题、视频标签都作为证据，
  * 每条证据给所有二级分类打分，先比一级总分再在一级内挑二级。
@@ -559,6 +561,25 @@ export function taxonomyTree(): Array<{ name: string; children: string[] }> {
     name: l1,
     children: RULES.filter((rule) => rule.l1 === l1).map((rule) => rule.l2),
   }));
+}
+
+/** 规则表的指纹：规则或目录一改就变，用来判断缓存的分类是不是旧规则算的 */
+export function taxonomyRulesFingerprint(): string {
+  return createHash("sha1")
+    .update(
+      JSON.stringify({
+        l1: SUGGESTED_L1,
+        rules: RULES.map((rule) => [
+          rule.l1,
+          rule.l2,
+          rule.strong.source,
+          rule.medium?.source ?? "",
+          rule.weak?.source ?? "",
+          rule.exclude?.source ?? "",
+        ]),
+      }),
+    )
+    .digest("hex");
 }
 
 export function suggestedTreeText(): string[] {

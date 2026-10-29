@@ -1044,6 +1044,33 @@ export class TaxonomyRepository {
       }));
   }
 
+  /** 现有 UP 分组结果，按 AI/规则原名给出一级 / 二级（改过名的也能找回原分组） */
+  getUpAssignmentPaths(): Array<{
+    mid: number;
+    l1: string;
+    l2: string;
+    source: string;
+    confidence: number;
+  }> {
+    const data = getDbData();
+    const byId = new Map(data.upGroups.map((group) => [group.id, group]));
+    const out: ReturnType<TaxonomyRepository["getUpAssignmentPaths"]> = [];
+    for (const member of data.upMemberMap) {
+      const group = byId.get(member.upGroupId);
+      if (!group || group.parentId == null) continue;
+      const parent = byId.get(group.parentId);
+      if (!parent) continue;
+      out.push({
+        mid: member.mid,
+        l1: parent.sourceName ?? parent.name,
+        l2: group.sourceName ?? group.name,
+        source: member.source,
+        confidence: member.confidence,
+      });
+    }
+    return out;
+  }
+
   /** 要同步到 B 站的分组：二级分组，以及没有子分组但直接挂了 UP 的一级分组 */
   getUpSyncLeaves(): Array<{
     groupId: number;
@@ -1077,7 +1104,12 @@ export class TaxonomyRepository {
       for (const l2 of children) {
         const mids = midsByGroup.get(l2.id) ?? [];
         if (mids.length > 0) {
-          leaves.push({ groupId: l2.id, l1Name: l1.name, l2Name: l2.name, mids });
+          leaves.push({
+            groupId: l2.id,
+            l1Name: l1.name,
+            l2Name: l2.name,
+            mids,
+          });
         }
       }
     }
@@ -1094,7 +1126,9 @@ export class TaxonomyRepository {
     if (group.name === next) return;
     const clash = data.upGroups.some(
       (item) =>
-        item.id !== id && item.parentId === group.parentId && item.name === next,
+        item.id !== id &&
+        item.parentId === group.parentId &&
+        item.name === next,
     );
     if (clash) throw new Error("同级已有同名分组");
     if (group.isAiGenerated && !group.sourceName) group.sourceName = group.name;

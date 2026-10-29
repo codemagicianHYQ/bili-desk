@@ -1515,6 +1515,48 @@ html[data-theme-preset="glass"]:not(.dark) [data-glass-scrim] {
   background: rgb(40 60 110 / 0.08) !important;
 }
 
+/*
+ * 弹层规则：弹窗 / 菜单 / 下拉叠在玻璃界面上，两层都透明就糊成一片看不清。
+ * 弹层统一 OverlayPortal 挂在 body 下（#root 之外），这里一律改成近乎不透明；
+ * 页面树里的弹层加 data-glass-popover 也走这条。
+ */
+html[data-theme-preset="glass"] body > :not(#root)[data-glass-panel],
+html[data-theme-preset="glass"] body > :not(#root).bili-glass,
+html[data-theme-preset="glass"] body > :not(#root) [data-glass-panel],
+html[data-theme-preset="glass"] body > :not(#root) .bili-glass,
+html[data-theme-preset="glass"] body > :not(#root) [role="dialog"],
+html[data-theme-preset="glass"] body > :not(#root) [role="alertdialog"],
+html[data-theme-preset="glass"] body > :not(#root) [role="menu"],
+html[data-theme-preset="glass"] body > :not(#root) [role="listbox"],
+html[data-theme-preset="glass"] [data-glass-popover] {
+  background: rgb(248 250 255 / 0.94) !important;
+  backdrop-filter: blur(28px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(1.4) !important;
+}
+
+html[data-theme-preset="glass"].dark body > :not(#root)[data-glass-panel],
+html[data-theme-preset="glass"].dark body > :not(#root).bili-glass,
+html[data-theme-preset="glass"].dark body > :not(#root) [data-glass-panel],
+html[data-theme-preset="glass"].dark body > :not(#root) .bili-glass,
+html[data-theme-preset="glass"].dark body > :not(#root) [role="dialog"],
+html[data-theme-preset="glass"].dark body > :not(#root) [role="alertdialog"],
+html[data-theme-preset="glass"].dark body > :not(#root) [role="menu"],
+html[data-theme-preset="glass"].dark body > :not(#root) [role="listbox"],
+html[data-theme-preset="glass"].dark [data-glass-popover] {
+  background: rgb(20 24 34 / 0.94) !important;
+}
+
+/* 弹层打开时遮罩压暗一点，把注意力收到弹层上 */
+html[data-theme-preset="glass"] body > :not(#root)[data-glass-scrim] {
+  background: rgb(8 12 22 / 0.32) !important;
+}
+
+html[data-theme-preset="glass"]:not(.dark)
+  body
+  > :not(#root)[data-glass-scrim] {
+  background: rgb(40 60 110 / 0.18) !important;
+}
+
 /* 视频卡片略实一点，保证可读；缝隙仍透壁纸 */
 html[data-theme-preset="glass"] .rounded-xl.border.bg-card,
 html[data-theme-preset="glass"] article.bg-card,

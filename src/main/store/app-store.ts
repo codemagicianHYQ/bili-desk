@@ -60,6 +60,23 @@ interface StoreSchema {
   >;
   /** 关注分类用的 UP 近期稿件标题缓存，key 为 mid */
   upTitleCache: Record<string, { titles: string[]; at: number }>;
+  /** 每位 UP 的分类结果；浅层整理直接沿用，深度整理重新判断 */
+  upClassifyCache: Record<string, UpClassifyCacheEntry>;
+  /** 进行中的深度整理；中断后再跑会跳过这次已经判断过的 UP */
+  upClassifyDeepRun: { startedAt: number; version: string } | null;
+}
+
+export interface UpClassifyCacheEntry {
+  /** 空串表示没有线索，留在未分组 */
+  l1: string;
+  l2: string;
+  source: "rule" | "ai" | "rule-weak" | "none";
+  confidence: number;
+  at: number;
+  /** 判断时的规则指纹 */
+  version: string;
+  /** 判断时有没有可用的 AI；没 AI 时的低把握结果，配上 AI 后浅层整理会重判 */
+  aiTried: boolean;
 }
 
 const defaults: StoreSchema = {
@@ -94,6 +111,8 @@ const defaults: StoreSchema = {
   collectionGroups: {},
   collectionSamples: {},
   upTitleCache: {},
+  upClassifyCache: {},
+  upClassifyDeepRun: null,
 };
 
 export const appStore = new Store<StoreSchema>({

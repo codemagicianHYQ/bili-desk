@@ -4,12 +4,18 @@ import {
   type FollowingOrder,
   type FollowingSort,
   type FollowingUp,
+  type UpClassifyInfo,
+  type UpClassifyMode,
   type UpGroupSelection,
   type UpGroupTreeNode,
 } from "@shared/types";
 import { useFollowingStore, type TagListCache } from "@/stores/following-store";
 import { UpGroupTree } from "@/components/taxonomy/UpGroupTree";
 import { Button } from "@/components/ui/button";
+import {
+  APP_OVERLAY_ZCLASS,
+  OverlayPortal,
+} from "@/components/ui/overlay-portal";
 import { cn } from "@/lib/utils";
 import { Folder, Loader2, Sparkles, Upload } from "lucide-react";
 import { FollowTagDialog } from "./FollowTagDialog";
@@ -136,6 +142,13 @@ export function FollowingPage() {
   const [error, setError] = useState("");
   const [taskMessage, setTaskMessage] = useState("");
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [classifyMenuOpen, setClassifyMenuOpen] = useState(false);
+  const [classifyMenuPos, setClassifyMenuPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const classifyAnchorRef = useRef<HTMLDivElement>(null);
+  const [classifyInfo, setClassifyInfo] = useState<UpClassifyInfo | null>(null);
   const [tagDialogUp, setTagDialogUp] = useState<FollowingUp | null>(null);
   const [unfollowTarget, setUnfollowTarget] = useState<FollowingUp | null>(
     null,
@@ -389,10 +402,32 @@ export function FollowingPage() {
     return () => observer.disconnect();
   }, [hasMore, isLocalMode, loadMoreBilibili, followings.length]);
 
-  const runAiClassify = async () => {
-    setTaskMessage("正在启动智能分组...");
-    const { taskId } = await window.biliDesk.ai.runUpClassification();
+  const openClassifyMenu = () => {
+    const rect = classifyAnchorRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = 288;
+      setClassifyMenuPos({
+        top: rect.bottom + 6,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      });
+    }
+    setClassifyMenuOpen(true);
+    void window.biliDesk.ai
+      .getUpClassifyInfo()
+      .then(setClassifyInfo)
+      .catch(() => undefined);
+  };
 
+  const runAiClassify = async (mode: UpClassifyMode) => {
+    setClassifyMenuOpen(false);
+    setTaskMessage(
+      mode === "deep" ? "正在启动深度整理..." : "正在启动浅层整理...",
+    );
+    const { taskId } = await window.biliDesk.ai.runUpClassification(mode);
+    watchClassifyTask(taskId);
+  };
+
+  const watchClassifyTask = (taskId: number) => {
     if (classifyPollRef.current) clearInterval(classifyPollRef.current);
     const poll = setInterval(async () => {
       const task = await window.biliDesk.ai.getTaskStatus(taskId);
@@ -410,6 +445,22 @@ export function FollowingPage() {
     }, 1000);
     classifyPollRef.current = poll;
   };
+
+  const watchClassifyTaskRef = useRef(watchClassifyTask);
+  watchClassifyTaskRef.current = watchClassifyTask;
+
+  useEffect(() => {
+    if (!isLocalMode || classifyPollRef.current) return;
+    void window.biliDesk.ai
+      .getUpClassifyInfo()
+      .then((info) => {
+        setClassifyInfo(info);
+        if (info.runningTaskId != null && !classifyPollRef.current) {
+          watchClassifyTaskRef.current(info.runningTaskId);
+        }
+      })
+      .catch(() => undefined);
+  }, [isLocalMode]);
 
   const reloadCurrentList = useCallback(async () => {
     if (sidebarMode === "bilibili" && selectedTagId != null) {
@@ -721,14 +772,79 @@ export function FollowingPage() {
                 >
                   <Upload className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => void runAiClassify()}
-                  title="运行智能分组"
-                >
-                  <Sparkles className="h-4 w-4" />
-                </Button>
+                <div ref={classifyAnchorRef}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={openClassifyMenu}
+                    title="智能整理分组"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                  </Button>
+                  {classifyMenuOpen && classifyMenuPos && (
+                    <OverlayPortal>
+                      <div
+                        className={cn("fixed inset-0", APP_OVERLAY_ZCLASS)}
+                        onClick={() => setClassifyMenuOpen(false)}
+                      />
+                      <div
+                        role="menu"
+                        data-glass-panel
+                        className={cn(
+                          "bili-glass fixed w-72 space-y-1 rounded-xl border border-border bg-card p-1.5 text-left shadow-2xl",
+                          APP_OVERLAY_ZCLASS,
+                        )}
+                        style={{
+                          top: classifyMenuPos.top,
+                          left: classifyMenuPos.left,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void runAiClassify("shallow")}
+                          className="w-full rounded-lg px-2.5 py-2 text-left hover:bg-secondary"
+                        >
+                          <div className="text-sm font-medium text-foreground">
+                            浅层整理
+                          </div>
+                          <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                            只判断新关注、还没分过的
+                            UP，已分过的直接沿用上次结果。快、省 AI 调用。
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void runAiClassify("deep")}
+                          className="w-full rounded-lg px-2.5 py-2 text-left hover:bg-secondary"
+                        >
+                          <div className="text-sm font-medium text-foreground">
+                            深度整理
+                            {classifyInfo?.deepPending && (
+                              <span className="ml-1.5 text-xs font-normal text-primary">
+                                接着上次继续
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                            按当前规则重新判断全部
+                            UP，分类规则更新后用。中途停了下次会接着跑。
+                          </div>
+                        </button>
+                        {classifyInfo && classifyInfo.stale > 0 && (
+                          <p className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs leading-relaxed text-amber-400">
+                            分类规则已更新，有 {classifyInfo.stale} 位 UP
+                            还是旧规则的结果，建议做一次深度整理。
+                          </p>
+                        )}
+                        {classifyInfo && (
+                          <p className="px-2.5 pb-0.5 text-[11px] text-muted-foreground">
+                            已缓存 {classifyInfo.cached} 位 UP 的分类
+                          </p>
+                        )}
+                      </div>
+                    </OverlayPortal>
+                  )}
+                </div>
               </div>
             </div>
             {taskMessage && (
