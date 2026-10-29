@@ -183,6 +183,7 @@ export const IPC = {
   BILI_CHEESE_FOLLOW: "bili:cheese-follow",
   BILI_UPOWER_PAID: "bili:upower-paid",
   BILI_MSG_UNREAD: "bili:msg-unread",
+  BILI_MSG_NEW_FANS: "bili:msg-new-fans",
   BILI_MSG_SESSIONS: "bili:msg-sessions",
   BILI_MSG_CHAT: "bili:msg-chat",
   BILI_MSG_SEND: "bili:msg-send",

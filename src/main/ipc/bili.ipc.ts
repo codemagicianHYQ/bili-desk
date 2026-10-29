@@ -849,6 +849,9 @@ export function registerBiliIpc(): void {
   );
   handleIpc(IPC.BILI_UPOWER_PAID, () => biliApi.getUpowerPaidList());
   handleIpc(IPC.BILI_MSG_UNREAD, () => messageApi.getUnread());
+  handleIpc(IPC.BILI_MSG_NEW_FANS, (_e, page?: number) =>
+    messageApi.getNewFans(page ?? 1),
+  );
   handleIpc(
     IPC.BILI_MSG_SESSIONS,
     (_e, filter?: MessageSessionFilter, endTs?: number) =>

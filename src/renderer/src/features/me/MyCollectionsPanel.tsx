@@ -25,6 +25,7 @@ import {
   useBackgroundTask,
 } from "@/lib/background-task";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { notifyRefreshDone } from "@/lib/page-refresh";
 import { cn, formatCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import {
@@ -113,8 +114,16 @@ export function MyCollectionsPanel({
   const [seasons, setSeasons] = useState<UserCollectionItem[]>([]);
   const [series, setSeries] = useState<UserCollectionItem[]>([]);
   const [subscribed, setSubscribed] = useState<UserCollectionItem[]>([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [pageByTab, setPageByTab] = useState<Record<CollectionTab, number>>({
+    created: 1,
+    subscribed: 1,
+  });
+  const [hasMoreByTab, setHasMoreByTab] = useState<
+    Record<CollectionTab, boolean>
+  >({ created: false, subscribed: false });
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(() => new Set());
+  const page = pageByTab[tab];
+  const hasMore = hasMoreByTab[tab];
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
@@ -182,16 +191,17 @@ export function MyCollectionsPanel({
           setSeries((prev) =>
             append ? [...prev, ...result.series] : result.series,
           );
-          setHasMore(result.hasMore);
+          setHasMoreByTab((prev) => ({ ...prev, created: result.hasMore }));
         } else {
           const result =
             await window.biliDesk.bili.getSubscribedCollections(nextPage);
           setSubscribed((prev) =>
             append ? [...prev, ...result.seasons] : result.seasons,
           );
-          setHasMore(result.hasMore);
+          setHasMoreByTab((prev) => ({ ...prev, subscribed: result.hasMore }));
         }
-        setPage(nextPage);
+        setPageByTab((prev) => ({ ...prev, [kind]: nextPage }));
+        setLoadedTabs((prev) => new Set(prev).add(`${mid}:${kind}`));
       } catch (err) {
         setError(formatError(err));
       } finally {
@@ -234,16 +244,32 @@ export function MyCollectionsPanel({
     setClassifyMessage(result.message);
   }, [classifyTask]);
 
+  const loadGroups = useCallback(
+    () =>
+      window.biliDesk.bili
+        .getCollectionGroups()
+        .then(setGroups)
+        .catch(() => setGroups({})),
+    [],
+  );
+
   useEffect(() => {
-    if (localMode) return;
-    setSeasons([]);
-    setSeries([]);
-    setSubscribed([]);
-    setSubscribedIds(new Set());
-    setPage(1);
-    setHasMore(false);
+    if (localMode || loadedTabs.has(`${mid}:${tab}`)) return;
     void loadList(tab, 1, false);
-  }, [tab, mid, loadList, localMode]);
+  }, [tab, mid, loadList, localMode, loadedTabs]);
+
+  useEffect(() => {
+    if (layout !== "page") return;
+    const onRefresh = () => {
+      const job = localMode
+        ? Promise.allSettled([loadLocal(), loadGroups()])
+        : loadList(tab, 1, false);
+      void job.then(notifyRefreshDone);
+    };
+    window.addEventListener("bilidesk:refresh-collections", onRefresh);
+    return () =>
+      window.removeEventListener("bilidesk:refresh-collections", onRefresh);
+  }, [layout, localMode, tab, loadList, loadLocal, loadGroups]);
 
   useEffect(() => {
     if (localMode && localItems == null && !localLoading) void loadLocal();
@@ -279,6 +305,8 @@ export function MyCollectionsPanel({
 
   const switchTab = (next: CollectionTab) => {
     if (next === tab) return;
+    clearDetail();
+    setError("");
     setTab(next);
   };
 

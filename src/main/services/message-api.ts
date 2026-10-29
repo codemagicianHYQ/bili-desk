@@ -17,6 +17,8 @@ import type {
   MessageSessionPage,
   MessageSettings,
   MessageUnread,
+  NewFan,
+  NewFansPage,
   SystemNotice,
   SystemNoticePage,
 } from "@shared/types";
@@ -29,7 +31,8 @@ const SESSION_QUERY: Record<
   MessageSessionFilter,
   Record<string, string | number>
 > = {
-  all: { session_type: 4, group_fold: 0, unfollow_fold: 0 },
+  /** session_type 4 会忽略 end_ts、也不带置顶会话，必须用 1 */
+  all: { session_type: 1, group_fold: 1, unfollow_fold: 0 },
   followed: { session_type: 9, group_fold: 1, unfollow_fold: 1 },
   unfollowed: { session_type: 2, group_fold: 1, unfollow_fold: 0 },
   group: { session_type: 3, group_fold: 0, unfollow_fold: 1 },
@@ -426,6 +429,7 @@ class MessageApiService {
   private vcClient: AxiosInstance;
   private messageClient: AxiosInstance;
   private devId = randomUUID().toUpperCase();
+  private specialCache: { at: number; mids: Set<string> } | null = null;
 
   constructor() {
     const messageHeaders = {
@@ -488,8 +492,9 @@ class MessageApiService {
       chat: 0,
       group: 0,
       dustbin: 0,
+      fans: 0,
     };
-    const [feed, single, group] = await Promise.allSettled([
+    const [feed, single, group, fans] = await Promise.allSettled([
       this.client.get("/x/msgfeed/unread", {
         params: WEB,
         validateStatus: () => true,
@@ -507,7 +512,16 @@ class MessageApiService {
         params: WEB,
         validateStatus: () => true,
       }),
+      this.client.get("/x/relation/followers/unread/count", {
+        validateStatus: () => true,
+      }),
     ]);
+    if (
+      fans.status === "fulfilled" &&
+      numOf(asRecord(fans.value.data)?.code) === 0
+    ) {
+      empty.fans = numOf(asRecord(asRecord(fans.value.data)?.data)?.count);
+    }
 
     if (feed.status === "fulfilled") {
       try {
@@ -564,7 +578,17 @@ class MessageApiService {
       .map((item) => this.toSession(asRecord(item)))
       .filter((item): item is MessageSession => Boolean(item));
     await this.fillSessionProfiles(rows);
-    const lastTs = rows.length > 0 ? rows[rows.length - 1].sessionTs : 0;
+    const special = await this.getSpecialMids(endTs === 0);
+    for (const row of rows) {
+      row.special =
+        row.sessionType === 1 &&
+        row.systemType === 0 &&
+        special.has(row.talkerId);
+    }
+    // 置顶会话排在最前但 session_ts 可能很旧，不能拿来当翻页游标
+    const unpinned = rows.filter((item) => !item.pinned);
+    const lastTs =
+      unpinned.length > 0 ? unpinned[unpinned.length - 1].sessionTs : 0;
     const moreFlag = data.has_more;
     const hasMore =
       (moreFlag == null ? rows.length >= 20 : numOf(moreFlag) === 1) &&
@@ -600,12 +624,81 @@ class MessageApiService {
       pinned: numOf(raw.top_ts) > 0,
       muted: numOf(raw.is_dnd) === 1,
       followed: numOf(raw.is_follow) === 1,
+      special: false,
       live: numOf(raw.live_status) === 1,
       systemType,
       preview: previewOf(last),
       time: numOf(last?.timestamp) || Math.floor(numOf(raw.session_ts) / 1e6),
       sessionTs: numOf(raw.session_ts),
       maxSeqno: idOf(raw.max_seqno),
+    };
+  }
+
+  /**
+   * 会话接口不带特别关注标记，要拉系统分组 tagid=-10 自己对。
+   * 首页（含刷新）重拉，往下翻页复用，避免每页都打一遍分组接口。
+   */
+  private async getSpecialMids(fresh: boolean): Promise<Set<string>> {
+    const cached = this.specialCache;
+    if (cached && (!fresh || Date.now() - cached.at < 30_000)) {
+      return cached.mids;
+    }
+    const mids = new Set<string>();
+    try {
+      for (let pn = 1; pn <= 20; pn += 1) {
+        const res = await this.client.get("/x/relation/tag", {
+          params: { tagid: -10, pn, ps: 50 },
+          headers: { Referer: "https://space.bilibili.com/" },
+          validateStatus: () => true,
+        });
+        if (numOf(asRecord(res.data)?.code) !== 0) break;
+        const list = asArray(asRecord(res.data)?.data);
+        for (const item of list) {
+          const mid = idOf(asRecord(item)?.mid);
+          if (mid) mids.add(mid);
+        }
+        if (list.length < 50) break;
+      }
+    } catch {
+      return cached?.mids ?? mids;
+    }
+    this.specialCache = { at: Date.now(), mids };
+    return mids;
+  }
+
+  async getNewFans(page = 1): Promise<NewFansPage> {
+    requireCsrf();
+    const mid = selfMid();
+    const pageSize = 20;
+    const pn = Math.max(1, page);
+    const res = await this.client.get("/x/relation/fans", {
+      params: { vmid: mid, pn, ps: pageSize },
+      headers: { Referer: `https://space.bilibili.com/${mid}/fans/fans` },
+      validateStatus: () => true,
+    });
+    const data = assertOk(res.data, "粉丝列表获取失败");
+    const items: NewFan[] = asArray(data.list)
+      .map((raw) => {
+        const user = asRecord(raw);
+        if (!user) return null;
+        const official = asRecord(user.official_verify);
+        return {
+          mid: numOf(user.mid),
+          name: textOf(user.uname),
+          face: httpsUrl(user.face),
+          sign: textOf(user.sign),
+          time: numOf(user.mtime),
+          mutual: numOf(user.attribute) === 6,
+          officialTitle: textOf(official?.desc),
+        };
+      })
+      .filter((item): item is NewFan => Boolean(item?.mid));
+    const total = numOf(data.total);
+    return {
+      items,
+      page: pn,
+      total,
+      hasMore: items.length >= pageSize && pn * pageSize < total,
     };
   }
 

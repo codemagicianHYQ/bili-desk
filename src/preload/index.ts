@@ -734,6 +734,8 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_CHEESE_FOLLOW, page ?? 1, mid),
     getUpowerPaidList: () => ipcRenderer.invoke(IPC.BILI_UPOWER_PAID),
     getMessageUnread: () => ipcRenderer.invoke(IPC.BILI_MSG_UNREAD),
+    getNewFans: (page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_MSG_NEW_FANS, page ?? 1),
     getMessageSessions: (filter?: MessageSessionFilter, endTs?: number) =>
       ipcRenderer.invoke(IPC.BILI_MSG_SESSIONS, filter ?? "all", endTs ?? 0),
     getChatMessages: (

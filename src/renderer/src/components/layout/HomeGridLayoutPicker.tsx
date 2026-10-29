@@ -6,22 +6,35 @@ import {
   OverlayPortal,
 } from "@/components/ui/overlay-portal";
 import { cn } from "@/lib/utils";
-import { useAppStore, type HomeGridColumns } from "@/stores/app-store";
+import {
+  useAppStore,
+  type FavGridColumns,
+  type HomeGridColumns,
+} from "@/stores/app-store";
 
-const COLUMN_OPTIONS: Array<{ value: HomeGridColumns; label: string }> = [
-  { value: 2, label: "2 列" },
-  { value: 3, label: "3 列" },
-  { value: 4, label: "4 列" },
-  { value: 5, label: "5 列" },
-];
+const HOME_OPTIONS: HomeGridColumns[] = [2, 3, 4, 5];
+const FAV_OPTIONS: FavGridColumns[] = [1, 2, 3, 4];
 
-export function HomeGridLayoutPicker() {
+export function HomeGridLayoutPicker({
+  target = "home",
+}: {
+  target?: "home" | "favorites";
+}) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, right: 0 });
-  const homeGridColumns = useAppStore((state) => state.homeGridColumns);
-  const setHomeGridColumns = useAppStore((state) => state.setHomeGridColumns);
+  const homeColumns = useAppStore((state) => state.homeGridColumns);
+  const favColumns = useAppStore((state) => state.favGridColumns);
+  const setHomeColumns = useAppStore((state) => state.setHomeGridColumns);
+  const setFavColumns = useAppStore((state) => state.setFavGridColumns);
+  const isFav = target === "favorites";
+  const homeGridColumns: number = isFav ? favColumns : homeColumns;
+  const options: number[] = isFav ? FAV_OPTIONS : HOME_OPTIONS;
+  const setHomeGridColumns = (value: number) => {
+    if (isFav) setFavColumns(value as FavGridColumns);
+    else setHomeColumns(value as HomeGridColumns);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -83,7 +96,8 @@ export function HomeGridLayoutPicker() {
             <p className="px-3 py-1.5 text-xs text-muted-foreground">
               每行显示
             </p>
-            {COLUMN_OPTIONS.map((option) => {
+            {options.map((value) => {
+              const option = { value, label: `${value} 列` };
               const active = homeGridColumns === option.value;
               return (
                 <button

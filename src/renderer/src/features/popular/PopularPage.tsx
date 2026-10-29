@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { useAppStore } from "@/stores/app-store";
 import { useFollowingStore } from "@/stores/following-store";
+import { notifyRefreshDone } from "@/lib/page-refresh";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 
 type PopularTab = "popular" | "weekly" | "precious" | "ranking" | "music";
@@ -171,6 +172,9 @@ export function PopularPage() {
   const [weeklyHint, setWeeklyHint] = useState("");
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [weeklyError, setWeeklyError] = useState("");
+  const weeklyCacheRef = useRef(
+    new Map<number, { videos: PopularVideoItem[]; hint: string }>(),
+  );
 
   const [preciousVideos, setPreciousVideos] = useState<PopularVideoItem[]>([]);
   const [preciousHint, setPreciousHint] = useState("");
@@ -336,14 +340,22 @@ export function PopularPage() {
     }
   }, []);
 
-  const loadWeeklySeries = useCallback(async (number: number) => {
+  const loadWeeklySeries = useCallback(async (number: number, force = false) => {
     if (!number) return;
+    const cached = force ? undefined : weeklyCacheRef.current.get(number);
+    if (cached) {
+      setWeeklyVideos(cached.videos);
+      setWeeklyHint(cached.hint);
+      return;
+    }
     setWeeklyLoading(true);
     setWeeklyError("");
     try {
       const detail = await window.biliDesk.bili.getWeeklySeries(number);
+      const hint = detail.subject || detail.reminder || "";
+      weeklyCacheRef.current.set(number, { videos: detail.videos, hint });
       setWeeklyVideos(detail.videos);
-      setWeeklyHint(detail.subject || detail.reminder || "");
+      setWeeklyHint(hint);
     } catch (err) {
       setWeeklyError(formatError(err, "每周必看加载失败"));
     } finally {
@@ -449,6 +461,38 @@ export function PopularPage() {
   useEffect(() => {
     if (tab === "music" && musicListId > 0) void loadMusicList(musicListId);
   }, [tab, musicListId, loadMusicList]);
+
+  useEffect(() => {
+    const onRefresh = () => {
+      const jobs: Promise<void>[] = [];
+      if (tab === "popular") jobs.push(loadPopular());
+      else if (tab === "weekly") {
+        jobs.push(loadWeeklyList());
+        if (weeklyNumber > 0) jobs.push(loadWeeklySeries(weeklyNumber, true));
+      } else if (tab === "precious") jobs.push(loadPrecious(true));
+      else if (tab === "ranking") {
+        rankingCacheRef.current.delete(rankingRid);
+        jobs.push(loadRanking(rankingRid));
+      } else if (tab === "music" && musicListId > 0) {
+        jobs.push(loadMusicList(musicListId));
+      }
+      void Promise.allSettled(jobs).then(notifyRefreshDone);
+    };
+    window.addEventListener("bilidesk:refresh-popular", onRefresh);
+    return () =>
+      window.removeEventListener("bilidesk:refresh-popular", onRefresh);
+  }, [
+    tab,
+    weeklyNumber,
+    rankingRid,
+    musicListId,
+    loadPopular,
+    loadWeeklyList,
+    loadWeeklySeries,
+    loadPrecious,
+    loadRanking,
+    loadMusicList,
+  ]);
 
   const displayVideos = useMemo(() => {
     if (tab === "popular") return popularPageVideos;

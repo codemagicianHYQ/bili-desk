@@ -11,6 +11,7 @@ import type {
   FavResource,
   LocalCategorySelection,
 } from "@shared/types";
+import { useAppStore } from "@/stores/app-store";
 import {
   useFavoritesStore,
   type FolderListCache,
@@ -80,12 +81,20 @@ function formatFolderError(err: unknown, mediaCount = 0): string {
   return message;
 }
 
+const FAV_GRID_COLS_CLASS = {
+  1: "grid-cols-1",
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+  4: "grid-cols-4",
+} as const;
+
 function FavVideoCard({
   item,
   editing,
   selected,
   removing,
   showFollowedBadge = false,
+  roomy = false,
   onToggleSelect,
   onRemove,
 }: {
@@ -94,19 +103,26 @@ function FavVideoCard({
   selected: boolean;
   removing: boolean;
   showFollowedBadge?: boolean;
+  roomy?: boolean;
   onToggleSelect: () => void;
   onRemove: () => void;
 }) {
+  const coverSize = roomy ? "h-24 w-[10.5rem]" : "h-16 w-28";
   const body = (
     <>
       {item.cover ? (
         <BiliImage
           src={item.cover}
           alt=""
-          className="h-16 w-28 shrink-0 rounded-lg object-cover"
+          className={cn(coverSize, "shrink-0 rounded-lg object-cover")}
         />
       ) : (
-        <div className="flex h-16 w-28 shrink-0 items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground">
+        <div
+          className={cn(
+            coverSize,
+            "flex shrink-0 items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground",
+          )}
+        >
           无封面
         </div>
       )}
@@ -215,6 +231,7 @@ function FavVideoCard({
 
 export function FavoritesPage() {
   const followedMidSet = useFollowedMidSet();
+  const favGridColumns = useAppStore((state) => state.favGridColumns);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const folderLoadSeqRef = useRef(0);
@@ -1372,9 +1389,15 @@ export function FavoritesPage() {
               加载收藏中...
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 p-4 xl:grid-cols-3">
+            <div
+              className={cn(
+                "grid gap-3 p-4",
+                FAV_GRID_COLS_CLASS[favGridColumns],
+              )}
+            >
               {displayItems.map((item) => (
                 <FavVideoCard
+                  roomy={favGridColumns <= 2}
                   key={`${item.id}-${item.bvid}`}
                   item={item}
                   editing={!isLocalMode && editing}

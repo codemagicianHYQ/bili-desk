@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { ArrowLeft, Eye, EyeOff, RefreshCw, UserCircle2 } from "lucide-react";
+import { REFRESH_DONE_EVENT } from "@/lib/page-refresh";
 import { Button } from "@/components/ui/button";
 import { BiliImage } from "@/components/ui/bili-image";
 import { HomeGridLayoutPicker } from "@/components/layout/HomeGridLayoutPicker";
@@ -39,6 +41,9 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const favoritesRefreshing = useFavoritesStore((state) => state.refreshing);
   const watchLaterRefresh = useWatchLaterStore((state) => state.refresh);
   const watchLaterRefreshing = useWatchLaterStore((state) => state.refreshing);
+  const [eventRefreshPath, setEventRefreshPath] = useState<string | null>(
+    null,
+  );
 
   const isHome = location.pathname === "/";
   const isHomeLive = isHome && homeTab === "live";
@@ -48,6 +53,9 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const isWatchLater = location.pathname === "/watch-later";
   const isDynamics = location.pathname === "/dynamics";
   const isHistory = location.pathname === "/history";
+  const isPopular = location.pathname === "/popular";
+  const isCollections = location.pathname === "/collections";
+  const isMessages = location.pathname === "/messages";
   const isUpSpace = location.pathname.startsWith("/up/");
   const isVideo = location.pathname.startsWith("/video/");
   const isLive = location.pathname.startsWith("/live/");
@@ -59,6 +67,9 @@ export function TopBar({ title, subtitle }: TopBarProps) {
     isWatchLater ||
     isDynamics ||
     isHistory ||
+    isPopular ||
+    isCollections ||
+    isMessages ||
     isVideo ||
     isLive;
   const showGridPicker = isHome || isWatchLater || isUpSpace;
@@ -77,7 +88,23 @@ export function TopBar({ title, subtitle }: TopBarProps) {
         ? favoritesRefreshing
         : isWatchLater
           ? watchLaterRefreshing
-          : false;
+          : eventRefreshPath === location.pathname;
+
+  useEffect(() => {
+    if (!eventRefreshPath) return;
+    const done = () => setEventRefreshPath(null);
+    const timer = window.setTimeout(done, 30_000);
+    window.addEventListener(REFRESH_DONE_EVENT, done);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener(REFRESH_DONE_EVENT, done);
+    };
+  }, [eventRefreshPath]);
+
+  const dispatchPageRefresh = (name: string) => {
+    setEventRefreshPath(location.pathname);
+    window.dispatchEvent(new CustomEvent(name));
+  };
 
   const handleRefresh = () => {
     if (isSearching) {
@@ -97,6 +124,12 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       window.dispatchEvent(new CustomEvent("bilidesk:refresh-dynamics"));
     } else if (isHistory) {
       window.dispatchEvent(new CustomEvent("bilidesk:refresh-history"));
+    } else if (isPopular) {
+      dispatchPageRefresh("bilidesk:refresh-popular");
+    } else if (isCollections) {
+      dispatchPageRefresh("bilidesk:refresh-collections");
+    } else if (isMessages) {
+      dispatchPageRefresh("bilidesk:refresh-messages");
     } else if (isVideo) {
       window.dispatchEvent(new CustomEvent("bilidesk:refresh-video"));
     } else if (isLive) {
@@ -126,7 +159,13 @@ export function TopBar({ title, subtitle }: TopBarProps) {
               ? "刷新动态"
               : isHistory
                 ? "刷新历史"
-                : isVideo
+                : isPopular
+                  ? "刷新热门"
+                  : isCollections
+                    ? "刷新合集"
+                    : isMessages
+                      ? "刷新消息"
+                      : isVideo
                   ? "刷新播放器"
                   : isLive
                     ? "刷新直播"
@@ -225,6 +264,7 @@ export function TopBar({ title, subtitle }: TopBarProps) {
         </Button>
 
         {showGridPicker && <HomeGridLayoutPicker />}
+        {isFavorites && <HomeGridLayoutPicker target="favorites" />}
         <ThemeCustomizer />
 
         {user?.isLogin ? (

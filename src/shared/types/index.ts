@@ -1380,6 +1380,27 @@ export interface MessageUnread {
   chat: number;
   group: number;
   dustbin: number;
+  /** 新增粉丝未读 */
+  fans: number;
+}
+
+export interface NewFan {
+  mid: number;
+  name: string;
+  face: string;
+  sign: string;
+  /** 关注我的时间（秒） */
+  time: number;
+  /** 已互相关注 */
+  mutual: boolean;
+  officialTitle: string;
+}
+
+export interface NewFansPage {
+  items: NewFan[];
+  page: number;
+  total: number;
+  hasMore: boolean;
 }
 
 export interface MessageSession {
@@ -1391,6 +1412,8 @@ export interface MessageSession {
   pinned: boolean;
   muted: boolean;
   followed: boolean;
+  /** 对方在我的特别关注分组里 */
+  special: boolean;
   live: boolean;
   systemType: number;
   preview: string;
@@ -2174,6 +2197,7 @@ export interface BiliDeskApi {
     ) => Promise<CheeseCoursePage>;
     getUpowerPaidList: () => Promise<ChargeRecordResult>;
     getMessageUnread: () => Promise<MessageUnread>;
+    getNewFans: (page?: number) => Promise<NewFansPage>;
     getMessageSessions: (
       filter?: MessageSessionFilter,
       endTs?: number,

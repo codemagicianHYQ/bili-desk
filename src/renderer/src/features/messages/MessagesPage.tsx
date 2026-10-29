@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   AtSign,
   Bell,
@@ -27,6 +27,7 @@ import {
   Settings2,
   ShieldAlert,
   Trash2,
+  UserPlus,
 } from "lucide-react";
 import type {
   ChatEmote,
@@ -38,6 +39,7 @@ import type {
   MessageSessionFilter,
   MessageSettings,
   MessageUnread,
+  NewFan,
   SystemNotice,
 } from "@shared/types";
 import { parseBiliAppPath } from "@shared/utils/bili-app-link";
@@ -48,13 +50,23 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { normalizeBiliImage } from "@/lib/bili-image";
 import { openBiliHref } from "@/lib/open-bili-href";
+import { usePageRefresh } from "@/lib/page-refresh";
 import { cn, formatCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 
-type MessageTab = "chat" | MessageFeedKind | "sent" | "sys" | "settings";
+const REFRESH_EVENT = "bilidesk:refresh-messages";
+
+type MessageTab =
+  | "chat"
+  | MessageFeedKind
+  | "sent"
+  | "fans"
+  | "sys"
+  | "settings";
 
 const TABS: Array<{
   id: MessageTab;
@@ -77,6 +89,7 @@ const TABS: Array<{
   },
   { id: "at", label: "@ 我的", icon: AtSign, hint: "评论与动态里的提及" },
   { id: "like", label: "收到的赞", icon: Heart, hint: "赞过你的人" },
+  { id: "fans", label: "新增粉丝", icon: UserPlus, hint: "最近关注你的人" },
   { id: "sys", label: "系统通知", icon: Bell, hint: "官方通知" },
   {
     id: "settings",
@@ -102,6 +115,7 @@ const EMPTY_UNREAD: MessageUnread = {
   chat: 0,
   group: 0,
   dustbin: 0,
+  fans: 0,
 };
 
 function tidyError(error: unknown): string {
@@ -156,6 +170,7 @@ function unreadOf(tab: MessageTab, unread: MessageUnread): number {
   if (tab === "at") return unread.at;
   if (tab === "like") return unread.like;
   if (tab === "sys") return unread.sys;
+  if (tab === "fans") return unread.fans;
   return 0;
 }
 
@@ -353,7 +368,11 @@ export function MessagesPage() {
     void loadUnread();
     const onRefresh = () => void loadUnread();
     window.addEventListener("bilidesk:msg-unread", onRefresh);
-    return () => window.removeEventListener("bilidesk:msg-unread", onRefresh);
+    window.addEventListener(REFRESH_EVENT, onRefresh);
+    return () => {
+      window.removeEventListener("bilidesk:msg-unread", onRefresh);
+      window.removeEventListener(REFRESH_EVENT, onRefresh);
+    };
   }, [loggedIn, loadUnread]);
 
   if (!loggedIn) {
@@ -443,6 +462,7 @@ export function MessagesPage() {
             tab === "sent") && (
             <FeedList kind={tab} keyword={keyword} onChanged={refreshUnread} />
           )}
+          {tab === "fans" && <FansList keyword={keyword} />}
           {tab === "sys" && (
             <NoticeList keyword={keyword} onChanged={refreshUnread} />
           )}
@@ -522,6 +542,29 @@ function ChatDesk({
     void load(false, 0);
   }, [load]);
 
+  usePageRefresh(REFRESH_EVENT, () => load(false, 0));
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
+  loadingRef.current = loading;
+
+  useEffect(() => {
+    const root = listRef.current;
+    const target = sentinelRef.current;
+    if (!root || !target || !hasMore || error) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !loadingRef.current) {
+          void load(true, endTs);
+        }
+      },
+      { root, rootMargin: "200px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMore, endTs, error, load]);
+
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -581,9 +624,9 @@ function ChatDesk({
     }
   };
 
-  const visibleSessions = sessions.filter((item) =>
-    includesTerm(`${item.name} ${item.preview}`, keyword),
-  );
+  const visibleSessions = sessions
+    .filter((item) => includesTerm(`${item.name} ${item.preview}`, keyword))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned));
   const selected =
     sessions.find(
       (item) => `${item.sessionType}:${item.talkerId}` === selectedId,
@@ -623,7 +666,10 @@ function ChatDesk({
             </button>
           ))}
         </div>
-        <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto">
+        <div
+          ref={listRef}
+          className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto"
+        >
           {error && (
             <p className="px-4 py-6 text-center text-xs text-destructive">
               {error}
@@ -667,9 +713,15 @@ function ChatDesk({
                 <Avatar name={item.name} face={item.face} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-medium">
+                    <span
+                      className={cn(
+                        "truncate text-sm font-medium",
+                        item.special && "text-pink-400",
+                      )}
+                    >
                       {item.name || "用户"}
                     </span>
+                    {item.special && <SpecialFollowTag />}
                     {item.pinned && (
                       <Pin className="h-3 w-3 shrink-0 text-primary" />
                     )}
@@ -695,17 +747,23 @@ function ChatDesk({
             );
           })}
           {hasMore && (
-            <div className="p-3">
+            <div ref={sentinelRef} className="p-3">
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-full"
+                className="w-full gap-1.5"
                 disabled={loading}
                 onClick={() => void load(true, endTs)}
               >
-                {loading ? "加载中" : "更早的会话"}
+                {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {loading ? "正在加载更早的会话" : "更早的会话"}
               </Button>
             </div>
+          )}
+          {!hasMore && sessions.length > 20 && !loading && (
+            <p className="py-4 text-center text-[11px] text-muted-foreground">
+              没有更早的会话了
+            </p>
           )}
           {loading && sessions.length === 0 && (
             <p className="px-4 py-8 text-center text-xs text-muted-foreground">
@@ -823,6 +881,14 @@ function SessionContextMenu({
         </button>
       </div>
     </>
+  );
+}
+
+function SpecialFollowTag() {
+  return (
+    <span className="shrink-0 rounded border border-pink-400/60 px-1 text-[10px] leading-4 text-pink-400">
+      特别关注
+    </span>
   );
 }
 
@@ -1204,6 +1270,7 @@ function ChatPane({
   onPatchRef.current = onPatch;
   const talkerId = session?.talkerId ?? "";
   const sessionType = session?.sessionType ?? 0;
+  const pageVisible = useLocation().pathname === "/messages";
 
   const mergeEmotes = (incoming: ChatEmote[]) => {
     setEmotes((current) => {
@@ -1249,6 +1316,10 @@ function ChatPane({
     setError("");
     if (!talkerId) return;
     void loadLatest();
+  }, [loadLatest, talkerId]);
+
+  useEffect(() => {
+    if (!talkerId || !pageVisible) return;
     const timer = window.setInterval(() => {
       void window.biliDesk.bili
         .getChatMessages(talkerId, sessionType)
@@ -1265,7 +1336,7 @@ function ChatPane({
         .catch(() => undefined);
     }, 15000);
     return () => window.clearInterval(timer);
-  }, [loadLatest, sessionType, talkerId]);
+  }, [pageVisible, sessionType, talkerId]);
 
   useEffect(() => {
     const node = scroller.current;
@@ -1384,7 +1455,10 @@ function ChatPane({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="truncate text-sm font-semibold hover:text-primary"
+              className={cn(
+                "truncate text-sm font-semibold hover:text-primary",
+                session.special && "text-pink-400",
+              )}
               onClick={() => {
                 if (session.sessionType === 1 && session.systemType === 0) {
                   navigate(`/up/${session.talkerId}`);
@@ -1393,7 +1467,11 @@ function ChatPane({
             >
               {session.name || "用户"}
             </button>
-            {session.followed && <Badge>已关注</Badge>}
+            {session.special ? (
+              <SpecialFollowTag />
+            ) : (
+              session.followed && <Badge>已关注</Badge>
+            )}
             {session.live && <Badge variant="ai">直播中</Badge>}
           </div>
           <p className="text-[11px] text-muted-foreground">
@@ -1771,6 +1849,8 @@ function FeedList({
     void load(false, 0, 0);
   }, [load]);
 
+  usePageRefresh(REFRESH_EVENT, () => load(false, 0, 0));
+
   const headline = (item: MessageFeedItem) => {
     const names = item.users
       .slice(0, 2)
@@ -2017,6 +2097,135 @@ function FeedList({
   );
 }
 
+function FansList({ keyword }: { keyword: string }) {
+  const navigate = useNavigate();
+  const [items, setItems] = useState<NewFan[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async (nextPage: number) => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await window.biliDesk.bili.getNewFans(nextPage);
+      setItems((current) => {
+        const merged =
+          nextPage > 1 ? [...current, ...result.items] : result.items;
+        const seen = new Set<number>();
+        return merged.filter((item) => {
+          if (seen.has(item.mid)) return false;
+          seen.add(item.mid);
+          return true;
+        });
+      });
+      setPage(result.page);
+      setHasMore(result.hasMore);
+      setTotal(result.total);
+    } catch (err) {
+      setError(tidyError(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load(1);
+  }, [load]);
+
+  usePageRefresh(REFRESH_EVENT, () => load(1));
+
+  const setMutual = (mid: number, mutual: boolean) => {
+    setItems((current) =>
+      current.map((item) => (item.mid === mid ? { ...item, mutual } : item)),
+    );
+  };
+
+  const term = keyword.trim();
+  const shown = items.filter((item) =>
+    includesTerm(`${item.name} ${item.sign}`, term),
+  );
+
+  return (
+    <div className="scrollbar-overlay h-full overflow-y-auto px-5 py-4">
+      {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
+      <div className="mx-auto flex max-w-3xl flex-col gap-2">
+        {total > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            共 {formatCount(total)} 位粉丝，按关注时间从新到旧
+          </p>
+        )}
+        {shown.map((item) => (
+          <article
+            key={item.mid}
+            className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/40 px-4 py-3"
+          >
+            <button
+              type="button"
+              className="shrink-0"
+              onClick={() => navigate(`/up/${item.mid}`)}
+            >
+              <Avatar name={item.name} face={item.face} />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="truncate text-sm font-medium hover:text-primary"
+                  onClick={() => navigate(`/up/${item.mid}`)}
+                >
+                  {item.name || `用户 ${item.mid}`}
+                </button>
+                {item.mutual && <Badge variant="secondary">已互粉</Badge>}
+              </div>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {item.officialTitle || item.sign || "这个人很懒，什么都没写"}
+              </p>
+            </div>
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {formatMessageTime(item.time)} 关注了你
+            </span>
+            <FollowActionButton
+              mid={item.mid}
+              uname={item.name}
+              face={item.face}
+              isFollowing={item.mutual}
+              onFollowingChange={(following) => setMutual(item.mid, following)}
+              onError={setError}
+            />
+          </article>
+        ))}
+        {loading && items.length === 0 && (
+          <p className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            加载粉丝…
+          </p>
+        )}
+        {!loading && items.length === 0 && !error && (
+          <EmptyState title="还没有粉丝" detail="有人关注你后会显示在这里。" />
+        )}
+        {!loading && items.length > 0 && shown.length === 0 && !error && (
+          <EmptyState
+            title="没有匹配的粉丝"
+            detail="换个关键词，或先加载更多再搜。"
+          />
+        )}
+        {hasMore && items.length > 0 && (
+          <Button
+            variant="ghost"
+            disabled={loading}
+            onClick={() => void load(page + 1)}
+          >
+            {loading ? "加载中" : "加载更多"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function NoticeList({
   keyword,
   onChanged,
@@ -2055,6 +2264,8 @@ function NoticeList({
   useEffect(() => {
     void load(false, "");
   }, [load]);
+
+  usePageRefresh(REFRESH_EVENT, () => load(false, ""));
 
   const term = keyword.trim();
   const shown = items.filter((item) =>
@@ -2150,6 +2361,8 @@ function SettingsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  usePageRefresh(REFRESH_EVENT, load);
 
   const toggle = (
     key: "msgNotify" | "showUnfollowed" | "foldUnfollowed" | "foldGroup",

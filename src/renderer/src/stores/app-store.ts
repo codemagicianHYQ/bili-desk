@@ -2,6 +2,8 @@ import { create } from "zustand";
 import type { Theme, UserInfo } from "@shared/types";
 
 export type HomeGridColumns = 2 | 3 | 4 | 5;
+/** 收藏卡片是横向的，列数比首页少一档 */
+export type FavGridColumns = 1 | 2 | 3 | 4;
 export type ThemePreset =
   | "rose"
   | "glass"
@@ -76,6 +78,7 @@ export const TEXT_COLOR_TONES: Array<{
 ];
 
 const HOME_GRID_STORAGE_KEY = "bilidesk-home-grid-columns";
+const FAV_GRID_STORAGE_KEY = "bilidesk-fav-grid-columns";
 const THEME_PRESET_STORAGE_KEY = "bilidesk-theme-preset";
 const INCOGNITO_STORAGE_KEY = "bilidesk-incognito-mode";
 const UI_TRANSPARENCY_KEY = "bilidesk-ui-transparency";
@@ -93,6 +96,14 @@ function readHomeGridColumns(): HomeGridColumns {
     return Number(raw) as HomeGridColumns;
   }
   return 3;
+}
+
+function readFavGridColumns(): FavGridColumns {
+  const raw = localStorage.getItem(FAV_GRID_STORAGE_KEY);
+  if (raw === "1" || raw === "2" || raw === "3" || raw === "4") {
+    return Number(raw) as FavGridColumns;
+  }
+  return 2;
 }
 
 function readThemePreset(): ThemePreset {
@@ -233,6 +244,7 @@ interface AppState {
   customTextColor: string;
   user: UserInfo | null;
   homeGridColumns: HomeGridColumns;
+  favGridColumns: FavGridColumns;
   /** 无痕模式：不向 B 站同步观看历史 */
   incognitoMode: boolean;
   setTheme: (theme: Theme) => Promise<void>;
@@ -245,6 +257,7 @@ interface AppState {
   loadUser: () => Promise<void>;
   loadPreferences: () => void;
   setHomeGridColumns: (columns: HomeGridColumns) => void;
+  setFavGridColumns: (columns: FavGridColumns) => void;
   setIncognitoMode: (enabled: boolean) => void;
   setUser: (user: UserInfo | null) => void;
 }
@@ -258,6 +271,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   customTextColor: readCustomTextColor(),
   user: null,
   homeGridColumns: readHomeGridColumns(),
+  favGridColumns: readFavGridColumns(),
   incognitoMode: readIncognitoMode(),
   setTheme: async (theme) => {
     await window.biliDesk.app.setTheme(theme);
@@ -312,6 +326,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const customTextColor = readCustomTextColor();
     set({
       homeGridColumns,
+      favGridColumns: readFavGridColumns(),
       themePreset,
       incognitoMode,
       uiTransparency,
@@ -324,6 +339,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setHomeGridColumns: (columns) => {
     localStorage.setItem(HOME_GRID_STORAGE_KEY, String(columns));
     set({ homeGridColumns: columns });
+  },
+  setFavGridColumns: (columns) => {
+    localStorage.setItem(FAV_GRID_STORAGE_KEY, String(columns));
+    set({ favGridColumns: columns });
   },
   setIncognitoMode: (enabled) => {
     localStorage.setItem(INCOGNITO_STORAGE_KEY, enabled ? "1" : "0");

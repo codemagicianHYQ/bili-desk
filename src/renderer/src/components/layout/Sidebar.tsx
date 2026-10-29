@@ -37,114 +37,28 @@ const navItems = [
   { to: "/settings", icon: Settings, label: "设置" },
 ];
 
+const DETAIL_PREFIXES = [
+  "/up/",
+  "/video/",
+  "/live/",
+  "/article/",
+  "/dynamic/",
+  "/topic/",
+  "/season/",
+  "/channel/",
+  "/audio/",
+];
+
 export function Sidebar() {
   const location = useLocation();
   const { user } = useAppStore();
-  const followingKeepAlive = useNavigationStore(
-    (state) => state.followingKeepAlive,
-  );
-  const favoritesKeepAlive = useNavigationStore(
-    (state) => state.favoritesKeepAlive,
-  );
-  const collectionsKeepAlive = useNavigationStore(
-    (state) => state.collectionsKeepAlive,
-  );
-  const watchLaterKeepAlive = useNavigationStore(
-    (state) => state.watchLaterKeepAlive,
-  );
-  const dynamicsKeepAlive = useNavigationStore(
-    (state) => state.dynamicsKeepAlive,
-  );
-  const historyKeepAlive = useNavigationStore(
-    (state) => state.historyKeepAlive,
-  );
-  const popularKeepAlive = useNavigationStore(
-    (state) => state.popularKeepAlive,
-  );
-  const upActivityKeepAlive = useNavigationStore(
-    (state) => state.upActivityKeepAlive,
-  );
-  const integrityKeepAlive = useNavigationStore(
-    (state) => state.integrityKeepAlive,
-  );
-  const settingsKeepAlive = useNavigationStore(
-    (state) => state.settingsKeepAlive,
-  );
-  const messagesKeepAlive = useNavigationStore(
-    (state) => state.messagesKeepAlive,
-  );
+  const lastSection = useNavigationStore((state) => state.lastSection);
   const [messageUnread, setMessageUnread] = useState(0);
 
   const path = location.pathname;
-  const inFollowingFlow =
-    followingKeepAlive &&
-    (path === "/following" ||
-      path.startsWith("/up/") ||
-      ((path.startsWith("/video/") ||
-        path.startsWith("/live/") ||
-        path.startsWith("/article/")) &&
-        !favoritesKeepAlive &&
-        !watchLaterKeepAlive &&
-        !dynamicsKeepAlive &&
-        !historyKeepAlive &&
-        !popularKeepAlive));
-  const inFavoritesFlow =
-    favoritesKeepAlive &&
-    (path === "/favorites" ||
-      path.startsWith("/video/") ||
-      path.startsWith("/live/") ||
-      path.startsWith("/article/") ||
-      path.startsWith("/up/"));
-  const inCollectionsFlow =
-    collectionsKeepAlive &&
-    (path === "/collections" ||
-      path.startsWith("/video/") ||
-      path.startsWith("/live/") ||
-      path.startsWith("/article/") ||
-      path.startsWith("/up/"));
-  const inWatchLaterFlow =
-    watchLaterKeepAlive &&
-    (path === "/watch-later" ||
-      path.startsWith("/video/") ||
-      path.startsWith("/live/") ||
-      path.startsWith("/article/") ||
-      path.startsWith("/up/"));
-  const inDynamicsFlow =
-    dynamicsKeepAlive &&
-    (path === "/dynamics" ||
-      path.startsWith("/dynamic/") ||
-      path.startsWith("/article/") ||
-      path.startsWith("/video/") ||
-      path.startsWith("/live/") ||
-      path.startsWith("/up/"));
-  const inHistoryFlow =
-    historyKeepAlive &&
-    (path === "/history" ||
-      path.startsWith("/video/") ||
-      path.startsWith("/live/") ||
-      path.startsWith("/article/") ||
-      path.startsWith("/up/"));
-  const inPopularFlow =
-    popularKeepAlive &&
-    (path === "/popular" ||
-      path.startsWith("/video/") ||
-      path.startsWith("/live/") ||
-      path.startsWith("/article/") ||
-      path.startsWith("/up/"));
-  const inDetailFlow =
-    path.startsWith("/up/") ||
-    path.startsWith("/video/") ||
-    path.startsWith("/live/") ||
-    path.startsWith("/article/") ||
-    path.startsWith("/dynamic/");
-  const inUpActivityFlow =
-    upActivityKeepAlive && (path === "/up-activity" || inDetailFlow);
-  const inIntegrityFlow =
-    integrityKeepAlive && (path === "/integrity" || inDetailFlow);
-  const inSettingsFlow =
-    settingsKeepAlive && (path === "/settings" || inDetailFlow);
-  const inMessagesFlow =
-    messagesKeepAlive && (path === "/messages" || inDetailFlow);
+  const inDetailFlow = DETAIL_PREFIXES.some((prefix) =>
+    path.startsWith(prefix),
+  );
 
   useEffect(() => {
     if (!user?.isLogin) {
@@ -197,19 +111,9 @@ export function Sidebar() {
       <nav className="flex flex-1 flex-col gap-1">
         {navItems.map(({ to, icon: Icon, label }) => {
           const active =
-            location.pathname === to ||
-            (to !== "/" && location.pathname.startsWith(`${to}/`)) ||
-            (to === "/following" && inFollowingFlow) ||
-            (to === "/favorites" && inFavoritesFlow) ||
-            (to === "/collections" && inCollectionsFlow) ||
-            (to === "/watch-later" && inWatchLaterFlow) ||
-            (to === "/dynamics" && inDynamicsFlow) ||
-            (to === "/history" && inHistoryFlow) ||
-            (to === "/popular" && inPopularFlow) ||
-            (to === "/up-activity" && inUpActivityFlow) ||
-            (to === "/integrity" && inIntegrityFlow) ||
-            (to === "/settings" && inSettingsFlow) ||
-            (to === "/messages" && inMessagesFlow);
+            path === to ||
+            (to !== "/" && path.startsWith(`${to}/`)) ||
+            (inDetailFlow && lastSection === to);
           return (
             <Link
               key={to}
