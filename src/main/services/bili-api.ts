@@ -320,6 +320,8 @@ function parseDanmakuXml(xml: string): DanmakuItem[] {
   return items;
 }
 
+export const BILI_RISK_CONTROL_MESSAGE = "请求被 B 站安全策略拦截，请稍后重试";
+
 class BiliApiService {
   private client: AxiosInstance;
   private passportClient: AxiosInstance;
@@ -6551,9 +6553,32 @@ class BiliApiService {
       throw new Error("B站接口不存在，请更新客户端");
     }
 
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error(BILI_RISK_CONTROL_MESSAGE);
+    }
+
     if (res.data?.code !== 0) {
       throw new Error((res.data?.message as string) || "操作失败");
     }
+  }
+
+  /** 批量加入分组，保留 UP 原有的其它分组 */
+  async copyUsersToTag(tagId: number, mids: number[]): Promise<void> {
+    if (tagId <= 0 || mids.length === 0) return;
+    await this.postRelationForm("/x/relation/tags/copyUsers", {
+      fids: mids.join(","),
+      tagids: String(tagId),
+    });
+  }
+
+  /** 批量移出分组，只动这一个分组；不在其它分组的 UP 回到默认分组 */
+  async removeUsersFromTag(tagId: number, mids: number[]): Promise<void> {
+    if (tagId <= 0 || mids.length === 0) return;
+    await this.postRelationForm("/x/relation/tags/moveUsers", {
+      beforeTagids: String(tagId),
+      afterTagids: "0",
+      fids: mids.join(","),
+    });
   }
 
   async getUserFollowTags(mid: number): Promise<number[]> {

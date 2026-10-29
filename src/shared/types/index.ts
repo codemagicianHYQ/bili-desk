@@ -672,6 +672,39 @@ export interface FollowTag {
 /** B 站系统分组：特别关注 */
 export const BILI_SPECIAL_FOLLOW_TAG_ID = -10;
 
+/** 本地 AI 分组同步到 B 站分组：每个本地叶子分组的计划 */
+export interface FollowTagSyncGroupPlan {
+  groupId: number;
+  tagName: string;
+  /** create 新建；adopt 接管同名的已有分组；rename 改名；keep 沿用 */
+  action: "create" | "adopt" | "rename" | "keep";
+  tagId: number | null;
+  oldName?: string;
+  total: number;
+  addCount: number;
+  removeCount: number;
+}
+
+export interface FollowTagSyncPlan {
+  planId: string;
+  groups: FollowTagSyncGroupPlan[];
+  /** 以前同步过、但本地分组已经没了的 B 站分组，会被删除 */
+  deleteTags: Array<{ tagId: number; name: string; count: number }>;
+  /** 本地分组里已经取关的 UP，不会同步 */
+  skippedUnfollowed: number;
+  writeRequests: number;
+  estimatedSeconds: number;
+  warnings: string[];
+}
+
+export interface FollowTagSyncStatus {
+  state: "idle" | "running" | "done" | "failed" | "cancelled";
+  done: number;
+  total: number;
+  message: string;
+  errors: string[];
+}
+
 export interface BlacklistUser extends FollowingUp {
   /** 拉黑时间，秒级时间戳 */
   blockedAt?: number;
@@ -1993,6 +2026,10 @@ export interface BiliDeskApi {
     createFollowTag: (name: string) => Promise<FollowTag>;
     renameFollowTag: (tagId: number, name: string) => Promise<void>;
     deleteFollowTag: (tagId: number) => Promise<void>;
+    previewFollowTagSync: (followedMids: number[]) => Promise<FollowTagSyncPlan>;
+    startFollowTagSync: (planId: string) => Promise<void>;
+    getFollowTagSyncStatus: () => Promise<FollowTagSyncStatus>;
+    cancelFollowTagSync: () => Promise<void>;
     getFollowingsInTag: (
       tagId: number,
       page?: number,

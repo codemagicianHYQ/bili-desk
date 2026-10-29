@@ -11,12 +11,13 @@ import { useFollowingStore, type TagListCache } from "@/stores/following-store";
 import { UpGroupTree } from "@/components/taxonomy/UpGroupTree";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Folder, Loader2, Sparkles } from "lucide-react";
+import { Folder, Loader2, Sparkles, Upload } from "lucide-react";
 import { FollowTagDialog } from "./FollowTagDialog";
 import { FollowingUpCard } from "./FollowingUpCard";
 import { UnfollowConfirmDialog } from "./UnfollowConfirmDialog";
 import { CreateFollowTagControl } from "@/components/following/CreateFollowTagControl";
 import { FollowTagList } from "@/components/following/FollowTagList";
+import { FollowTagSyncDialog } from "@/components/following/FollowTagSyncDialog";
 import { upRelationCache, upSpaceCache } from "@/lib/session-data-cache";
 
 type SidebarMode = "bilibili" | "local";
@@ -134,6 +135,7 @@ export function FollowingPage() {
   const [listReady, setListReady] = useState(false);
   const [error, setError] = useState("");
   const [taskMessage, setTaskMessage] = useState("");
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [tagDialogUp, setTagDialogUp] = useState<FollowingUp | null>(null);
   const [unfollowTarget, setUnfollowTarget] = useState<FollowingUp | null>(
     null,
@@ -710,14 +712,24 @@ export function FollowingPage() {
           <div className="space-y-2 border-b border-border p-3">
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">AI 与规则智能分组</p>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => void runAiClassify()}
-                title="运行智能分组"
-              >
-                <Sparkles className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSyncDialogOpen(true)}
+                  title="同步到 B 站分组（手机上也能看到）"
+                >
+                  <Upload className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void runAiClassify()}
+                  title="运行智能分组"
+                >
+                  <Sparkles className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             {taskMessage && (
               <p className="text-xs text-muted-foreground">{taskMessage}</p>
@@ -864,6 +876,11 @@ export function FollowingPage() {
             setUnfollowTarget(null);
           }
         }}
+      />
+
+      <FollowTagSyncDialog
+        open={syncDialogOpen}
+        onClose={() => setSyncDialogOpen(false)}
       />
     </div>
   );

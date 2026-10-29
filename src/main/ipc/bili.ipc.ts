@@ -32,6 +32,12 @@ import {
   setCollectionGroup,
 } from "../services/collection-classifier";
 import { messageApi } from "../services/message-api";
+import {
+  cancelFollowTagSync,
+  getFollowTagSyncStatus,
+  previewFollowTagSync,
+  startFollowTagSync,
+} from "../services/follow-tag-sync";
 import { localToViewRepo } from "../db/repositories/local-toview";
 import {
   buildFavClassifyText,
@@ -208,7 +214,9 @@ export function registerBiliIpc(): void {
         });
         const matched = matchTitleToCategory(text);
         if (!matched) continue;
-        const entry: { l1: string; l2?: string; l3?: string } = { l1: matched.l1 };
+        const entry: { l1: string; l2?: string; l3?: string } = {
+          l1: matched.l1,
+        };
         if (matched.l2) entry.l2 = matched.l2;
         if (matched.l3) entry.l3 = matched.l3;
         out[item.key] = entry;
@@ -394,6 +402,18 @@ export function registerBiliIpc(): void {
   ipcMain.handle(IPC.BILI_FOLLOW_TAG_DELETE, (_e, tagId: number) =>
     biliApi.deleteFollowTag(tagId),
   );
+  ipcMain.handle(
+    IPC.BILI_FOLLOW_TAG_SYNC_PREVIEW,
+    (_e, followedMids: number[]) =>
+      previewFollowTagSync(Array.isArray(followedMids) ? followedMids : []),
+  );
+  ipcMain.handle(IPC.BILI_FOLLOW_TAG_SYNC_START, (_e, planId: string) =>
+    startFollowTagSync(planId),
+  );
+  ipcMain.handle(IPC.BILI_FOLLOW_TAG_SYNC_STATUS, () =>
+    getFollowTagSyncStatus(),
+  );
+  ipcMain.handle(IPC.BILI_FOLLOW_TAG_SYNC_CANCEL, () => cancelFollowTagSync());
   ipcMain.handle(
     IPC.BILI_FOLLOW_TAG_MEMBERS,
     (_e, tagId: number, page?: number, order?: FollowingOrder) =>

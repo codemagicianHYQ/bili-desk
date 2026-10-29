@@ -1044,6 +1044,46 @@ export class TaxonomyRepository {
       }));
   }
 
+  /** 要同步到 B 站的分组：二级分组，以及没有子分组但直接挂了 UP 的一级分组 */
+  getUpSyncLeaves(): Array<{
+    groupId: number;
+    l1Name: string;
+    l2Name: string | null;
+    mids: number[];
+  }> {
+    const data = getDbData();
+    const midsByGroup = new Map<number, number[]>();
+    for (const member of data.upMemberMap) {
+      const list = midsByGroup.get(member.upGroupId) ?? [];
+      list.push(member.mid);
+      midsByGroup.set(member.upGroupId, list);
+    }
+
+    const roots = data.upGroups
+      .filter((group) => group.parentId === null && group.name !== "未分组")
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    const leaves: ReturnType<TaxonomyRepository["getUpSyncLeaves"]> = [];
+    for (const l1 of roots) {
+      const children = data.upGroups
+        .filter((group) => group.parentId === l1.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      if (children.length === 0) {
+        const mids = midsByGroup.get(l1.id) ?? [];
+        if (mids.length > 0) {
+          leaves.push({ groupId: l1.id, l1Name: l1.name, l2Name: null, mids });
+        }
+        continue;
+      }
+      for (const l2 of children) {
+        const mids = midsByGroup.get(l2.id) ?? [];
+        if (mids.length > 0) {
+          leaves.push({ groupId: l2.id, l1Name: l1.name, l2Name: l2.name, mids });
+        }
+      }
+    }
+    return leaves;
+  }
+
   renameUpGroup(id: number, name: string): void {
     const next = name.trim();
     if (!next) throw new Error("分组名不能为空");

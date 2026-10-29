@@ -300,8 +300,7 @@ const api = {
     getWallet: () => ipcRenderer.invoke(IPC.BILI_WALLET),
     classifyTitles: (
       items: Array<{ key: string; title: string; upper?: string }>,
-    ) =>
-      ipcRenderer.invoke(IPC.BILI_CLASSIFY_TITLES, items),
+    ) => ipcRenderer.invoke(IPC.BILI_CLASSIFY_TITLES, items),
     getComments: (
       aid: number,
       page?: number,
@@ -423,6 +422,14 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_RENAME, tagId, name),
     deleteFollowTag: (tagId: number) =>
       ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_DELETE, tagId),
+    previewFollowTagSync: (followedMids: number[]) =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_SYNC_PREVIEW, followedMids),
+    startFollowTagSync: (planId: string) =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_SYNC_START, planId),
+    getFollowTagSyncStatus: () =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_SYNC_STATUS),
+    cancelFollowTagSync: () =>
+      ipcRenderer.invoke(IPC.BILI_FOLLOW_TAG_SYNC_CANCEL),
     getFollowingsInTag: (
       tagId: number,
       page?: number,
