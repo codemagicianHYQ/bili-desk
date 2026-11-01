@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn } from "@/lib/utils";
-import { Zap } from "lucide-react";
+import { ChevronDown, MessageSquareText, Zap } from "lucide-react";
 
 export interface CommentThreadHandlers {
   like: (item: CommentItem, next: boolean) => Promise<void>;
@@ -88,11 +88,11 @@ export function CommentThread({
     isOwn || Boolean(ownerMid && selfMid && ownerMid === selfMid);
   const canPin = Boolean(
     handlers.pin &&
-      ownerMid &&
-      selfMid &&
-      ownerMid === selfMid &&
-      !nested &&
-      item.root === 0,
+    ownerMid &&
+    selfMid &&
+    ownerMid === selfMid &&
+    !nested &&
+    item.root === 0,
   );
   const isOwner = Boolean(ownerMid && commentMid === ownerMid);
   const level = item.member.level;
@@ -464,11 +464,13 @@ export function CommentThread({
           onClick={() => void loadMoreReplies()}
           className="bili-cmt-more"
         >
+          <MessageSquareText className="h-3.5 w-3.5" />
           {loadingMore
             ? "加载中..."
             : loadedCount > 0
               ? `展开更多回复（共 ${item.rcount}）`
               : `查看 ${item.rcount} 条回复`}
+          {!loadingMore && <ChevronDown className="h-3.5 w-3.5" />}
         </button>
       )}
     </div>
