@@ -27,3 +27,11 @@ export function formatPubdate(timestamp: number): string {
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
+
+/** 2026-09-04 19:35:00 */
+export function formatPubdateTime(timestamp: number): string {
+  if (!timestamp) return "";
+  const date = new Date(timestamp * 1000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${formatPubdate(timestamp)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}

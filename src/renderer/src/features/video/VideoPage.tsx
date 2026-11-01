@@ -6,7 +6,7 @@ import type {
   VideoSubtitleTrack,
 } from "@shared/types";
 import { Button } from "@/components/ui/button";
-import { cn, formatCount, formatPubdate } from "@/lib/utils";
+import { cn, formatCount, formatPubdateTime } from "@/lib/utils";
 import { BiliImage } from "@/components/ui/bili-image";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { UpOwnerCard } from "@/components/video/UpOwnerCard";
@@ -29,13 +29,11 @@ import {
 import {
   ArrowUp,
   BadgeCheck,
-  CalendarDays,
   Check,
   Copy,
   Gauge,
   MessageSquare,
   Play,
-  Radio,
   Repeat2,
 } from "lucide-react";
 
@@ -464,31 +462,42 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     <h1 className="text-sm font-semibold leading-snug break-words line-clamp-2 lg:text-base">
                       {video.title}
                     </h1>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-primary"
-                      title="复制 BV 号"
-                      onClick={async () => {
-                        const id = video.bvid || bvid;
-                        try {
-                          await navigator.clipboard.writeText(id);
-                          setBvidCopied(true);
-                          window.setTimeout(() => setBvidCopied(false), 1600);
-                        } catch {
-                          setBvidCopied(false);
-                        }
-                      }}
-                    >
-                      {video.bvid || bvid}
-                      {bvidCopied ? (
-                        <Check className="h-3 w-3 text-emerald-400" />
-                      ) : (
-                        <Copy className="h-3 w-3 opacity-70" />
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {onlineLabel && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-pink-500/15 px-2 py-0.5 text-xs font-medium text-pink-400">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-pink-400 opacity-75" />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-pink-400" />
+                          </span>
+                          {onlineLabel}
+                        </span>
                       )}
-                      <span className="font-sans">
-                        {bvidCopied ? "已复制" : "复制"}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-primary"
+                        title="复制 BV 号"
+                        onClick={async () => {
+                          const id = video.bvid || bvid;
+                          try {
+                            await navigator.clipboard.writeText(id);
+                            setBvidCopied(true);
+                            window.setTimeout(() => setBvidCopied(false), 1600);
+                          } catch {
+                            setBvidCopied(false);
+                          }
+                        }}
+                      >
+                        {video.bvid || bvid}
+                        {bvidCopied ? (
+                          <Check className="h-3 w-3 text-emerald-400" />
+                        ) : (
+                          <Copy className="h-3 w-3 opacity-70" />
+                        )}
+                        <span className="font-sans">
+                          {bvidCopied ? "已复制" : "复制"}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                   <VideoActionBar
                     video={video}
@@ -553,23 +562,21 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5" title="播放">
+                <Play className="h-4 w-4 opacity-80" />
+                {formatCount(video.stat.view)}
+              </span>
+              <span className="inline-flex items-center gap-1.5" title="弹幕">
+                <MessageSquare className="h-4 w-4 opacity-80" />
+                {formatCount(video.stat.danmaku)}
+              </span>
+              {video.pubdate > 0 && (
+                <span className="tabular-nums" title="发布时间">
+                  {formatPubdateTime(video.pubdate)}
+                </span>
+              )}
               {[
-                {
-                  icon: Play,
-                  label: `${formatCount(video.stat.view)} 播放`,
-                },
-                {
-                  icon: MessageSquare,
-                  label: `${formatCount(video.stat.danmaku)} 弹幕`,
-                },
-                onlineLabel ? { icon: Radio, label: onlineLabel } : null,
-                video.pubdate > 0
-                  ? {
-                      icon: CalendarDays,
-                      label: formatPubdate(video.pubdate),
-                    }
-                  : null,
                 playInfo ? { icon: Gauge, label: playInfo.qualityLabel } : null,
                 video.copyright === 1
                   ? { icon: BadgeCheck, label: "自制" }
@@ -583,9 +590,9 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                 .map((item) => (
                   <span
                     key={item.label}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-secondary/40 px-2.5 py-1 text-xs text-muted-foreground"
+                    className="inline-flex items-center gap-1 rounded-md bg-secondary/40 px-1.5 py-0.5 text-xs"
                   >
-                    <item.icon className="h-3.5 w-3.5 opacity-70" />
+                    <item.icon className="h-3 w-3 opacity-70" />
                     {item.label}
                   </span>
                 ))}
@@ -615,9 +622,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
               <VideoWatchExtras
                 bvid={video.bvid || bvid}
                 cid={selectedCid}
-                onSeek={(time) =>
-                  setSeekAt({ time, nonce: Date.now() })
-                }
+                onSeek={(time) => setSeekAt({ time, nonce: Date.now() })}
               />
             ) : null}
             {selectedCid ? (
