@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { BiliImage } from "@/components/ui/bili-image";
 import { LivePlayer } from "@/components/live/LivePlayer";
 import { LiveChatPanel } from "@/components/live/LiveChatPanel";
+import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { formatCount } from "@/lib/utils";
 import { Eye, Loader2, Radio, Users } from "lucide-react";
 
@@ -27,16 +28,34 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
   const autoReloadSeqRef = useRef(0);
   const autoReloadUsedRef = useRef(false);
 
-  const fetchPlayUrl = useCallback((id: number, qn?: number) => {
-    setPlayError("");
-    return window.biliDesk.bili
-      .getLivePlayUrl(id, qn)
-      .then((info) => {
-        setPlayInfo(info);
-        setQuality(info.quality);
-      })
-      .catch((e: Error) => setPlayError(e.message));
+  /** 取流失败：主播已下播 / 轮播时切到未开播态，其余错误给出可读文案 */
+  const handlePlayFailure = useCallback((err: unknown, fallback: string) => {
+    const message = extractIpcErrorMessage(err);
+    const offline = message.includes("未开播");
+    const rotating = message.includes("轮播");
+    if (offline || rotating) {
+      const status = rotating ? 2 : 0;
+      setPlayInfo(null);
+      setRoom((prev) => (prev ? { ...prev, liveStatus: status } : prev));
+      setPlayError(rotating ? "主播轮播中" : "主播已下播");
+      return;
+    }
+    setPlayError(message || fallback);
   }, []);
+
+  const fetchPlayUrl = useCallback(
+    (id: number, qn?: number) => {
+      setPlayError("");
+      return window.biliDesk.bili
+        .getLivePlayUrl(id, qn)
+        .then((info) => {
+          setPlayInfo(info);
+          setQuality(info.quality);
+        })
+        .catch((e: unknown) => handlePlayFailure(e, "获取直播流失败"));
+    },
+    [handlePlayFailure],
+  );
 
   const reloadPlayUrl = useCallback(() => {
     if (!room || room.liveStatus !== 1) return;
@@ -55,11 +74,11 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
         setPlayInfo(info);
         setQuality(info.quality);
       })
-      .catch((e: Error) => {
+      .catch((e: unknown) => {
         if (seq !== autoReloadSeqRef.current) return;
-        setPlayError(e.message || "直播流异常，请刷新重试");
+        handlePlayFailure(e, "直播流异常，请刷新重试");
       });
-  }, [quality, room, roomId]);
+  }, [handlePlayFailure, quality, room, roomId]);
 
   const applyRoomStats = useCallback((detail: LiveRoomDetail) => {
     setOnline(detail.online);
@@ -136,6 +155,12 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
         .then((detail) => {
           setRoom((prev) => (prev ? { ...prev, ...detail } : detail));
           applyRoomStats(detail);
+          if (detail.liveStatus !== 1) {
+            setPlayInfo(null);
+            setPlayError(
+              detail.liveStatus === 2 ? "主播轮播中" : "主播已下播",
+            );
+          }
         })
         .catch(() => {
           // 人数刷新失败不影响播放
@@ -233,7 +258,13 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
 
         <div className="shrink-0 space-y-2.5 border-t border-border px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded bg-red-500/90 px-2 py-0.5 text-xs font-medium text-white">
+            <span
+              className={
+                room.liveStatus === 1
+                  ? "inline-flex items-center gap-1 rounded bg-red-500/90 px-2 py-0.5 text-xs font-medium text-white"
+                  : "inline-flex items-center gap-1 rounded bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground"
+              }
+            >
               <Radio className="h-3 w-3" />
               {room.liveStatus === 1
                 ? "直播中"

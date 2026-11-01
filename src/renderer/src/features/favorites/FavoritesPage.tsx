@@ -749,10 +749,13 @@ export function FavoritesPage() {
       const message =
         err instanceof Error ? err.message : "分类失败，请确认已登录";
       setClassifyMessage(
-        message.includes("412") || message.includes("安全策略")
-          ? "请求被 B 站安全策略拦截，请等待几秒后重试"
+        message.startsWith("[412]")
+          ? "请求被 B 站安全策略拦截，请等 3～5 分钟再点，会接着上次继续"
           : message,
       );
+      // 中途失败也已经分好了一部分，刷新出来
+      invalidateTaxonomy();
+      void reloadTaxonomy();
     } finally {
       setClassifying(false);
     }
@@ -1128,7 +1131,7 @@ export function FavoritesPage() {
         <div className="space-y-2 border-b border-border p-3">
           <p className="text-xs text-muted-foreground">
             {isLocalMode
-              ? "按标题打分归类，计算机会分到前端 / 后端 / AI 等方向；全量分类会重建本地目录"
+              ? "按标题打分归类，只在本地记录、不改 B 站收藏夹；被风控打断后再点会接着上次继续"
               : "一条一条看标题就搬走，不再攒一批。本轮最多约 40 条，中间会停几秒。请不要连点。官方「其他」夹仍会并进 default 后删除。"}
           </p>
           <Button

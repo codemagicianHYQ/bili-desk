@@ -66,6 +66,46 @@ const DELAY_PER_ITEM_FALLBACK_MS = 1200;
 /** 412 后逐步拉长等待，而不是几秒内连打 */
 const RISK_BACKOFF_MS = [12_000, 30_000, 60_000, 90_000];
 
+const CLASSIFY_PAGE_SIZE = 40;
+const DELAY_BETWEEN_CLASSIFY_PAGES_MS = 1100;
+/** 断点超过这么久就当作新一轮，避免拿很旧的进度拼出半新半旧的结果 */
+const FAV_CLASSIFY_RUN_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+interface FavClassifyRun {
+  startedAt: number;
+  doneFolderIds: number[];
+  seenIds: number[];
+}
+
+function loadFavClassifyRun(): FavClassifyRun {
+  const raw = appStore.get("favClassifyRun" as never) as unknown;
+  const run = raw as Partial<FavClassifyRun> | null | undefined;
+  if (
+    run &&
+    typeof run.startedAt === "number" &&
+    Date.now() - run.startedAt < FAV_CLASSIFY_RUN_TTL_MS &&
+    Array.isArray(run.doneFolderIds) &&
+    Array.isArray(run.seenIds)
+  ) {
+    return {
+      startedAt: run.startedAt,
+      doneFolderIds: run.doneFolderIds,
+      seenIds: run.seenIds,
+    };
+  }
+  const fresh: FavClassifyRun = {
+    startedAt: Date.now(),
+    doneFolderIds: [],
+    seenIds: [],
+  };
+  saveFavClassifyRun(fresh);
+  return fresh;
+}
+
+function saveFavClassifyRun(run: FavClassifyRun | null) {
+  appStore.set("favClassifyRun" as never, run as never);
+}
+
 function isFavFolderFullError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
@@ -252,52 +292,76 @@ export class FavClassifyEngine {
         message: "正在获取收藏夹列表...",
       });
 
-      const folders = await biliApi.getFavFolders();
-      const seen = new Set<number>();
-      const all: Awaited<
-        ReturnType<typeof biliApi.getAllFavResourcesInFolder>
-      > = [];
-      const totalEstimate = Math.max(
-        folders.reduce((sum, folder) => sum + folder.mediaCount, 0),
-        1,
+      const onRiskWait = (waitMs: number) => {
+        report({
+          message: `请求有点密，暂停 ${Math.ceil(waitMs / 1000)} 秒后自动继续（已分好的会保留）...`,
+        });
+      };
+
+      const folders = await withFavWriteRetry(
+        () => biliApi.getFavFolders(),
+        onRiskWait,
       );
+      const run = loadFavClassifyRun();
+      const doneFolders = new Set(run.doneFolderIds);
+      const seen = new Set(run.seenIds);
+      const resumed = doneFolders.size > 0;
+      const totalFolders = folders.length;
 
       for (let index = 0; index < folders.length; index++) {
         const folder = folders[index];
+        if (doneFolders.has(folder.id)) continue;
+        const progressBase = Math.round((doneFolders.size / totalFolders) * 95);
         report({
-          progress: Math.min(15, Math.round((index / folders.length) * 15)),
-          message: `正在拉取「${folder.title}」(${index + 1}/${folders.length})...`,
+          progress: progressBase,
+          message: `${resumed ? "接着上次继续，" : ""}正在拉取「${folder.title}」(${doneFolders.size + 1}/${totalFolders})...`,
         });
 
-        const items = await biliApi.getAllFavResourcesInFolder(
-          folder.id,
-          async (fetchedInFolder) => {
-          report({
-            progress: Math.min(
-              18,
-                Math.round(
-                  (15 * (all.length + fetchedInFolder)) / totalEstimate,
-                ),
+        const items: FavResource[] = [];
+        let page = 1;
+        while (folder.mediaCount > 0) {
+          const result = await withFavWriteRetry(
+            () =>
+              biliApi.getFavResources(
+                folder.id,
+                page,
+                CLASSIFY_PAGE_SIZE,
+                "long",
               ),
-              message: `正在拉取「${folder.title}」已获取 ${fetchedInFolder} 条...`,
-            });
-            await yieldToEventLoop();
-          },
-        );
-
-        for (const item of items) {
-          if (seen.has(item.id)) continue;
-          seen.add(item.id);
-          all.push(item);
+            onRiskWait,
+          );
+          items.push(...result.resources);
+          report({
+            progress: progressBase,
+            message: `正在拉取「${folder.title}」已获取 ${items.length} 条（${doneFolders.size + 1}/${totalFolders}）...`,
+          });
+          if (!result.hasMore || result.resources.length === 0) break;
+          page += 1;
+          await sleepJitter(DELAY_BETWEEN_CLASSIFY_PAGES_MS);
         }
 
+        const fresh = items.filter((item) => item.id > 0 && !seen.has(item.id));
+        for (const item of fresh) seen.add(item.id);
+        if (fresh.length > 0) {
+          await classifyFavoriteItemsAsync(fresh, undefined, {
+            resetCategories: false,
+          });
+        }
+
+        doneFolders.add(folder.id);
+        saveFavClassifyRun({
+          startedAt: run.startedAt,
+          doneFolderIds: [...doneFolders],
+          seenIds: [...seen],
+        });
         await yieldToEventLoop();
         if (index < folders.length - 1) {
-          await sleep(500);
+          await sleepJitter(DELAY_BETWEEN_SOURCE_FOLDERS_MS);
         }
       }
 
-      if (all.length === 0) {
+      if (seen.size === 0) {
+        saveFavClassifyRun(null);
         report({
           status: "done",
           progress: 100,
@@ -306,31 +370,29 @@ export class FavClassifyEngine {
         return;
       }
 
-      report({
-        progress: 20,
-        message: `已获取 ${all.length} 条收藏，正在重建目录并分类...`,
-      });
-
-      const total = await classifyFavoriteItemsAsync(
-        all,
-        (done, totalCount) => {
-        report({
-          progress: Math.round(20 + (done / totalCount) * 75),
-            message: `正在分类 ${done}/${totalCount}...`,
-          });
-        },
-      );
+      // 只有完整跑完一轮才清理已取消收藏的旧映射，中途失败不动已有结果
+      taxonomyRepo.pruneFavoriteAssignments(seen);
+      saveFavClassifyRun(null);
 
       report({
         status: "done",
         progress: 100,
-        message: `已完成 ${total} 个视频的本地分类`,
+        message: `已完成 ${seen.size} 个视频的本地分类`,
       });
     } catch (error) {
+      const run = loadFavClassifyRun();
+      const partial =
+        run.doneFolderIds.length > 0
+          ? `（已分好 ${run.seenIds.length} 条，保留在本地分类里，再点一次会接着上次继续）`
+          : "";
+      const reason =
+        error instanceof Error && isRetryableFavWrite(error)
+          ? "请求太密，被 B 站风控拦了，请等 3～5 分钟再点"
+          : formatFavTaskError(error, "收藏分类失败");
       report({
         status: "failed",
         progress: 100,
-        message: formatFavTaskError(error, "收藏分类失败"),
+        message: `${reason}${partial}`,
       });
     }
   }
@@ -352,7 +414,7 @@ export class FavClassifyEngine {
       const items = await biliApi.getAllFavResourcesInFolder(
         mediaId,
         async (fetched) => {
-        report({
+          report({
             progress: Math.min(
               20,
               Math.round((fetched / Math.max(fetched, 1)) * 20),

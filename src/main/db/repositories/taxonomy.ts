@@ -544,6 +544,21 @@ export class TaxonomyRepository {
     };
   }
 
+  /** 全量分类跑完后删掉已经不在任何收藏夹里的旧映射 */
+  pruneFavoriteAssignments(keepMediaIds: Set<number>): number {
+    const data = getDbData();
+    const before = data.favoriteItemMap.length;
+    data.favoriteItemMap = data.favoriteItemMap.filter((item) =>
+      keepMediaIds.has(item.mediaId),
+    );
+    const removed = before - data.favoriteItemMap.length;
+    if (removed > 0) {
+      saveDb(data);
+      this.repairTaxonomy();
+    }
+    return removed;
+  }
+
   getFavoriteAssignments(): FavoriteItemAssignment[] {
     this.repairTaxonomy();
     return getDbData().favoriteItemMap;

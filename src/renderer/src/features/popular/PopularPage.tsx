@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart3,
+  ChevronDown,
+  ChevronUp,
   Flame,
   Loader2,
   Music2,
@@ -72,6 +74,7 @@ const TABS: Array<{
 ];
 
 const POPULAR_PAGE_SIZE = 40;
+const FILTERS_COLLAPSED_KEY = "bilidesk:popular-filters-collapsed";
 const OTHER_PARTITION = "其他";
 
 function formatError(err: unknown, fallback: string): string {
@@ -162,6 +165,15 @@ export function PopularPage() {
   const [subPartition, setSubPartition] = useState<string | null>(null);
   const [followOnly, setFollowOnly] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [filtersCollapsed, setFiltersCollapsed] = useState(
+    () => localStorage.getItem(FILTERS_COLLAPSED_KEY) === "1",
+  );
+  const toggleFiltersCollapsed = useCallback(() => {
+    setFiltersCollapsed((prev) => {
+      localStorage.setItem(FILTERS_COLLAPSED_KEY, prev ? "0" : "1");
+      return !prev;
+    });
+  }, []);
   const popularBusyRef = useRef(false);
   const popularStartedRef = useRef(false);
   const preciousLoadedRef = useRef(false);
@@ -631,7 +643,13 @@ export function PopularPage() {
 
         {tab === "popular" && popularVideos.length > 0 ? (
           <div className="space-y-2 pb-3">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex items-start gap-1.5">
+            <div
+              className={cn(
+                "flex min-w-0 flex-1 flex-wrap items-center gap-1.5",
+                filtersCollapsed && "max-h-6 overflow-hidden",
+              )}
+            >
               <button
                 type="button"
                 onClick={() => {
@@ -647,7 +665,13 @@ export function PopularPage() {
               >
                 全部 {followScoped.length}
               </button>
-              {partitionCounts.map(([name, count]) => (
+              {(filtersCollapsed && partition
+                ? [
+                    ...partitionCounts.filter(([name]) => name === partition),
+                    ...partitionCounts.filter(([name]) => name !== partition),
+                  ]
+                : partitionCounts
+              ).map(([name, count]) => (
                 <button
                   key={name}
                   type="button"
@@ -665,13 +689,15 @@ export function PopularPage() {
                   {name} {count}
                 </button>
               ))}
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
               {isLogin ? (
                 <button
                   type="button"
                   onClick={toggleFollowOnly}
                   title="只看热门里我关注的 UP 主的视频"
                   className={cn(
-                    "ml-auto flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
+                    "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
                     followOnly
                       ? "bg-primary text-primary-foreground"
                       : "bg-secondary text-muted-foreground hover:text-foreground",
@@ -688,8 +714,22 @@ export function PopularPage() {
                     : ""}
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={toggleFiltersCollapsed}
+                title={filtersCollapsed ? "展开全部分区" : "收起分区筛选"}
+                className="flex items-center gap-0.5 rounded-full bg-secondary px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {filtersCollapsed ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronUp className="h-3 w-3" />
+                )}
+                {filtersCollapsed ? "展开" : "收起"}
+              </button>
             </div>
-            {partition && subPartitionCounts.length > 1 ? (
+            </div>
+            {!filtersCollapsed && partition && subPartitionCounts.length > 1 ? (
               <div className="flex flex-wrap gap-1.5 border-l-2 border-primary/40 pl-2">
                 <button
                   type="button"
