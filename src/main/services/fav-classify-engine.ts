@@ -1,4 +1,8 @@
-import type { FavFolder, FavResource } from "@shared/types";
+import type {
+  FavClassifyResumeInfo,
+  FavFolder,
+  FavResource,
+} from "@shared/types";
 import {
   listDuplicateGeneratedFolderPairs,
   listUngroupedFavFolders,
@@ -77,7 +81,7 @@ interface FavClassifyRun {
   seenIds: number[];
 }
 
-function loadFavClassifyRun(): FavClassifyRun {
+function peekFavClassifyRun(): FavClassifyRun | null {
   const raw = appStore.get("favClassifyRun" as never) as unknown;
   const run = raw as Partial<FavClassifyRun> | null | undefined;
   if (
@@ -93,6 +97,12 @@ function loadFavClassifyRun(): FavClassifyRun {
       seenIds: run.seenIds,
     };
   }
+  return null;
+}
+
+function loadFavClassifyRun(): FavClassifyRun {
+  const existing = peekFavClassifyRun();
+  if (existing) return existing;
   const fresh: FavClassifyRun = {
     startedAt: Date.now(),
     doneFolderIds: [],
@@ -229,11 +239,26 @@ function createTaskReporter(taskId: number) {
 
 export class FavClassifyEngine {
   private organizeTaskId: number | null = null;
+  private classifyAllTaskId: number | null = null;
 
   startClassifyAll(): number {
+    if (this.classifyAllTaskId != null) return this.classifyAllTaskId;
     const task = taxonomyRepo.createTask("fav_classification");
-    void this.runClassifyAll(task.id);
+    this.classifyAllTaskId = task.id;
+    void this.runClassifyAll(task.id).finally(() => {
+      if (this.classifyAllTaskId === task.id) this.classifyAllTaskId = null;
+    });
     return task.id;
+  }
+
+  getClassifyAllResume(): FavClassifyResumeInfo {
+    const run = peekFavClassifyRun();
+    return {
+      runningTaskId: this.classifyAllTaskId,
+      pending: Boolean(run && run.doneFolderIds.length > 0),
+      doneFolders: run?.doneFolderIds.length ?? 0,
+      classified: run?.seenIds.length ?? 0,
+    };
   }
 
   startClassifyFolder(mediaId: number): number {

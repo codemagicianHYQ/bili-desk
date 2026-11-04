@@ -1822,6 +1822,16 @@ export interface UpClassifyInfo {
   runningTaskId: number | null;
 }
 
+/** 收藏全量本地分类的断点：进收藏页时据此自动接着跑 */
+export interface FavClassifyResumeInfo {
+  /** 当前进程里还在跑的任务 */
+  runningTaskId: number | null;
+  /** 上次没跑完（退出 / 被风控打断）留下的进度 */
+  pending: boolean;
+  doneFolders: number;
+  classified: number;
+}
+
 export interface ClassificationTask {
   id: number;
   type: string;
@@ -2040,7 +2050,9 @@ export interface BiliDeskApi {
     createFollowTag: (name: string) => Promise<FollowTag>;
     renameFollowTag: (tagId: number, name: string) => Promise<void>;
     deleteFollowTag: (tagId: number) => Promise<void>;
-    previewFollowTagSync: (followedMids: number[]) => Promise<FollowTagSyncPlan>;
+    previewFollowTagSync: (
+      followedMids: number[],
+    ) => Promise<FollowTagSyncPlan>;
     startFollowTagSync: (planId: string) => Promise<void>;
     getFollowTagSyncStatus: () => Promise<FollowTagSyncStatus>;
     cancelFollowTagSync: () => Promise<void>;
@@ -2344,6 +2356,7 @@ export interface BiliDeskApi {
     ) => Promise<void>;
     getFavoriteAssignments: () => Promise<FavoriteItemAssignment[]>;
     classifyAllFavorites: () => Promise<{ taskId: number }>;
+    getFavClassifyResume: () => Promise<FavClassifyResumeInfo>;
     classifyFolderFavorites: (mediaId: number) => Promise<{ taskId: number }>;
     organizeBiliFavorites: (
       overrides?: Record<string, string>,

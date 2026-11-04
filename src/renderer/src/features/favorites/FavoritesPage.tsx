@@ -734,13 +734,24 @@ export function FavoritesPage() {
       classifyPollRef.current = poll;
     });
 
-  const handleClassifyAll = async () => {
+  const handleClassifyAll = async (
+    options: { attachTaskId?: number; resumeHint?: string } = {},
+  ) => {
+    if (classifyingRef.current) return;
+    classifyingRef.current = true;
     setClassifying(true);
-    setClassifyMessage("正在启动分类任务...");
+    setClassifyMessage(options.resumeHint ?? "正在启动分类任务...");
     setClassifyProgress(0);
 
+    // 每分完一个收藏夹就写进本地，跑的过程中定时把已分好的刷出来
+    const treeTimer = window.setInterval(() => {
+      invalidateTaxonomy();
+      void reloadTaxonomy();
+    }, 10_000);
     try {
-      const { taskId } = await window.biliDesk.taxonomy.classifyAllFavorites();
+      const taskId =
+        options.attachTaskId ??
+        (await window.biliDesk.taxonomy.classifyAllFavorites()).taskId;
       await waitForFavTask(taskId);
       invalidateTaxonomy();
       await reloadTaxonomy();
@@ -757,9 +768,34 @@ export function FavoritesPage() {
       invalidateTaxonomy();
       void reloadTaxonomy();
     } finally {
+      window.clearInterval(treeTimer);
+      classifyingRef.current = false;
       setClassifying(false);
     }
   };
+
+  const classifyResumeCheckedRef = useRef(false);
+  useEffect(() => {
+    if (classifyResumeCheckedRef.current) return;
+    classifyResumeCheckedRef.current = true;
+    void window.biliDesk.taxonomy
+      .getFavClassifyResume()
+      .then((info) => {
+        if (info.runningTaskId != null) {
+          void handleClassifyAll({
+            attachTaskId: info.runningTaskId,
+            resumeHint: "分类还在后台进行...",
+          });
+          return;
+        }
+        if (info.pending) {
+          void handleClassifyAll({
+            resumeHint: `上次分到第 ${info.doneFolders} 个收藏夹（已分 ${info.classified} 条），自动接着继续...`,
+          });
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   const handleOrganizeBiliFolders = async (auto = false) => {
     if (classifyingRef.current && !auto) return;

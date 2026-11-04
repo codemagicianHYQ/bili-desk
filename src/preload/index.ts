@@ -861,6 +861,8 @@ const api = {
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_ASSIGNMENTS),
     classifyAllFavorites: () =>
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_ALL),
+    getFavClassifyResume: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_RESUME),
     classifyFolderFavorites: (mediaId: number) =>
       ipcRenderer.invoke(IPC.TAXONOMY_FAV_CLASSIFY_FOLDER, mediaId),
     organizeBiliFavorites: (overrides?: Record<string, string>) =>

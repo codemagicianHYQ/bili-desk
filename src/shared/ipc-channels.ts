@@ -217,6 +217,7 @@ export const IPC = {
   TAXONOMY_CATEGORY_UPDATE: "taxonomy:category-update",
   TAXONOMY_FAV_ASSIGNMENTS: "taxonomy:fav-assignments",
   TAXONOMY_FAV_CLASSIFY_ALL: "taxonomy:fav-classify-all",
+  TAXONOMY_FAV_CLASSIFY_RESUME: "taxonomy:fav-classify-resume",
   TAXONOMY_FAV_CLASSIFY_FOLDER: "taxonomy:fav-classify-folder",
   TAXONOMY_FAV_ORGANIZE_BILI: "taxonomy:fav-organize-bili",
   TAXONOMY_FAV_MERGE_DUMP: "taxonomy:fav-merge-dump",

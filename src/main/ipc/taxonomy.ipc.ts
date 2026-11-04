@@ -56,6 +56,9 @@ export function registerTaxonomyIpc(): void {
     const taskId = favClassifyEngine.startMergeDuplicateTopics();
     return { taskId };
   });
+  ipcMain.handle(IPC.TAXONOMY_FAV_CLASSIFY_RESUME, () =>
+    favClassifyEngine.getClassifyAllResume(),
+  );
   ipcMain.handle(IPC.TAXONOMY_FAV_TASK_STATUS, (_e, taskId: number) =>
     taxonomyRepo.getTask(taskId),
   );
@@ -77,9 +80,8 @@ export function registerTaxonomyIpc(): void {
     (_e, name: string, color?: string) =>
       taxonomyRepo.createUpGroup(name, color),
   );
-  ipcMain.handle(
-    IPC.TAXONOMY_UP_GROUP_RENAME,
-    (_e, id: number, name: string) => taxonomyRepo.renameUpGroup(id, name),
+  ipcMain.handle(IPC.TAXONOMY_UP_GROUP_RENAME, (_e, id: number, name: string) =>
+    taxonomyRepo.renameUpGroup(id, name),
   );
   ipcMain.handle(IPC.TAXONOMY_UP_GROUP_REORDER, (_e, ids: number[]) =>
     taxonomyRepo.reorderUpGroups(ids),
