@@ -1273,6 +1273,7 @@ export function FavoritesPage() {
               selection={localSelection}
               onSelect={setLocalSelection}
               onRename={(level, id, name) => void handleRename(level, id, name)}
+              showCollapseAll
             />
           )}
         </div>
