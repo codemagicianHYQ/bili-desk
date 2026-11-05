@@ -317,9 +317,20 @@ export class FavClassifyEngine {
         message: "正在获取收藏夹列表...",
       });
 
+      const saved = peekFavClassifyRun();
+      let doneCount = saved?.doneFolderIds.length ?? 0;
+      let classifiedCount = saved?.seenIds.length ?? 0;
+      let totalFolders = 0;
+      let progress = 0;
+      const progressLine = () =>
+        totalFolders > 0
+          ? `已完成 ${doneCount}/${totalFolders} 个收藏夹 · 已分类 ${classifiedCount} 条`
+          : `已分类 ${classifiedCount} 条`;
+
       const onRiskWait = (waitMs: number) => {
         report({
-          message: `请求有点密，暂停 ${Math.ceil(waitMs / 1000)} 秒后自动继续（已分好的会保留）...`,
+          progress,
+          message: `${progressLine()}\n请求有点密，暂停 ${Math.ceil(waitMs / 1000)} 秒后自动继续（已分好的会保留）...`,
         });
       };
 
@@ -331,15 +342,18 @@ export class FavClassifyEngine {
       const doneFolders = new Set(run.doneFolderIds);
       const seen = new Set(run.seenIds);
       const resumed = doneFolders.size > 0;
-      const totalFolders = folders.length;
+      totalFolders = folders.length;
 
       for (let index = 0; index < folders.length; index++) {
         const folder = folders[index];
         if (doneFolders.has(folder.id)) continue;
+        doneCount = doneFolders.size;
+        classifiedCount = seen.size;
         const progressBase = Math.round((doneFolders.size / totalFolders) * 95);
+        progress = progressBase;
         report({
           progress: progressBase,
-          message: `${resumed ? "接着上次继续，" : ""}正在拉取「${folder.title}」(${doneFolders.size + 1}/${totalFolders})...`,
+          message: `${progressLine()}\n${resumed ? "接着上次继续，" : ""}正在拉取「${folder.title}」...`,
         });
 
         const items: FavResource[] = [];
@@ -358,7 +372,7 @@ export class FavClassifyEngine {
           items.push(...result.resources);
           report({
             progress: progressBase,
-            message: `正在拉取「${folder.title}」已获取 ${items.length} 条（${doneFolders.size + 1}/${totalFolders}）...`,
+            message: `${progressLine()}\n正在拉取「${folder.title}」已获取 ${items.length}/${folder.mediaCount} 条...`,
           });
           if (!result.hasMore || result.resources.length === 0) break;
           page += 1;
@@ -374,6 +388,8 @@ export class FavClassifyEngine {
         }
 
         doneFolders.add(folder.id);
+        doneCount = doneFolders.size;
+        classifiedCount = seen.size;
         saveFavClassifyRun({
           startedAt: run.startedAt,
           doneFolderIds: [...doneFolders],

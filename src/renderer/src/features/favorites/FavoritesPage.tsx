@@ -1192,9 +1192,11 @@ export function FavoritesPage() {
             {isLocalMode ? "智能分类全部收藏" : "智能整理（一条一条搬）"}
           </Button>
           {classifyMessage && (
-            <p className="text-xs text-muted-foreground">{classifyMessage}</p>
+            <p className="whitespace-pre-line text-xs text-muted-foreground first-line:font-medium first-line:text-foreground">
+              {classifyMessage}
+            </p>
           )}
-          {classifying && classifyProgress > 0 && (
+          {classifying && (
             <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
               <div
                 className="h-full rounded-full bg-primary transition-all duration-300"
