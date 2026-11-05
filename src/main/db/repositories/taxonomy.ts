@@ -147,20 +147,37 @@ function getDbData(): DbSchema {
     return structuredClone(defaultDb);
   }
 
-  if (!stored.categoryL3) stored.categoryL3 = [];
-  if (!stored.favoriteItemMap) stored.favoriteItemMap = [];
-  if (!stored.nextIds.categoryL3) stored.nextIds.categoryL3 = 1;
-  if (!stored.nextIds.favMap) stored.nextIds.favMap = 1;
+  let migrated = false;
+  if (!stored.categoryL3) {
+    stored.categoryL3 = [];
+    migrated = true;
+  }
+  if (!stored.favoriteItemMap) {
+    stored.favoriteItemMap = [];
+    migrated = true;
+  }
+  if (!stored.nextIds.categoryL3) {
+    stored.nextIds.categoryL3 = 1;
+    migrated = true;
+  }
+  if (!stored.nextIds.favMap) {
+    stored.nextIds.favMap = 1;
+    migrated = true;
+  }
 
   for (const group of stored.upGroups) {
-    if (group.parentId === undefined) group.parentId = null;
+    if (group.parentId === undefined) {
+      group.parentId = null;
+      migrated = true;
+    }
   }
 
   if (!stored.upTaxonomyVersion || stored.upTaxonomyVersion < 2) {
     migrateUpTaxonomyToV2(stored);
+    migrated = true;
   }
 
-  saveDb(stored);
+  if (migrated) saveDb(stored);
   return stored;
 }
 

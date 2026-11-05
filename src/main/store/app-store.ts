@@ -1,3 +1,4 @@
+import { app } from "electron";
 import Store from "electron-store";
 import type {
   AbnormalFollowingRecord,
@@ -115,10 +116,61 @@ const defaults: StoreSchema = {
   upClassifyDeepRun: null,
 };
 
-export const appStore = new Store<StoreSchema>({
+const diskStore = new Store<StoreSchema>({
   name: "bilidesk-config",
   defaults,
 });
+
+/**
+ * electron-store 每次 get 都同步读 + 解析整个配置文件（几 MB），每次 set 还要整份重写，
+ * 后台任务频繁读写时会卡住主进程。这里改成内存为准、合并延迟落盘。
+ * get / set 都做深拷贝，保持和 electron-store 一样「拿到的是副本」的语义。
+ */
+const memory = diskStore.store as unknown as Record<string, unknown>;
+const FLUSH_DELAY_MS = 3000;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let dirty = false;
+
+function cloneValue<T>(value: T): T {
+  return value === undefined || value === null || typeof value !== "object"
+    ? value
+    : structuredClone(value);
+}
+
+export function flushAppStore(): void {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (!dirty) return;
+  dirty = false;
+  diskStore.store = memory as unknown as StoreSchema;
+}
+
+function scheduleFlush(): void {
+  dirty = true;
+  if (flushTimer) return;
+  flushTimer = setTimeout(flushAppStore, FLUSH_DELAY_MS);
+}
+
+interface CachedAppStore {
+  get<K extends keyof StoreSchema>(key: K): StoreSchema[K];
+  set<K extends keyof StoreSchema>(key: K, value: StoreSchema[K]): void;
+  set(key: string, value: unknown): void;
+}
+
+export const appStore: CachedAppStore = {
+  get(key: string) {
+    return cloneValue(memory[key]) as never;
+  },
+  set(key: string, value: unknown) {
+    memory[key] = cloneValue(value);
+    scheduleFlush();
+  },
+};
+
+app.on("will-quit", flushAppStore);
+process.on("exit", flushAppStore);
 
 export function getCookieString(): string {
   const c = appStore.get("cookies");

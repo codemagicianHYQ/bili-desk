@@ -236,6 +236,7 @@ export function FavoritesPage() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const folderLoadSeqRef = useRef(0);
   const classifyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const classifyProgressRef = useRef(0);
 
   const tree = useFavoritesStore((state) => state.tree);
   const assignments = useFavoritesStore((state) => state.assignments);
@@ -710,6 +711,7 @@ export function FavoritesPage() {
 
             setClassifyMessage(task.message);
             setClassifyProgress(task.progress);
+            classifyProgressRef.current = task.progress;
 
             if (task.status === "done" || task.status === "failed") {
               clearInterval(poll);
@@ -730,7 +732,7 @@ export function FavoritesPage() {
             reject(err);
           }
         })();
-      }, 500);
+      }, 1000);
       classifyPollRef.current = poll;
     });
 
@@ -743,11 +745,14 @@ export function FavoritesPage() {
     setClassifyMessage(options.resumeHint ?? "正在启动分类任务...");
     setClassifyProgress(0);
 
-    // 每分完一个收藏夹就写进本地，跑的过程中定时把已分好的刷出来
+    // 进度只在分完一个收藏夹时前进；没前进就不重拉，避免后台分类时列表反复重渲染
+    let reloadedAtProgress = classifyProgressRef.current;
     const treeTimer = window.setInterval(() => {
+      if (classifyProgressRef.current === reloadedAtProgress) return;
+      reloadedAtProgress = classifyProgressRef.current;
       invalidateTaxonomy();
       void reloadTaxonomy();
-    }, 10_000);
+    }, 20_000);
     try {
       const taskId =
         options.attachTaskId ??
