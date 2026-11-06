@@ -356,6 +356,10 @@ function isAllowedMediaUrl(url: string): boolean {
     return (
       host.endsWith(".bilivideo.com") ||
       host.endsWith(".bilivideo.cn") ||
+      host.endsWith(".bilivideo.net") ||
+      // B 站 PCDN 节点，playurl 里会混在 backup_url 中下发
+      host.endsWith(".mountaintoys.cn") ||
+      host.endsWith(".szbdyd.com") ||
       host.endsWith(".akamaized.net") ||
       host === "akamaized.net" ||
       host.endsWith(".hdslb.com")

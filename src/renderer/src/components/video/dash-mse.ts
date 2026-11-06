@@ -138,7 +138,9 @@ async function fetchRange(
       if (data instanceof ArrayBuffer) return new Uint8Array(data);
       throw new Error("媒体分片格式无效");
     } catch (error) {
-      lastError = error;
+      const rejectedHost =
+        error instanceof Error && error.message.includes("非法媒体地址");
+      if (!rejectedHost || !lastError) lastError = error;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("拉流失败");
