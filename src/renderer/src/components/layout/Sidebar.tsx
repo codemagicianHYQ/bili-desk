@@ -152,7 +152,7 @@ export function Sidebar() {
     >
       <div className="mb-8 px-2">
         <h1 className="text-lg font-semibold tracking-tight">
-          Bili<span className="text-primary">Desk</span>
+          Bili<span className="text-primary">Loft</span>
         </h1>
         <p className="mt-1 text-xs text-muted-foreground">
           简洁 · 智能 · 你的 B 站

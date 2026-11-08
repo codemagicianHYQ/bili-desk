@@ -18,9 +18,9 @@ export default async function afterPack(context) {
   await rcedit(exePath, {
     icon: iconPath,
     "version-string": {
-      CompanyName: "BiliDesk",
-      FileDescription: "BiliDesk",
-      ProductName: "BiliDesk",
+      CompanyName: "BiliLoft",
+      FileDescription: "BiliLoft",
+      ProductName: "BiliLoft",
     },
   });
 }

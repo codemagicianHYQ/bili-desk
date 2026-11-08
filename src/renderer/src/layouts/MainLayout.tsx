@@ -143,7 +143,7 @@ export function MainLayout() {
                   }
                 : path === "/" && homeTab === "live"
                   ? { title: "直播", subtitle: "推荐直播与关注开播" }
-                  : (titles[path] ?? { title: "BiliDesk" });
+                  : (titles[path] ?? { title: "BiliLoft" });
 
   if (path === "/login") {
     return <Outlet />;

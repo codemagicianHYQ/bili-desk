@@ -114,7 +114,7 @@ export function LoginPage() {
       <div className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-card p-8 text-center shadow-xl">
         <div>
           <h1 className="text-2xl font-semibold">
-            登录 <span className="text-primary">BiliDesk</span>
+            登录 <span className="text-primary">BiliLoft</span>
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             扫码登录你的 B 站账号

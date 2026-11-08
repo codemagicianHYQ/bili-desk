@@ -72,7 +72,7 @@ export function WindowTitleBar() {
       style={{ height: WINDOW_TITLEBAR_HEIGHT }}
     >
       <div className="flex min-w-0 items-center gap-2 pl-3 text-xs text-muted-foreground">
-        <span className="truncate">BiliDesk</span>
+        <span className="truncate">BiliLoft</span>
       </div>
       <div className="flex items-stretch">
         <CaptionButton

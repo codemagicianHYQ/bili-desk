@@ -349,7 +349,7 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 720,
     show: false,
     autoHideMenuBar: true,
-    title: "BiliDesk",
+    title: "BiliLoft",
     maximizable: true,
     fullscreenable: true,
     transparent: USE_TRANSPARENT_WINDOW,

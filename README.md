@@ -1,4 +1,4 @@
-# BiliDesk
+# BiliLoft
 
 B 站 Windows 第三方桌面客户端原型 — 基于 **Electron + React + TypeScript**。
 

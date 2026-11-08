@@ -23,7 +23,7 @@ if (!fs.existsSync(releaseDir)) {
 }
 
 const VERSIONED =
-  /(?:BiliDesk[ .]Setup[ .])(\d+\.\d+\.\d+)|RELEASE_NOTES_(\d+\.\d+\.\d+)/i;
+  /(?:Bili(?:Desk|Loft)[ .]Setup[ .])(\d+\.\d+\.\d+)|RELEASE_NOTES_(\d+\.\d+\.\d+)/i;
 
 let removed = 0;
 for (const name of fs.readdirSync(releaseDir)) {
