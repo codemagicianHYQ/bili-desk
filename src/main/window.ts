@@ -360,7 +360,8 @@ export function createMainWindow(): BrowserWindow {
     ...(process.platform === "win32"
       ? {
           backgroundMaterial: (glassOn ? "acrylic" : "none") as
-            "acrylic" | "none",
+            | "acrylic"
+            | "none",
         }
       : {}),
     ...(icon ? { icon } : {}),
