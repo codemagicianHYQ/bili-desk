@@ -6980,9 +6980,77 @@ class BiliApiService {
   }
 
   /** 分类任务批量调用：只打一枪空间接口；失败（多为限流）直接抛给调用方退避 */
+  /**
+   * UP 近期投稿标题，给关注分类用。
+   * 空间投稿列表（wbi/arc/search）风控极严，批量抓几百位就被限流；
+   * recArchivesByKeywords 不走 WBI、限流宽松，优先用它，再退到空间动态和投稿列表。
+   */
   async getRecentVideoTitles(mid: number, limit = 5): Promise<string[]> {
-    const page = await this.fetchSpaceArcList(mid, 1, "pubdate");
-    return page.videos.slice(0, limit).map((video) => video.title);
+    const sources = [
+      () => this.fetchRecArchiveTitles(mid, limit),
+      () => this.fetchDynamicVideoTitles(mid, limit),
+      async () =>
+        (await this.fetchSpaceArcList(mid, 1, "pubdate")).videos
+          .slice(0, limit)
+          .map((video) => video.title),
+    ];
+    let lastError: unknown = null;
+    for (const source of sources) {
+      try {
+        return await source();
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("获取投稿标题失败");
+  }
+
+  private async fetchRecArchiveTitles(
+    mid: number,
+    limit: number,
+  ): Promise<string[]> {
+    const res = await this.client.get("/x/series/recArchivesByKeywords", {
+      params: { mid, keywords: "", ps: Math.max(limit, 10), pn: 1 },
+      headers: { Referer: `https://space.bilibili.com/${mid}/video` },
+    });
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "获取投稿标题失败"));
+    }
+    const archives = (res.data?.data?.archives ?? []) as Array<{
+      title?: string;
+    }>;
+    return archives
+      .map((item) => String(item.title ?? "").trim())
+      .filter(Boolean)
+      .slice(0, limit);
+  }
+
+  private async fetchDynamicVideoTitles(
+    mid: number,
+    limit: number,
+  ): Promise<string[]> {
+    const res = await this.client.get("/x/polymer/web-dynamic/v1/feed/space", {
+      params: { host_mid: mid, offset: "", features: "itemOpusStyle" },
+      headers: { Referer: `https://space.bilibili.com/${mid}/dynamic` },
+    });
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "获取动态失败"));
+    }
+    const items = (res.data?.data?.items ?? []) as Array<{
+      modules?: {
+        module_dynamic?: { major?: { archive?: { title?: string } } };
+      };
+    }>;
+    return items
+      .map((item) =>
+        String(
+          item.modules?.module_dynamic?.major?.archive?.title ?? "",
+        ).trim(),
+      )
+      .filter(Boolean)
+      .slice(0, limit);
   }
 
   async getUpVideos(

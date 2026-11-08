@@ -30,15 +30,25 @@ export function cleanUpSign(sign: string): string {
     .join(" ");
 }
 
+/** 视频标题是主要依据；昵称常是谐音梗 / 口头禅（如「青川没吃饭」其实是游戏区），权重最低 */
+const TITLE_WEIGHT = 1.5;
+const UNAME_WEIGHT = 1;
+const SIGN_WEIGHT = 1.5;
+const OFFICIAL_WEIGHT = 3;
+/** 至少这么多条标题才认为标题能代表这位 UP 的方向 */
+const TITLES_DECISIVE_COUNT = 3;
+/** 标题单独打出这么多分，才压过昵称 / 签名 */
+const TITLES_OVERRIDE_SCORE = 4.5;
+
 export function buildUpEvidence(
   up: { uname: string; sign: string; official?: { title: string } },
   titles: string[],
 ): Evidence[] {
   return [
-    { text: up.official?.title ?? "", weight: 3 },
-    { text: up.uname, weight: 2 },
-    { text: cleanUpSign(up.sign), weight: 2 },
-    ...titles.map((text) => ({ text, weight: 1 })),
+    { text: up.official?.title ?? "", weight: OFFICIAL_WEIGHT },
+    { text: up.uname, weight: UNAME_WEIGHT },
+    { text: cleanUpSign(up.sign), weight: SIGN_WEIGHT },
+    ...titles.map((text) => ({ text, weight: TITLE_WEIGHT })),
   ];
 }
 
@@ -71,5 +81,17 @@ export function classifyUpEvidence(
   titles: string[],
 ): { match: TaxonomyMatch | null; level: UpMatchLevel | null } {
   const match = scoreEvidence(buildUpEvidence(up, titles));
+  if (match && titles.length >= TITLES_DECISIVE_COUNT) {
+    const fromTitles = scoreEvidence(
+      titles.map((text) => ({ text, weight: TITLE_WEIGHT })),
+    );
+    if (
+      fromTitles &&
+      fromTitles.l1 !== match.l1 &&
+      fromTitles.score >= TITLES_OVERRIDE_SCORE
+    ) {
+      return { match: fromTitles, level: judgeUpMatch(fromTitles) };
+    }
+  }
   return { match, level: judgeUpMatch(match) };
 }

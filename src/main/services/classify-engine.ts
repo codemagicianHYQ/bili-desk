@@ -11,9 +11,9 @@ import {
 } from "./collection-taxonomy";
 import { cleanUpSign, classifyUpEvidence } from "./up-evidence";
 
-/** 投稿接口风控很严，慢一点、带抖动 */
-const TITLE_FETCH_DELAY_MS = 1200;
-const TITLE_FETCH_JITTER_MS = 800;
+/** 标题接口限流比较宽松，但几千位连着抓还是要带间隔和抖动 */
+const TITLE_FETCH_DELAY_MS = 600;
+const TITLE_FETCH_JITTER_MS = 400;
 const TITLE_BACKOFF_MS = 4000;
 const TITLE_LIMIT = 15;
 const TITLE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -23,10 +23,8 @@ const TITLE_COOLDOWN_MS = 2 * 60 * 1000;
 /** 歇过这么多次还被限流，这轮就不抓了；没抓到的下次浅层整理接着补 */
 const TITLE_MAX_COOLDOWNS = 3;
 const TITLE_CACHE_FLUSH_EVERY = 10;
-/** 只看资料就能确定时不再抓标题 */
-const CONFIDENT_SCORE = 12;
 /** 分类逻辑（阈值、兜底策略）改了就升这个号，让旧缓存被识别为旧规则 */
-const UP_CLASSIFIER_REVISION = "1";
+const UP_CLASSIFIER_REVISION = "2";
 /** 边跑边存，中断最多丢这么多位的结果 */
 const CACHE_FLUSH_EVERY = 10;
 
@@ -63,7 +61,6 @@ function classifierVersion(): string {
         aiSystemPrompt(""),
         AI_L1_ALIASES,
         UP_CLASSIFIER_REVISION,
-        CONFIDENT_SCORE,
       ]),
     )
     .digest("hex")
@@ -118,15 +115,17 @@ type FollowingUp = Awaited<ReturnType<typeof biliApi.getAllFollowings>>[number];
 /**
  * 浅层整理能不能直接用这条缓存：
  * 有分类的直接用（规则旧了也用，提示用户去深度整理）；
- * 没线索 / 低把握的，只有真看过视频标题才算数；
- * 当时没抓到标题（被限流）、新配了 AI、或者标题过期了都要重判。
+ * 没线索 / 低把握的，只有真看过视频标题、且是当前规则判的才算数；
+ * 当时没抓到标题（被限流）、新配了 AI、标题过期或规则更新了都要重判。
  */
 function reusableInShallow(
   entry: UpClassifyCacheEntry,
   useAi: boolean,
   hasFreshTitles: boolean,
+  version: string,
 ): boolean {
   if (entry.source === "rule" || entry.source === "ai") return true;
+  if (entry.version !== version) return false;
   if (!hasFreshTitles) return false;
   if (useAi && !entry.aiTried) return false;
   return true;
@@ -250,7 +249,12 @@ export class ClassifyEngine {
       const entry = cache[String(mid)];
       if (!entry) return null;
       if (mode === "shallow") {
-        return reusableInShallow(entry, useAi, hasFreshTitles(mid, now))
+        return reusableInShallow(
+          entry,
+          useAi,
+          hasFreshTitles(mid, now),
+          version,
+        )
           ? entry
           : null;
       }
@@ -325,54 +329,55 @@ export class ClassifyEngine {
           continue;
         }
 
+        // 昵称常是谐音梗，不能单凭资料定类：每位都先看近期视频标题
         let titles: string[] = [];
-        let { match, level } = classifyUpEvidence(up, titles);
-        const profileOnly =
-          level === "rule" && match != null && match.score >= CONFIDENT_SCORE;
-        if (!profileOnly) {
-          const cachedTitles = titleCache[String(up.mid)];
-          if (cachedTitles && now - cachedTitles.at < TITLE_TTL_MS) {
-            titles = cachedTitles.titles;
-          } else if (titlesDisabled) {
+        const cachedTitles = titleCache[String(up.mid)];
+        if (cachedTitles && now - cachedTitles.at < TITLE_TTL_MS) {
+          titles = cachedTitles.titles;
+        } else if (titlesDisabled) {
+          titlesMissing.add(up.mid);
+        } else {
+          await sleep(
+            TITLE_FETCH_DELAY_MS + Math.random() * TITLE_FETCH_JITTER_MS,
+          );
+          try {
+            titles = await biliApi.getRecentVideoTitles(up.mid, TITLE_LIMIT);
+            titleCache[String(up.mid)] = { titles, at: Date.now() };
+            failStreak = 0;
+            titlesFetched++;
+            if (titlesFetched % TITLE_CACHE_FLUSH_EVERY === 0) {
+              appStore.set("upTitleCache", titleCache);
+            }
+          } catch {
+            titleFetchFailed++;
+            failStreak++;
             titlesMissing.add(up.mid);
-          } else {
-            await sleep(
-              TITLE_FETCH_DELAY_MS + Math.random() * TITLE_FETCH_JITTER_MS,
-            );
-            try {
-              titles = await biliApi.getRecentVideoTitles(up.mid, TITLE_LIMIT);
-              titleCache[String(up.mid)] = { titles, at: Date.now() };
-              failStreak = 0;
-              titlesFetched++;
-              if (titlesFetched % TITLE_CACHE_FLUSH_EVERY === 0) {
-                appStore.set("upTitleCache", titleCache);
-              }
-            } catch {
-              titleFetchFailed++;
-              failStreak++;
-              titlesMissing.add(up.mid);
-              if (failStreak >= TITLE_FAIL_STREAK_COOLDOWN) {
-                appStore.set("upTitleCache", titleCache);
-                if (cooldowns >= TITLE_MAX_COOLDOWNS) {
-                  titlesDisabled = true;
-                } else {
-                  cooldowns++;
-                  taxonomyRepo.updateTask(taskId, {
-                    message: `B 站限流，歇 ${TITLE_COOLDOWN_MS / 60000} 分钟再继续抓视频标题（第 ${cooldowns}/${TITLE_MAX_COOLDOWNS} 次，已抓 ${titlesFetched} 位）…`,
-                  });
-                  await sleep(TITLE_COOLDOWN_MS);
-                  failStreak = 0;
-                }
+            if (failStreak >= TITLE_FAIL_STREAK_COOLDOWN) {
+              appStore.set("upTitleCache", titleCache);
+              if (cooldowns >= TITLE_MAX_COOLDOWNS) {
+                titlesDisabled = true;
               } else {
-                await sleep(TITLE_BACKOFF_MS * Math.min(failStreak, 4));
+                cooldowns++;
+                taxonomyRepo.updateTask(taskId, {
+                  message: `B 站限流，歇 ${TITLE_COOLDOWN_MS / 60000} 分钟再继续抓视频标题（第 ${cooldowns}/${TITLE_MAX_COOLDOWNS} 次，已抓 ${titlesFetched} 位）…`,
+                });
+                await sleep(TITLE_COOLDOWN_MS);
+                failStreak = 0;
               }
+            } else {
+              await sleep(TITLE_BACKOFF_MS * Math.min(failStreak, 4));
             }
           }
-          const latest = latestTitles.get(up.mid);
-          if (titles.length === 0 && latest) titles = [latest];
-          const withTitles = classifyUpEvidence(up, titles);
-          if (level !== "rule" && withTitles.level === "rule") titleHelped++;
-          ({ match, level } = withTitles);
+        }
+        const latest = latestTitles.get(up.mid);
+        if (titles.length === 0 && latest) titles = [latest];
+        const { match, level } = classifyUpEvidence(up, titles);
+        if (
+          titles.length > 0 &&
+          level === "rule" &&
+          classifyUpEvidence(up, []).level !== "rule"
+        ) {
+          titleHelped++;
         }
 
         if (match && level === "rule") {
