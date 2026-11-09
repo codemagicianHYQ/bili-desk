@@ -472,7 +472,7 @@ class BiliApiService {
           status: "failed",
           message: "登录成功但未能读取用户信息，请重试",
         };
-      }
+        }
       return { status: "confirmed", user };
     }
 
@@ -790,8 +790,8 @@ class BiliApiService {
       const spiRes = await axios.get(
         "https://api.bilibili.com/x/frontend/finger/spi",
         {
-          headers: defaultHeaders(),
-          timeout: 10000,
+        headers: defaultHeaders(),
+        timeout: 10000,
           validateStatus: () => true,
         },
       );
@@ -2363,10 +2363,10 @@ class BiliApiService {
     const aid = bvToAid(bvid);
 
     const tryFetch = async (path: string) => {
-      const params = await signParams({
+    const params = await signParams({
         ...(aid > 0 ? { aid } : {}),
-        bvid,
-        cid,
+      bvid,
+      cid,
       });
       return this.client.get(path, {
         params,
@@ -3441,7 +3441,7 @@ class BiliApiService {
         cid,
         qn: requestedQn,
         fnval,
-        fnver: 0,
+      fnver: 0,
         fourk,
         otype: "json",
         ...extra,
@@ -6556,7 +6556,7 @@ class BiliApiService {
       path,
       new URLSearchParams({ ...fields, csrf }),
       {
-        headers: {
+      headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           Referer: "https://space.bilibili.com/",
           Origin: "https://space.bilibili.com",
@@ -6875,7 +6875,7 @@ class BiliApiService {
         void axios
           .post(
             "https://api.bilibili.com/x/relation/modify",
-            new URLSearchParams({
+      new URLSearchParams({
               fid: String(fid),
               act: follow ? "1" : "2",
               re_src: "11",
@@ -7549,7 +7549,7 @@ class BiliApiService {
       const res = await this.client.get(
         "https://s.search.bilibili.com/main/suggest",
         {
-          params: {
+        params: {
             term: trimmed,
             main_ver: "v1",
             highlight: "",
@@ -8132,9 +8132,9 @@ class BiliApiService {
   ): Promise<{ ok: true; page: UpVideosPage } | { ok: false; error: Error }> {
     const baseParams: Record<string, string | number> = {
       mid: String(mid),
-      pn: page,
+          pn: page,
       ps: pageSize,
-      tid: 0,
+          tid: 0,
       keyword,
       order,
       platform: "web",
@@ -8172,14 +8172,14 @@ class BiliApiService {
 
         const res = await this.client.get(url, {
           params,
-          headers: { Referer: referer },
+        headers: { Referer: referer },
           validateStatus: () => true,
           timeout: 10000,
         });
 
         const payload = res.data;
         const code = payload?.code as number | undefined;
-        if (code === 0) {
+      if (code === 0) {
           const vlist = (payload?.data?.list?.vlist ?? []) as Record<
             string,
             unknown
@@ -8193,12 +8193,12 @@ class BiliApiService {
             lastError = new Error("投稿翻页返回空数据，正在尝试其它通道");
             break;
           }
-          return {
+        return {
             ok: true,
             page: {
-              videos: vlist.map((item) => this.normalizeSpaceVideo(item, mid)),
-              page,
-              total,
+          videos: vlist.map((item) => this.normalizeSpaceVideo(item, mid)),
+          page,
+          total,
               hasMore: vlist.length >= ps || page * ps < total,
             },
           };
@@ -8215,9 +8215,9 @@ class BiliApiService {
           if (mode === "wbi") invalidateWbiCache();
           await sleep(code === -799 ? 1600 : mode === "wbi" ? 700 : 500);
           continue;
-        }
+      }
 
-        if (code === -799) {
+      if (code === -799) {
           lastError = new Error("请求过于频繁，请稍后再试");
           break;
         }
@@ -8694,25 +8694,25 @@ class BiliApiService {
       !cache.exhausted &&
       cache.searchPage <= maxScans
     ) {
-      const params = await signParams({
+    const params = await signParams({
         search_type: "video",
-        keyword: upName,
+      keyword: upName,
         page: cache.searchPage,
         page_size: apiPageSize,
         order,
         platform: "pc",
-        single_column: 0,
+      single_column: 0,
         source: "",
       });
 
       const res = await this.client.get("/x/web-interface/wbi/search/type", {
-        params,
+      params,
         headers: { Referer: "https://search.bilibili.com/" },
         validateStatus: () => true,
         timeout: 10000,
       });
 
-      if (res.data?.code !== 0) {
+    if (res.data?.code !== 0) {
         // 搜索也被拦时抛错，让上层展示真实原因，而不是落到「请求错误」
         throw new Error(
           String(res.data?.message ?? "") || "搜索投稿失败，请稍后重试",

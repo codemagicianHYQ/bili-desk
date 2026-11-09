@@ -4,6 +4,7 @@ import {
   type FollowingOrder,
   type FollowingSort,
   type FollowingUp,
+  type UpAssignmentPath,
   type UpClassifyInfo,
   type UpClassifyMode,
   type UpGroupSelection,
@@ -16,6 +17,7 @@ import {
   APP_OVERLAY_ZCLASS,
   OverlayPortal,
 } from "@/components/ui/overlay-portal";
+import { FollowingSearch } from "@/components/following/FollowingSearch";
 import { cn } from "@/lib/utils";
 import { Folder, Loader2, Sparkles, Upload } from "lucide-react";
 import { FollowTagDialog } from "./FollowTagDialog";
@@ -165,6 +167,8 @@ export function FollowingPage() {
     null,
   );
   const [actionMessage, setActionMessage] = useState("");
+  const [assignments, setAssignments] = useState<UpAssignmentPath[]>([]);
+  const [highlightMid, setHighlightMid] = useState<number | null>(null);
 
   const isLocalMode = sidebarMode === "local";
   const selectedTag = followTags.find((tag) => tag.tagId === selectedTagId);
@@ -173,6 +177,50 @@ export function FollowingPage() {
   const localSelectionLabel = useMemo(
     () => getLocalSelectionLabel(upGroupTree, localSelection),
     [upGroupTree, localSelection],
+  );
+
+  const biliTagByMid = useMemo(() => {
+    const map = new Map<number, string[]>();
+    const add = (mid: number, name: string) => {
+      const list = map.get(mid) ?? [];
+      if (!list.includes(name)) list.push(name);
+      map.set(mid, list);
+    };
+    for (const tag of followTags) {
+      const cached = useFollowingStore.getState().getTagList(tag.tagId);
+      if (!cached) continue;
+      for (const up of cached.followings) add(up.mid, tag.name);
+    }
+    return map;
+  }, [followTags, refreshVersion, followings.length]);
+
+  const reloadAssignments = useCallback(async () => {
+    try {
+      setAssignments(await window.biliDesk.taxonomy.getUpAssignmentPaths());
+    } catch {
+      // 搜索时没有本地分组信息也能按昵称匹配
+    }
+  }, []);
+
+  useEffect(() => {
+    void ensureAllFollowings();
+    void reloadAssignments();
+  }, [ensureAllFollowings, reloadAssignments, refreshVersion]);
+
+  useEffect(() => {
+    if (highlightMid == null) return;
+    const timer = window.setTimeout(() => setHighlightMid(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [highlightMid]);
+
+  const handleSearchPick = useCallback(
+    (selection: UpGroupSelection, mid: number) => {
+      setSidebarMode("local");
+      setLocalSelection(selection);
+      setHighlightMid(mid);
+      setActionMessage("已定位到搜索结果所在的本地分组");
+    },
+    [],
   );
 
   const applyTagListCache = (list: TagListCache) => {
@@ -446,6 +494,7 @@ export function FollowingPage() {
         }
         invalidateSidebar();
         await refreshSidebar({ force: true });
+        void reloadAssignments();
         void loadLocalGroupMembers(localSelection);
       }
     }, 1000);
@@ -774,7 +823,7 @@ export function FollowingPage() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setSyncDialogOpen(true)}
-                  title="同步到 B 站分组（手机上也能看到）"
+                  title="按本地分类整理到现有 B 站分组（不新建分组）"
                 >
                   <Upload className="h-4 w-4" />
                 </Button>
@@ -814,8 +863,7 @@ export function FollowingPage() {
                             浅层整理
                           </div>
                           <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                            只判断新关注、还没分过的
-                            UP，已分过的直接沿用上次结果。快、省 AI 调用。
+                            判断新关注的，并重判未分组和低把握的；已经确定的分组沿用上次结果。
                           </div>
                         </button>
                         <button
@@ -883,7 +931,15 @@ export function FollowingPage() {
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+          <FollowingSearch
+            className="w-full max-w-sm flex-1"
+            followings={allFollowings}
+            assignments={assignments}
+            biliTagByMid={biliTagByMid}
+            loading={followingsLoading}
+            onPickLocal={handleSearchPick}
+          />
           <div className="min-w-0 flex-1 truncate">
             {isLocalMode ? (
               <>
@@ -941,6 +997,7 @@ export function FollowingPage() {
                   showGroupActions={!isLocalMode}
                   isSpecial={Boolean(up.special) || inSpecialGroup}
                   specialPending={specialPendingMid === up.mid}
+                  highlighted={highlightMid === up.mid}
                   onSetGroup={setTagDialogUp}
                   onToggleSpecial={(target, next) =>
                     void handleToggleSpecial(target, next)

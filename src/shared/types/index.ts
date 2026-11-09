@@ -672,12 +672,12 @@ export interface FollowTag {
 /** B 站系统分组：特别关注 */
 export const BILI_SPECIAL_FOLLOW_TAG_ID = -10;
 
-/** 本地 AI 分组同步到 B 站分组：每个本地叶子分组的计划 */
+/** 把本地分类结果填进现有 B 站分组：不再新建分组 */
 export interface FollowTagSyncGroupPlan {
   groupId: number;
   tagName: string;
-  /** create 新建；adopt 接管同名的已有分组；rename 改名；keep 沿用 */
-  action: "create" | "adopt" | "rename" | "keep";
+  /** fill：往现有官方分组加人 */
+  action: "fill";
   tagId: number | null;
   oldName?: string;
   total: number;
@@ -688,9 +688,9 @@ export interface FollowTagSyncGroupPlan {
 export interface FollowTagSyncPlan {
   planId: string;
   groups: FollowTagSyncGroupPlan[];
-  /** 以前同步过、但本地分组已经没了的 B 站分组，会被删除 */
+  /** 旧版会删分组；现在固定为空 */
   deleteTags: Array<{ tagId: number; name: string; count: number }>;
-  /** 本地分组里已经取关的 UP，不会同步 */
+  /** 本地分组里已经取关的 UP，不会处理 */
   skippedUnfollowed: number;
   writeRequests: number;
   estimatedSeconds: number;
@@ -1793,6 +1793,17 @@ export interface UpGroupTreeNode {
   children: UpGroupTreeL2Node[];
 }
 
+/** 本地分组里每位 UP 的一级 / 二级路径，给关注搜索联想用 */
+export interface UpAssignmentPath {
+  mid: number;
+  l1: string;
+  l2: string;
+  l1Id: number;
+  l2Id: number;
+  source: string;
+  confidence: number;
+}
+
 export type UpGroupSelectionLevel = "all" | "l1" | "l2" | "uncategorized";
 
 export interface UpGroupSelection {
@@ -2369,6 +2380,7 @@ export interface BiliDeskApi {
     getUpGroupTree: () => Promise<UpGroupTreeNode[]>;
     createUpGroup: (name: string, color?: string) => Promise<UpGroup>;
     getUpGroupMemberMids: (selection: UpGroupSelection) => Promise<number[]>;
+    getUpAssignmentPaths: () => Promise<UpAssignmentPath[]>;
     renameUpGroup: (id: number, name: string) => Promise<void>;
     reorderUpGroups: (ids: number[]) => Promise<void>;
   };

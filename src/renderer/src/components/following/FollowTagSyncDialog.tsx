@@ -10,13 +10,6 @@ import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { useFollowingStore } from "@/stores/following-store";
 import { cn } from "@/lib/utils";
 
-const ACTION_LABEL = {
-  create: "新建",
-  adopt: "接管",
-  rename: "改名",
-  keep: "沿用",
-} as const;
-
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds} 秒`;
   return `${Math.ceil(seconds / 60)} 分钟`;
@@ -94,13 +87,14 @@ export function FollowTagSyncDialog({
       await window.biliDesk.bili.startFollowTagSync(plan.planId);
       setStatus(await window.biliDesk.bili.getFollowTagSyncStatus());
     } catch (err) {
-      setError(extractIpcErrorMessage(err) || "启动同步失败");
+      setError(extractIpcErrorMessage(err) || "启动整理失败");
     }
   };
 
   if (!open) return null;
 
   const nothingToDo = plan != null && plan.writeRequests === 0;
+  const addTotal = plan?.groups.reduce((sum, g) => sum + g.addCount, 0) ?? 0;
   const percent =
     status && status.total > 0
       ? Math.min(100, Math.round((status.done / status.total) * 100))
@@ -125,11 +119,11 @@ export function FollowTagSyncDialog({
         >
           <div className="flex items-start justify-between gap-3 px-5 pt-5">
             <div className="min-w-0">
-              <h2 className="text-base font-semibold">同步本地分组到 B 站</h2>
+              <h2 className="text-base font-semibold">整理到现有 B 站分组</h2>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                每个二级分组对应一个 B
-                站分组，名字为「一级·二级」。只增删由这里同步出来的分组，你手动建的分组不会动；未分组的
-                UP 不处理。
+                本地分组和 B
+                站分组分开保留。这里不会新建分组（避免撞数量上限），只用本地分类结果，把人加进名字对得上的现有官方分组，例如本地「美食」→
+                B 站「美食」。
               </p>
             </div>
             <button
@@ -168,11 +162,12 @@ export function FollowTagSyncDialog({
                 </p>
                 {running && (
                   <p className="text-xs text-muted-foreground">
-                    为避免触发风控，每个请求之间会间隔两三秒。可以关掉这个窗口，同步会在后台继续。
+                    每个请求间隔约 3～5
+                    秒，降低风控概率。可以关掉窗口，整理会在后台继续。
                   </p>
                 )}
                 {status.errors.length > 0 && (
-                  <ul className="space-y-1 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                  <ul className="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
                     {status.errors.map((item) => (
                       <li key={item}>{item}</li>
                     ))}
@@ -182,7 +177,7 @@ export function FollowTagSyncDialog({
             ) : previewing ? (
               <p className="flex items-center gap-2 py-6 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                正在对比本地分组和 B 站分组…
+                正在读取现有 B 站分组并对照本地分类…
               </p>
             ) : plan ? (
               <div className="space-y-3">
@@ -191,13 +186,13 @@ export function FollowTagSyncDialog({
                     <div className="text-base font-semibold text-foreground">
                       {plan.groups.length}
                     </div>
-                    同步分组
+                    涉及分组
                   </div>
                   <div className="rounded-lg bg-secondary/60 px-2 py-2">
                     <div className="text-base font-semibold text-foreground">
-                      {plan.writeRequests}
+                      {addTotal}
                     </div>
-                    写请求
+                    待加入
                   </div>
                   <div className="rounded-lg bg-secondary/60 px-2 py-2">
                     <div className="text-base font-semibold text-foreground">
@@ -219,72 +214,32 @@ export function FollowTagSyncDialog({
                 {plan.skippedUnfollowed > 0 && (
                   <p className="text-xs text-muted-foreground">
                     本地分组里有 {plan.skippedUnfollowed} 个已取关的
-                    UP，不会同步。
+                    UP，不会处理。
                   </p>
                 )}
                 {nothingToDo && (
                   <p className="text-xs text-muted-foreground">
-                    B 站分组已经和本地一致，不需要同步。
+                    现有 B 站分组里该进的人都已经在了，不用再整理。
                   </p>
                 )}
 
                 <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
-                  {plan.deleteTags.map((tag) => (
-                    <li
-                      key={`del-${tag.tagId}`}
-                      className="flex items-center gap-2 px-3 py-1.5 text-xs"
-                    >
-                      <span className="shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-red-400">
-                        删除
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {tag.name}
-                      </span>
-                      <span className="text-muted-foreground">
-                        本地已无此分组，{tag.count} 人回默认分组或留在其它分组
-                      </span>
-                    </li>
-                  ))}
                   {plan.groups.map((group) => (
                     <li
-                      key={group.groupId}
+                      key={group.tagId ?? group.groupId}
                       className="flex items-center gap-2 px-3 py-1.5 text-xs"
                     >
-                      <span
-                        className={cn(
-                          "shrink-0 rounded px-1.5 py-0.5",
-                          group.action === "create" &&
-                            "bg-primary/15 text-primary",
-                          group.action === "adopt" &&
-                            "bg-amber-500/15 text-amber-400",
-                          group.action === "rename" &&
-                            "bg-sky-500/15 text-sky-400",
-                          group.action === "keep" &&
-                            "bg-secondary text-muted-foreground",
-                        )}
-                      >
-                        {ACTION_LABEL[group.action]}
+                      <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-primary">
+                        加入
                       </span>
-                      <span
-                        className="min-w-0 flex-1 truncate"
-                        title={
-                          group.oldName ? `原名：${group.oldName}` : undefined
-                        }
-                      >
+                      <span className="min-w-0 flex-1 truncate">
                         {group.tagName}
                       </span>
                       <span className="shrink-0 text-muted-foreground">
-                        {group.total} 人
-                        {group.addCount > 0 && (
-                          <span className="ml-1.5 text-emerald-400">
-                            +{group.addCount}
-                          </span>
-                        )}
-                        {group.removeCount > 0 && (
-                          <span className="ml-1.5 text-red-400">
-                            −{group.removeCount}
-                          </span>
-                        )}
+                        目标 {group.total} 人
+                        <span className="ml-1.5 text-emerald-400">
+                          +{group.addCount}
+                        </span>
                       </span>
                     </li>
                   ))}
@@ -309,7 +264,7 @@ export function FollowTagSyncDialog({
                     void window.biliDesk.bili.cancelFollowTagSync()
                   }
                 >
-                  停止同步
+                  停止整理
                 </Button>
               </>
             ) : finished ? (
@@ -342,7 +297,7 @@ export function FollowTagSyncDialog({
                   disabled={previewing || !plan || nothingToDo}
                   onClick={() => void start()}
                 >
-                  开始同步
+                  开始整理
                 </Button>
               </>
             )}

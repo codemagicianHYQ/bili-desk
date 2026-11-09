@@ -91,4 +91,7 @@ export function registerTaxonomyIpc(): void {
     (_e, selection: UpGroupSelection) =>
       taxonomyRepo.getUpGroupMemberMids(selection),
   );
+  ipcMain.handle(IPC.TAXONOMY_UP_ASSIGNMENT_PATHS, () =>
+    taxonomyRepo.getUpAssignmentPaths(),
+  );
 }

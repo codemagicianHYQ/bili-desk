@@ -883,6 +883,8 @@ const api = {
         : ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_CREATE, name),
     getUpGroupMemberMids: (selection: UpGroupSelection) =>
       ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_MEMBERS, selection),
+    getUpAssignmentPaths: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_UP_ASSIGNMENT_PATHS),
     renameUpGroup: (id: number, name: string) =>
       ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_RENAME, id, name),
     reorderUpGroups: (ids: number[]) =>

@@ -24,7 +24,7 @@ const TITLE_COOLDOWN_MS = 2 * 60 * 1000;
 const TITLE_MAX_COOLDOWNS = 3;
 const TITLE_CACHE_FLUSH_EVERY = 10;
 /** 分类逻辑（阈值、兜底策略）改了就升这个号，让旧缓存被识别为旧规则 */
-const UP_CLASSIFIER_REVISION = "2";
+const UP_CLASSIFIER_REVISION = "3";
 /** 边跑边存，中断最多丢这么多位的结果 */
 const CACHE_FLUSH_EVERY = 10;
 
@@ -113,22 +113,11 @@ function hasAiConfigured(): boolean {
 type FollowingUp = Awaited<ReturnType<typeof biliApi.getAllFollowings>>[number];
 
 /**
- * 浅层整理能不能直接用这条缓存：
- * 有分类的直接用（规则旧了也用，提示用户去深度整理）；
- * 没线索 / 低把握的，只有真看过视频标题、且是当前规则判的才算数；
- * 当时没抓到标题（被限流）、新配了 AI、标题过期或规则更新了都要重判。
+ * 浅层整理只沿用已经确定的结果（规则 / AI）。
+ * 未分组和低把握每次都重判：新关注的、上次没抓住的、规则放宽后能归上的，都从这里补。
  */
-function reusableInShallow(
-  entry: UpClassifyCacheEntry,
-  useAi: boolean,
-  hasFreshTitles: boolean,
-  version: string,
-): boolean {
-  if (entry.source === "rule" || entry.source === "ai") return true;
-  if (entry.version !== version) return false;
-  if (!hasFreshTitles) return false;
-  if (useAi && !entry.aiTried) return false;
-  return true;
+function reusableInShallow(entry: UpClassifyCacheEntry): boolean {
+  return entry.source === "rule" || entry.source === "ai";
 }
 
 /** 缓存表是后加的：第一次用时拿现有分组结果补上，标为旧规则，免得浅层整理全部重判 */
@@ -239,24 +228,13 @@ export class ClassifyEngine {
     }
 
     const titleCache = { ...appStore.get("upTitleCache") };
-    const hasFreshTitles = (mid: number, now: number) => {
-      const cachedTitles = titleCache[String(mid)];
-      return cachedTitles != null && now - cachedTitles.at < TITLE_TTL_MS;
-    };
 
     /** 这位 UP 这次能不能直接用缓存 */
-    const cachedFor = (mid: number, now: number) => {
+    const cachedFor = (mid: number) => {
       const entry = cache[String(mid)];
       if (!entry) return null;
       if (mode === "shallow") {
-        return reusableInShallow(
-          entry,
-          useAi,
-          hasFreshTitles(mid, now),
-          version,
-        )
-          ? entry
-          : null;
+        return reusableInShallow(entry) ? entry : null;
       }
       // 深度整理：只复用本轮（中断前）已经按当前规则判断过的
       return entry.version === version && entry.at >= deepStartedAt
@@ -313,7 +291,7 @@ export class ClassifyEngine {
           await yieldToEventLoop();
         }
 
-        const cached = cachedFor(up.mid, now);
+        const cached = cachedFor(up.mid);
         if (cached) {
           if (cached.l1) {
             assign(
@@ -406,6 +384,12 @@ export class ClassifyEngine {
         const system = aiSystemPrompt(suggestedTreeText().join("\n"));
         for (let index = 0; index < pending.length; index++) {
           const { up, titles } = pending[index];
+          const prev = cache[String(up.mid)];
+          // 这版规则下 AI 已经试过还是没归上，浅层整理不再重复请求
+          if (prev?.aiTried && prev.version === version) {
+            leftover.push(pending[index]);
+            continue;
+          }
           if (index % 5 === 0) {
             taxonomyRepo.updateTask(taskId, {
               progress: Math.round(80 + (index / pending.length) * 15),

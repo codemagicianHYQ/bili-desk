@@ -1480,6 +1480,19 @@ html[data-theme-preset="glass"].dark .bili-watch-player-card.bg-card {
   -webkit-backdrop-filter: none !important;
 }
 
+/*
+ * Windows 原生下拉不跟页面主题：液态玻璃下弹层是浅底，
+ * 选项却继承了浅色字，没悬停的项几乎看不见。强制浅底深字。
+ */
+html[data-theme-preset="glass"] select {
+  color-scheme: light;
+}
+html[data-theme-preset="glass"] select option,
+html[data-theme-preset="glass"] select optgroup {
+  background-color: #f4f7fb;
+  color: #1c2430;
+}
+
 /* 侧栏 / 顶栏 / 弹窗：与 ThemeCustomizer 同一配方 */
 html[data-theme-preset="glass"] [data-app-chrome],
 html[data-theme-preset="glass"] .bili-glass,
@@ -1531,8 +1544,8 @@ html[data-theme-preset="glass"]:not(.dark) [data-glass-scrim] {
 
 /*
  * 弹层规则：弹窗 / 菜单 / 下拉叠在玻璃界面上，两层都透明就糊成一片看不清。
- * 弹层统一 OverlayPortal 挂在 body 下（#root 之外），这里一律改成近乎不透明；
- * 页面树里的弹层加 data-glass-popover 也走这条。
+ * 挂在 body（#root 外）的弹层、以及页面树里的 menu / listbox / data-glass-popover，
+ * 一律改成近乎不透明。侧栏导航等普通链接不要加这些 role。
  */
 html[data-theme-preset="glass"] body > :not(#root)[data-glass-panel],
 html[data-theme-preset="glass"] body > :not(#root).bili-glass,
@@ -1542,6 +1555,8 @@ html[data-theme-preset="glass"] body > :not(#root) [role="dialog"],
 html[data-theme-preset="glass"] body > :not(#root) [role="alertdialog"],
 html[data-theme-preset="glass"] body > :not(#root) [role="menu"],
 html[data-theme-preset="glass"] body > :not(#root) [role="listbox"],
+html[data-theme-preset="glass"] [role="menu"],
+html[data-theme-preset="glass"] [role="listbox"],
 html[data-theme-preset="glass"] [data-glass-popover] {
   background: rgb(248 250 255 / 0.94) !important;
   backdrop-filter: blur(28px) saturate(1.4) !important;
@@ -1556,6 +1571,8 @@ html[data-theme-preset="glass"].dark body > :not(#root) [role="dialog"],
 html[data-theme-preset="glass"].dark body > :not(#root) [role="alertdialog"],
 html[data-theme-preset="glass"].dark body > :not(#root) [role="menu"],
 html[data-theme-preset="glass"].dark body > :not(#root) [role="listbox"],
+html[data-theme-preset="glass"].dark [role="menu"],
+html[data-theme-preset="glass"].dark [role="listbox"],
 html[data-theme-preset="glass"].dark [data-glass-popover] {
   background: rgb(20 24 34 / 0.94) !important;
 }

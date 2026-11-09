@@ -59,20 +59,23 @@ const MIN_SCORE = 6;
 const SINGLE_SOURCE_SCORE = 9;
 
 /**
- * 「确定」要求至少两条证据（认证 / 昵称 / 签名 / 视频标题）指向同一个一级，
- * 或单条证据分足够高；明显领先第二名。其余有倾向的归为低把握。
+ * 「确定」：分数够，并且明显领先第二名。
+ * 第一名已经够分、只是和第二名接近时，归低把握，不要因为分差不够就丢回未分组。
+ * 总分已经很高但跨类接近（比如科技和 AI 都命中），也归低把握，别扔回未分组。
  */
 export function judgeUpMatch(match: TaxonomyMatch | null): UpMatchLevel | null {
-  if (!match) return null;
-  const leads = match.runnerUp === 0 || match.score >= match.runnerUp * 1.4;
-  if (
-    leads &&
-    match.score >= MIN_SCORE &&
-    (match.support >= 2 || match.score >= SINGLE_SOURCE_SCORE)
-  ) {
-    return "rule";
-  }
-  if (match.score >= 4 && match.score >= match.runnerUp * 1.5) return "weak";
+  if (!match || match.score < 4) return null;
+  const ratio =
+    match.runnerUp === 0
+      ? Number.POSITIVE_INFINITY
+      : match.score / match.runnerUp;
+  const backed = match.support >= 2 || match.score >= SINGLE_SOURCE_SCORE;
+  if (match.score >= MIN_SCORE && backed && ratio >= 1.4) return "rule";
+  if (match.score >= MIN_SCORE && ratio >= 1.15) return "weak";
+  if (ratio >= 1.5) return "weak";
+  if (match.runnerUp === 0 && match.score >= 4.5) return "weak";
+  // 总分已经够门槛，但几个类差不多：先低把握归上，比扔回未分组有用
+  if (match.score >= MIN_SCORE) return "weak";
   return null;
 }
 

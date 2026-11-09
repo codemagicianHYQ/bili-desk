@@ -1081,6 +1081,8 @@ export class TaxonomyRepository {
     mid: number;
     l1: string;
     l2: string;
+    l1Id: number;
+    l2Id: number;
     source: string;
     confidence: number;
   }> {
@@ -1094,8 +1096,10 @@ export class TaxonomyRepository {
       if (!parent) continue;
       out.push({
         mid: member.mid,
-        l1: parent.sourceName ?? parent.name,
-        l2: group.sourceName ?? group.name,
+        l1: parent.name,
+        l2: group.name,
+        l1Id: parent.id,
+        l2Id: group.id,
         source: member.source,
         confidence: member.confidence,
       });
