@@ -216,6 +216,56 @@ export interface DanmakuItem {
   mode?: 0 | 1 | 2;
 }
 
+/** 视频互动弹幕：评分 / 投票（来自 /x/v2/dm/web/view） */
+export type CommandDanmakuKind = "grade" | "vote" | "attention" | "other";
+
+export interface CommandDanmakuVoteOption {
+  idx: number;
+  desc: string;
+  count: number;
+}
+
+export interface CommandDanmakuItem {
+  id: string;
+  command: string;
+  kind: CommandDanmakuKind;
+  /** 出现时间（毫秒） */
+  progress: number;
+  /** 展示时长（毫秒） */
+  duration: number;
+  content: string;
+  /** 评分题干 / 投票问题 */
+  title: string;
+  /** 参与人数 */
+  count: number;
+  gradeId?: number;
+  /** 用户已打分 0=未打；官网为 2/4/…/10 */
+  midScore?: number;
+  avgScore?: number;
+  voteId?: number;
+  /** 用户已选选项，0=未投 */
+  myVote?: number;
+  options?: CommandDanmakuVoteOption[];
+  skinFontColor?: string;
+}
+
+export interface PostCommandGradePayload {
+  aid: number;
+  cid: number;
+  progress: number;
+  gradeId: number;
+  /** 1–5 颗心，内部乘 2 成偶数分 */
+  hearts: number;
+}
+
+export interface PostCommandVotePayload {
+  aid: number;
+  cid: number;
+  progress: number;
+  voteId: number;
+  idx: number;
+}
+
 export interface BinaryImageFile {
   name: string;
   mime: string;
@@ -1556,6 +1606,57 @@ export interface MessageSettings {
   blockWords: string[];
 }
 
+/** 我的评论 / 弹幕足迹 */
+export type FootprintKind = "comment" | "danmaku";
+
+export interface FootprintItem {
+  /** comment:rpid / danmaku:id / local:… */
+  id: string;
+  kind: FootprintKind;
+  text: string;
+  /** Unix 秒 */
+  time: number;
+  /** 视频 aid / 专栏 cv / 动态 id 等 */
+  oid: number;
+  /** 评论区 type：1 视频、12 专栏、11/17 动态… */
+  type?: number;
+  rpid?: string;
+  /** 弹幕在视频内进度（毫秒） */
+  progressMs?: number;
+  bvid?: string;
+  source: "aicu" | "local";
+}
+
+export interface FootprintListQuery {
+  kind: FootprintKind;
+  keyword?: string;
+  /** Unix 秒，含 */
+  fromTs?: number;
+  /** Unix 秒，含 */
+  toTs?: number;
+  offset?: number;
+  limit?: number;
+}
+
+export interface FootprintListResult {
+  items: FootprintItem[];
+  total: number;
+  syncedAt: number | null;
+  hasMore: boolean;
+  replyDone: boolean;
+  danmakuDone: boolean;
+}
+
+export interface FootprintSyncProgress {
+  running: boolean;
+  phase: "idle" | "comment" | "danmaku" | "done" | "error";
+  fetched: number;
+  totalHint: number;
+  message: string;
+}
+
+export type FootprintSyncKinds = FootprintKind | "all";
+
 export interface UserCollectionItem {
   id: number;
   kind: "season" | "series";
@@ -1938,6 +2039,16 @@ export interface BiliDeskApi {
     reportWatchHeartbeat: (payload: WatchHeartbeatPayload) => Promise<void>;
     getDanmakuList: (cid: number) => Promise<DanmakuItem[]>;
     sendDanmaku: (payload: SendDanmakuPayload) => Promise<void>;
+    getCommandDanmakuList: (
+      aid: number,
+      cid: number,
+    ) => Promise<CommandDanmakuItem[]>;
+    postCommandGrade: (
+      payload: PostCommandGradePayload,
+    ) => Promise<{ midScore: number }>;
+    postCommandVote: (
+      payload: PostCommandVotePayload,
+    ) => Promise<{ myVote: number }>;
     getDanmakuFilters: () => Promise<DanmakuFilter[]>;
     addDanmakuFilter: (text: string, kind?: DanmakuFilterKind) => Promise<void>;
     recallDanmaku: (cid: number, dmid: string) => Promise<string>;
@@ -2354,6 +2465,16 @@ export interface BiliDeskApi {
     ) => Promise<MessageSettings>;
     addMessageBlockWord: (word: string) => Promise<string[]>;
     removeMessageBlockWord: (word: string) => Promise<string[]>;
+    listFootprint: (query: FootprintListQuery) => Promise<FootprintListResult>;
+    syncFootprint: (
+      kinds?: FootprintSyncKinds,
+      options?: { reset?: boolean },
+    ) => Promise<FootprintSyncProgress>;
+    abortFootprintSync: () => Promise<void>;
+    getFootprintSyncStatus: () => Promise<FootprintSyncProgress>;
+    onFootprintProgress: (
+      callback: (progress: FootprintSyncProgress) => void,
+    ) => () => void;
   };
   taxonomy: {
     getTree: () => Promise<CategoryTreeNode[]>;

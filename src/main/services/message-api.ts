@@ -107,7 +107,20 @@ function idOf(value: unknown): string {
 }
 
 function httpsUrl(value: unknown): string {
-  return textOf(value).replace(/^http:\/\//i, "https://");
+  const raw = textOf(value).trim();
+  if (!raw) return "";
+  if (raw.startsWith("//")) return `https:${raw}`;
+  return raw.replace(/^http:\/\//i, "https://");
+}
+
+function selfFeedUser(): MessageFeedUser {
+  const mid = selfMid();
+  const user = appStore.get("user");
+  return {
+    mid,
+    name: user?.name || "我",
+    face: httpsUrl(user?.face),
+  };
 }
 
 function apiError(data: unknown, fallback: string): string {
@@ -355,15 +368,26 @@ function toMyReplyFromNotice(raw: unknown): MessageFeedItem | null {
   if (!mineText || !rpid) return null;
   const replyText = textOf(body.source_content);
   const native = textOf(body.native_uri);
+  const others = [
+    ...asArray(item.users).map(feedUser),
+    feedUser(item.user),
+  ].filter((user): user is MessageFeedUser => Boolean(user));
+  const otherName = others[0]?.name;
+  const quote =
+    replyText && replyText !== mineText
+      ? otherName
+        ? `回复 @${otherName}：${replyText}`
+        : replyText
+      : "";
   return {
     id: String(rpid),
     time: numOf(item.reply_time),
-    users: [{ mid: selfMid(), name: "我", face: "" }],
+    users: [selfFeedUser()],
     counts: 1,
     business: textOf(body.business) || "评论",
     title: textOf(body.title) || textOf(body.desc),
     content: mineText,
-    quote: replyText && replyText !== mineText ? replyText : "",
+    quote,
     cover: httpsUrl(body.image),
     uri: httpsUrl(body.uri) || native,
     subjectId: numOf(body.subject_id),

@@ -39,6 +39,7 @@ import {
 } from "@/components/video/player-hotkeys";
 import { BILI_AUTO_QN } from "@shared/utils/bilibili-quality";
 import { danmakuBlocked } from "@/components/video/danmaku-match";
+import { CommandDanmakuOverlay } from "@/components/video/CommandDanmakuOverlay";
 import {
   loadPlayerThumbnails,
   type PlayerThumbnails,
@@ -152,6 +153,7 @@ export function VideoPlayer({
   const activeRef = useRef(active);
   activeRef.current = active;
   const [resumeTipAt, setResumeTipAt] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
 
   onQualityChangeRef.current = onQualityChange;
   onErrorRef.current = onError;
@@ -568,6 +570,8 @@ export function VideoPlayer({
       if (art.currentTime > 0.2) {
         window.clearTimeout(stallTimer);
       }
+      const t = art.currentTime || 0;
+      setCurrentTime((prev) => (Math.abs(prev - t) >= 0.25 ? t : prev));
       const now = Date.now();
       if (now - lastSaveAtRef.current < SAVE_INTERVAL_MS) return;
       lastSaveAtRef.current = now;
@@ -807,6 +811,7 @@ export function VideoPlayer({
       )}
     >
       <div ref={containerRef} className="h-full w-full" />
+      <CommandDanmakuOverlay aid={aid} cid={cid} currentTime={currentTime} />
       {resumeTipAt != null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-[3.25rem] z-30 flex justify-center px-3 sm:bottom-16">
           <div

@@ -14,18 +14,22 @@ import {
   BellOff,
   Eye,
   Heart,
+  History,
   ImageIcon,
   Loader2,
   MapPin,
   MessageCircle,
   MessageSquare,
+  MessageSquareText,
   Pin,
+  RefreshCw,
   Reply,
   Search,
   Send,
   Share2,
   Settings2,
   ShieldAlert,
+  Subtitles,
   Trash2,
   UserPlus,
 } from "lucide-react";
@@ -33,6 +37,9 @@ import type {
   ChatEmote,
   ChatMessage,
   ChatShareCard,
+  FootprintItem,
+  FootprintKind,
+  FootprintSyncProgress,
   MessageFeedItem,
   MessageFeedKind,
   MessageSession,
@@ -64,6 +71,8 @@ type MessageTab =
   | "chat"
   | MessageFeedKind
   | "sent"
+  | "myComments"
+  | "myDanmaku"
   | "fans"
   | "sys"
   | "settings";
@@ -86,6 +95,18 @@ const TABS: Array<{
     label: "我回复的",
     icon: MessageSquare,
     hint: "别人回复过的、你发出的评论",
+  },
+  {
+    id: "myComments",
+    label: "我的评论",
+    icon: MessageSquareText,
+    hint: "尽量收录的过往评论（含手机端）",
+  },
+  {
+    id: "myDanmaku",
+    label: "我的弹幕",
+    icon: Subtitles,
+    hint: "尽量收录的过往弹幕（含手机端）",
   },
   { id: "at", label: "@ 我的", icon: AtSign, hint: "评论与动态里的提及" },
   { id: "like", label: "收到的赞", icon: Heart, hint: "赞过你的人" },
@@ -296,6 +317,25 @@ function rememberLocalSent(item: MessageFeedItem): void {
   localStorage.setItem(LOCAL_SENT_KEY, JSON.stringify(next));
 }
 
+function withSelfAvatar(item: MessageFeedItem): MessageFeedItem {
+  const self = useAppStore.getState().user;
+  if (!self) return item;
+  const face = self.face || "";
+  const name = self.name || "我";
+  const users = item.users.length
+    ? item.users.map((user, index) =>
+        index === 0
+          ? {
+              mid: user.mid || self.mid || 0,
+              name: user.name === "我" || !user.name ? name : user.name,
+              face: user.face || face,
+            }
+          : user,
+      )
+    : [{ mid: self.mid || 0, name, face }];
+  return { ...item, users };
+}
+
 function sourceNote(source: number): string {
   if (source >= 8 && source <= 11) return "自动回复";
   return "";
@@ -462,6 +502,12 @@ export function MessagesPage() {
             tab === "sent") && (
             <FeedList kind={tab} keyword={keyword} onChanged={refreshUnread} />
           )}
+          {(tab === "myComments" || tab === "myDanmaku") && (
+            <FootprintList
+              kind={tab === "myComments" ? "comment" : "danmaku"}
+              keyword={keyword}
+            />
+          )}
           {tab === "fans" && <FansList keyword={keyword} />}
           {tab === "sys" && (
             <NoticeList keyword={keyword} onChanged={refreshUnread} />
@@ -471,6 +517,332 @@ export function MessagesPage() {
       </section>
     </div>
   );
+}
+
+type FootprintRange = "all" | "7" | "30" | "90" | "custom";
+
+function rangeToTs(
+  range: FootprintRange,
+  customFrom: string,
+  customTo: string,
+) {
+  const now = Math.floor(Date.now() / 1000);
+  if (range === "all") return { fromTs: undefined, toTs: undefined };
+  if (range === "custom") {
+    const from = customFrom
+      ? Math.floor(new Date(`${customFrom}T00:00:00`).getTime() / 1000)
+      : undefined;
+    const to = customTo
+      ? Math.floor(new Date(`${customTo}T23:59:59`).getTime() / 1000)
+      : undefined;
+    return {
+      fromTs: Number.isFinite(from) ? from : undefined,
+      toTs: Number.isFinite(to) ? to : undefined,
+    };
+  }
+  const days = Number(range);
+  return { fromTs: now - days * 86400, toTs: now };
+}
+
+function footprintTargetLabel(item: FootprintItem): string {
+  if (item.bvid) return item.bvid;
+  if (item.kind === "danmaku" && item.oid > 0) return `av${item.oid}`;
+  if (item.type === 12) return `专栏 cv${item.oid}`;
+  if (item.type === 11 || item.type === 17) return `动态 ${item.oid}`;
+  if (item.oid > 0) return `av${item.oid}`;
+  return "未知来源";
+}
+
+function openFootprintItem(
+  item: FootprintItem,
+  navigate: (path: string) => void,
+): void {
+  if (item.kind === "danmaku") {
+    const bvid = item.bvid || (item.oid > 0 ? aidToBvid(item.oid) : "");
+    if (!bvid) return;
+    const t =
+      item.progressMs != null
+        ? Math.max(0, Math.floor(item.progressMs / 1000))
+        : 0;
+    navigate(t > 0 ? `/video/${bvid}?t=${t}` : `/video/${bvid}`);
+    return;
+  }
+  const rpid = Number(item.rpid) || 0;
+  const query = rpid > 0 ? `?rpid=${rpid}&root=${rpid}` : "";
+  if (item.type === 12 && item.oid > 0) {
+    navigate(`/article/${item.oid}${query}`);
+    return;
+  }
+  if ((item.type === 11 || item.type === 17) && item.oid > 0) {
+    navigate(`/dynamic/${item.oid}${query}`);
+    return;
+  }
+  if (item.oid > 0) {
+    navigate(`/video/${aidToBvid(item.oid)}${query}`);
+  }
+}
+
+function FootprintList({
+  kind,
+  keyword,
+}: {
+  kind: FootprintKind;
+  keyword: string;
+}) {
+  const navigate = useNavigate();
+  const [items, setItems] = useState<FootprintItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [syncedAt, setSyncedAt] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [range, setRange] = useState<FootprintRange>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [progress, setProgress] = useState<FootprintSyncProgress>({
+    running: false,
+    phase: "idle",
+    fetched: 0,
+    totalHint: 0,
+    message: "",
+  });
+  const debouncedKeyword = useDebounced(keyword, 280);
+
+  const load = useCallback(
+    async (offset: number, append: boolean) => {
+      setLoading(true);
+      setError("");
+      try {
+        const { fromTs, toTs } = rangeToTs(range, customFrom, customTo);
+        const page = await window.biliDesk.bili.listFootprint({
+          kind,
+          keyword: debouncedKeyword,
+          fromTs,
+          toTs,
+          offset,
+          limit: 40,
+        });
+        setItems((prev) => (append ? [...prev, ...page.items] : page.items));
+        setTotal(page.total);
+        setSyncedAt(page.syncedAt);
+        setHasMore(page.hasMore);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [kind, debouncedKeyword, range, customFrom, customTo],
+  );
+
+  useEffect(() => {
+    void load(0, false);
+  }, [load]);
+
+  useEffect(() => {
+    void window.biliDesk.bili.getFootprintSyncStatus().then(setProgress);
+    return window.biliDesk.bili.onFootprintProgress((next) => {
+      setProgress(next);
+      if (!next.running && (next.phase === "done" || next.phase === "idle")) {
+        void load(0, false);
+      }
+    });
+  }, [load]);
+
+  const sync = async (reset = false) => {
+    setError("");
+    try {
+      const status = await window.biliDesk.bili.syncFootprint(kind, { reset });
+      if (status.phase === "error" && status.message) {
+        setError(status.message);
+      }
+      await load(0, false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/50 px-5 py-2.5">
+        {(
+          [
+            ["all", "全部"],
+            ["7", "近 7 天"],
+            ["30", "近 30 天"],
+            ["90", "近 90 天"],
+            ["custom", "自定义"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setRange(id)}
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs transition-colors",
+              range === id
+                ? "bg-primary/15 text-primary"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+        {range === "custom" && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="h-7 rounded-md border border-border bg-background/70 px-2"
+            />
+            <span className="text-muted-foreground">至</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="h-7 rounded-md border border-border bg-background/70 px-2"
+            />
+          </div>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {progress.running ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void window.biliDesk.bili.abortFootprintSync()}
+            >
+              停止
+            </Button>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void sync(false)}
+              >
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                同步历史
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                title="清空游标后全量重拉"
+                onClick={() => void sync(true)}
+              >
+                <History className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="shrink-0 space-y-1 border-b border-border/40 px-5 py-2 text-[11px] text-muted-foreground">
+        <p>
+          共 {total} 条
+          {syncedAt
+            ? ` · 最近同步 ${formatMessageTime(Math.floor(syncedAt / 1000))}`
+            : " · 尚未同步"}
+          {progress.running || progress.message
+            ? ` · ${progress.message || "同步中…"}`
+            : ""}
+        </p>
+        <p>
+          历史数据来自第三方索引（AICU），非 B
+          站官方实时接口，可能延迟或缺条；本应用内新发的会即时写入。
+        </p>
+      </div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
+        {error && (
+          <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {error}
+          </p>
+        )}
+        {items.map((item) => (
+          <article
+            key={item.id}
+            className="rounded-2xl border border-border/60 bg-card/30 px-4 py-3"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <p className="whitespace-pre-wrap break-words text-sm leading-6">
+                  <BiliEmoteText text={item.text || "（无内容）"} />
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                  <span>{formatMessageTime(item.time)}</span>
+                  <span>·</span>
+                  <span>{footprintTargetLabel(item)}</span>
+                  {item.kind === "danmaku" && item.progressMs != null && (
+                    <>
+                      <span>·</span>
+                      <span>
+                        {Math.floor(item.progressMs / 1000 / 60)}:
+                        {String(
+                          Math.floor((item.progressMs / 1000) % 60),
+                        ).padStart(2, "0")}
+                      </span>
+                    </>
+                  )}
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                    {item.source === "local" ? "本机" : "索引"}
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!(item.bvid || item.oid > 0)}
+                  onClick={() => openFootprintItem(item, navigate)}
+                >
+                  <Eye className="mr-1 h-3.5 w-3.5" />
+                  查看
+                </Button>
+                {item.kind === "comment" && item.rpid && item.oid > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => openFootprintItem(item, navigate)}
+                  >
+                    <MapPin className="mr-1 h-3.5 w-3.5" />
+                    定位
+                  </Button>
+                )}
+              </div>
+            </div>
+          </article>
+        ))}
+        {!loading && items.length === 0 && !error && (
+          <EmptyState
+            title={kind === "comment" ? "还没有评论足迹" : "还没有弹幕足迹"}
+            detail="点右上角「同步历史」从第三方索引拉取过往记录；之后在本应用里发的会自动记入。"
+          />
+        )}
+        {hasMore && (
+          <Button
+            variant="ghost"
+            disabled={loading}
+            onClick={() => void load(items.length, true)}
+          >
+            {loading ? "加载中" : "加载更多"}
+          </Button>
+        )}
+        {loading && items.length === 0 && (
+          <p className="py-10 text-center text-xs text-muted-foreground">
+            正在加载…
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function useDebounced(value: string, delay: number): string {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
 }
 
 function ChatDesk({
@@ -1824,12 +2196,16 @@ function FeedList({
               )
             : await window.biliDesk.bili.getMessageFeed(kind, id, time);
         setItems((current) => {
-          if (append) return [...current, ...page.items];
-          if (kind !== "sent") return page.items;
-          const local = readLocalSent().filter(
-            (row) => !page.items.some((item) => item.id === row.id),
-          );
-          return [...local, ...page.items];
+          const mapped =
+            kind === "sent"
+              ? page.items.map(withSelfAvatar)
+              : page.items;
+          if (append) return [...current, ...mapped];
+          if (kind !== "sent") return mapped;
+          const local = readLocalSent()
+            .map(withSelfAvatar)
+            .filter((row) => !mapped.some((item) => item.id === row.id));
+          return [...local, ...mapped];
         });
         setCursorId(page.cursorId);
         setCursorTime(page.cursorTime);
@@ -1859,7 +2235,10 @@ function FeedList({
     const who = names.join("、") || "有人";
     const extra =
       item.counts > Math.max(1, names.length) ? ` 等 ${item.counts} 人` : "";
-    if (kind === "sent") return "我回复了";
+    if (kind === "sent") {
+      const selfName = item.users[0]?.name;
+      return selfName && selfName !== "我" ? `${selfName} 回复了` : "我回复了";
+    }
     if (kind === "like") return `${who}${extra} 赞了你`;
     if (kind === "at") return `${who}${extra} @ 了你`;
     return `${who}${extra} 回复了你`;
@@ -1896,19 +2275,33 @@ function FeedList({
             className="rounded-2xl border border-border/70 bg-card/40 p-4"
           >
             <div className="flex items-start gap-3">
-              <div className="flex -space-x-2">
-                {(item.users.slice(0, 3).length
-                  ? item.users.slice(0, 3)
-                  : [{ mid: 0, name: "用户", face: "" }]
-                ).map((user) => (
+              <div className="flex shrink-0 flex-col items-center gap-1">
+                <div className="flex -space-x-2">
+                  {(item.users.slice(0, 3).length
+                    ? item.users.slice(0, 3)
+                    : [{ mid: 0, name: "用户", face: "" }]
+                  ).map((user) => (
+                    <button
+                      key={`${user.mid}-${user.name}`}
+                      type="button"
+                      onClick={() => user.mid && navigate(`/up/${user.mid}`)}
+                      title={user.name}
+                    >
+                      <Avatar name={user.name} face={user.face} />
+                    </button>
+                  ))}
+                </div>
+                {kind === "reply" && item.users[0]?.name && (
                   <button
-                    key={`${user.mid}-${user.name}`}
                     type="button"
-                    onClick={() => user.mid && navigate(`/up/${user.mid}`)}
+                    className="max-w-[4.5rem] truncate text-[11px] text-muted-foreground hover:text-primary"
+                    onClick={() =>
+                      item.users[0]?.mid && navigate(`/up/${item.users[0].mid}`)
+                    }
                   >
-                    <Avatar name={user.name} face={user.face} />
+                    {item.users[0].name}
                   </button>
-                ))}
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -2020,15 +2413,26 @@ function FeedList({
                         )
                         .then((created) => {
                           const rpid = created?.rpid ?? 0;
+                          const self = useAppStore.getState().user;
                           rememberLocalSent({
                             id: rpid ? String(rpid) : `local-${Date.now()}`,
                             time: Math.floor(Date.now() / 1000),
-                            users: [{ mid: 0, name: "我", face: "" }],
+                            users: [
+                              {
+                                mid: self?.mid || 0,
+                                name: self?.name || "我",
+                                face: self?.face || "",
+                              },
+                            ],
                             counts: 1,
                             business: item.business,
                             title: item.title,
                             content: text,
-                            quote: item.content,
+                            quote: item.content
+                              ? item.users[0]?.name
+                                ? `回复 @${item.users[0].name}：${item.content}`
+                                : item.content
+                              : "",
                             cover: item.cover,
                             uri: item.uri,
                             subjectId: item.subjectId,

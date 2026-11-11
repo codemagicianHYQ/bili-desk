@@ -53,6 +53,9 @@ export const IPC = {
   BILI_WATCH_HEARTBEAT: "bili:watch-heartbeat",
   BILI_DANMAKU_LIST: "bili:danmaku-list",
   BILI_DANMAKU_SEND: "bili:danmaku-send",
+  BILI_COMMAND_DANMAKU_LIST: "bili:command-danmaku-list",
+  BILI_COMMAND_GRADE_POST: "bili:command-grade-post",
+  BILI_COMMAND_VOTE_POST: "bili:command-vote-post",
   BILI_COMMENT_LIST: "bili:comment-list",
   BILI_COMMENT_REPLIES: "bili:comment-replies",
   BILI_COMMENT_ADD: "bili:comment-add",
@@ -208,6 +211,12 @@ export const IPC = {
   BILI_MSG_SETTINGS_SET: "bili:msg-settings-set",
   BILI_MSG_BLOCK_ADD: "bili:msg-block-add",
   BILI_MSG_BLOCK_DEL: "bili:msg-block-del",
+
+  BILI_FOOTPRINT_LIST: "bili:footprint-list",
+  BILI_FOOTPRINT_SYNC: "bili:footprint-sync",
+  BILI_FOOTPRINT_SYNC_ABORT: "bili:footprint-sync-abort",
+  BILI_FOOTPRINT_SYNC_STATUS: "bili:footprint-sync-status",
+  BILI_FOOTPRINT_PROGRESS: "bili:footprint-progress",
 
   TAXONOMY_L1_LIST: "taxonomy:l1-list",
   TAXONOMY_L1_CREATE: "taxonomy:l1-create",

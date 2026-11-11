@@ -9,6 +9,7 @@ import axios, {
 import { createHash } from "crypto";
 import { session } from "electron";
 import { defaultHeaders, getCsrf, invalidateWbiCache, signParams } from "./wbi";
+import { decodeDmWebViewCommandDms } from "./dm-command-proto";
 import { buildDashMpdXml } from "@shared/utils/bilibili-dash";
 import { wrapMediaUrl, wrapMpd } from "./media-proxy";
 import {
@@ -68,6 +69,10 @@ import type {
   VideoPlayInfo,
   DanmakuItem,
   SendDanmakuPayload,
+  CommandDanmakuItem,
+  CommandDanmakuKind,
+  PostCommandGradePayload,
+  PostCommandVotePayload,
   VideoRelation,
   UgcTripleResult,
   VideoAiSummary,
@@ -285,6 +290,70 @@ function decodeXmlEntities(text: string): string {
     .replace(/&amp;/g, "&");
 }
 
+function commandKindOf(command: string): CommandDanmakuKind {
+  if (command === "#GRADE#") return "grade";
+  if (command === "#VOTE#") return "vote";
+  if (command === "#ATTENTION#") return "attention";
+  return "other";
+}
+
+function normalizeCommandDanmaku(raw: {
+  id: string;
+  command: string;
+  content: string;
+  progress: number;
+  extra: string;
+}): CommandDanmakuItem {
+  let extra: Record<string, unknown> = {};
+  try {
+    extra = raw.extra ? (JSON.parse(raw.extra) as Record<string, unknown>) : {};
+  } catch {
+    extra = {};
+  }
+  const kind = commandKindOf(raw.command);
+  const optionsRaw = Array.isArray(extra.options) ? extra.options : [];
+  const options = optionsRaw
+    .map((item) => {
+      const row = (item ?? {}) as Record<string, unknown>;
+      return {
+        idx: Number(row.idx) || 0,
+        desc: String(row.desc ?? ""),
+        count: Number(row.cnt ?? row.count) || 0,
+      };
+    })
+    .filter((item) => item.idx > 0);
+
+  const title =
+    String(extra.msg ?? "") ||
+    String(extra.question ?? "") ||
+    raw.content ||
+    "";
+
+  return {
+    id: raw.id || `${raw.command}:${raw.progress}`,
+    command: raw.command,
+    kind,
+    progress: Math.max(0, Number(raw.progress) || 0),
+    duration: Math.max(
+      3000,
+      Number(extra.duration) || (kind === "vote" ? 7000 : 5000),
+    ),
+    content: raw.content || title,
+    title,
+    count: Number(extra.count ?? extra.cnt) || 0,
+    gradeId: Number(extra.grade_id) || undefined,
+    midScore: Number(extra.mid_score) || 0,
+    avgScore:
+      extra.avg_score == null || extra.avg_score === ""
+        ? undefined
+        : Number(extra.avg_score),
+    voteId: Number(extra.vote_id) || undefined,
+    myVote: Number(extra.my_vote) || 0,
+    options: options.length > 0 ? options : undefined,
+    skinFontColor: String(extra.skin_font_color ?? "") || undefined,
+  };
+}
+
 /** 解析经典弹幕 XML（`<d p="time,mode,size,color,...">text</d>`） */
 const MAX_DANMAKU_ITEMS = 4000;
 
@@ -472,7 +541,7 @@ class BiliApiService {
           status: "failed",
           message: "登录成功但未能读取用户信息，请重试",
         };
-        }
+      }
       return { status: "confirmed", user };
     }
 
@@ -790,8 +859,8 @@ class BiliApiService {
       const spiRes = await axios.get(
         "https://api.bilibili.com/x/frontend/finger/spi",
         {
-        headers: defaultHeaders(),
-        timeout: 10000,
+          headers: defaultHeaders(),
+          timeout: 10000,
           validateStatus: () => true,
         },
       );
@@ -2363,10 +2432,10 @@ class BiliApiService {
     const aid = bvToAid(bvid);
 
     const tryFetch = async (path: string) => {
-    const params = await signParams({
+      const params = await signParams({
         ...(aid > 0 ? { aid } : {}),
-      bvid,
-      cid,
+        bvid,
+        cid,
       });
       return this.client.get(path, {
         params,
@@ -3441,7 +3510,7 @@ class BiliApiService {
         cid,
         qn: requestedQn,
         fnval,
-      fnver: 0,
+        fnver: 0,
         fourk,
         otype: "json",
         ...extra,
@@ -4202,6 +4271,102 @@ class BiliApiService {
     if (res.data?.code !== 0) {
       throw new Error((res.data?.message as string) || "发送弹幕失败");
     }
+
+    try {
+      const { captureLocalDanmaku } = await import("./footprint-capture");
+      captureLocalDanmaku({
+        message,
+        bvid: payload.bvid,
+        progress: payload.progress,
+      });
+    } catch {
+      // 足迹写入失败不影响发弹幕
+    }
+  }
+
+  /** 互动弹幕（评分 / 投票等），来自 dm/web/view protobuf */
+  async getCommandDanmakuList(
+    aid: number,
+    cid: number,
+  ): Promise<CommandDanmakuItem[]> {
+    await this.ensureBuvid3();
+    const res = await this.client.get("/x/v2/dm/web/view", {
+      params: { type: 1, oid: cid, pid: aid },
+      responseType: "arraybuffer",
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.status !== 200) {
+      throw new Error(`获取互动弹幕失败：HTTP ${res.status}`);
+    }
+    const buf = new Uint8Array(res.data as ArrayBuffer);
+    return decodeDmWebViewCommandDms(buf)
+      .map((raw) => normalizeCommandDanmaku(raw))
+      .filter((item) => item.kind === "grade" || item.kind === "vote")
+      .sort((a, b) => a.progress - b.progress);
+  }
+
+  async postCommandGrade(
+    payload: PostCommandGradePayload,
+  ): Promise<{ midScore: number }> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再评分");
+    const hearts = Math.min(5, Math.max(1, Math.round(payload.hearts)));
+    const gradeScore = hearts * 2;
+    const body = new URLSearchParams({
+      aid: String(payload.aid),
+      cid: String(payload.cid),
+      progress: String(Math.max(0, Math.floor(payload.progress))),
+      grade_id: String(payload.gradeId),
+      grade_score: String(gradeScore),
+      csrf,
+    });
+    const res = await this.client.post("/x/v2/dm/command/grade/post", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "评分失败");
+    }
+    return { midScore: gradeScore };
+  }
+
+  async postCommandVote(
+    payload: PostCommandVotePayload,
+  ): Promise<{ myVote: number }> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再投票");
+    const body = new URLSearchParams({
+      aid: String(payload.aid),
+      cid: String(payload.cid),
+      progress: String(Math.max(0, Math.floor(payload.progress))),
+      vote_id: String(payload.voteId),
+      idx: String(payload.idx),
+      csrf,
+    });
+    const res = await this.client.post("/x/v2/dm/command/vote/post", body, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: "https://www.bilibili.com/",
+      },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "投票失败");
+    }
+    return { myVote: payload.idx };
   }
 
   /**
@@ -6556,7 +6721,7 @@ class BiliApiService {
       path,
       new URLSearchParams({ ...fields, csrf }),
       {
-      headers: {
+        headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           Referer: "https://space.bilibili.com/",
           Origin: "https://space.bilibili.com",
@@ -6875,7 +7040,7 @@ class BiliApiService {
         void axios
           .post(
             "https://api.bilibili.com/x/relation/modify",
-      new URLSearchParams({
+            new URLSearchParams({
               fid: String(fid),
               act: follow ? "1" : "2",
               re_src: "11",
@@ -7549,7 +7714,7 @@ class BiliApiService {
       const res = await this.client.get(
         "https://s.search.bilibili.com/main/suggest",
         {
-        params: {
+          params: {
             term: trimmed,
             main_ver: "v1",
             highlight: "",
@@ -8132,9 +8297,9 @@ class BiliApiService {
   ): Promise<{ ok: true; page: UpVideosPage } | { ok: false; error: Error }> {
     const baseParams: Record<string, string | number> = {
       mid: String(mid),
-          pn: page,
+      pn: page,
       ps: pageSize,
-          tid: 0,
+      tid: 0,
       keyword,
       order,
       platform: "web",
@@ -8172,14 +8337,14 @@ class BiliApiService {
 
         const res = await this.client.get(url, {
           params,
-        headers: { Referer: referer },
+          headers: { Referer: referer },
           validateStatus: () => true,
           timeout: 10000,
         });
 
         const payload = res.data;
         const code = payload?.code as number | undefined;
-      if (code === 0) {
+        if (code === 0) {
           const vlist = (payload?.data?.list?.vlist ?? []) as Record<
             string,
             unknown
@@ -8193,12 +8358,12 @@ class BiliApiService {
             lastError = new Error("投稿翻页返回空数据，正在尝试其它通道");
             break;
           }
-        return {
+          return {
             ok: true,
             page: {
-          videos: vlist.map((item) => this.normalizeSpaceVideo(item, mid)),
-          page,
-          total,
+              videos: vlist.map((item) => this.normalizeSpaceVideo(item, mid)),
+              page,
+              total,
               hasMore: vlist.length >= ps || page * ps < total,
             },
           };
@@ -8215,9 +8380,9 @@ class BiliApiService {
           if (mode === "wbi") invalidateWbiCache();
           await sleep(code === -799 ? 1600 : mode === "wbi" ? 700 : 500);
           continue;
-      }
+        }
 
-      if (code === -799) {
+        if (code === -799) {
           lastError = new Error("请求过于频繁，请稍后再试");
           break;
         }
@@ -8694,25 +8859,25 @@ class BiliApiService {
       !cache.exhausted &&
       cache.searchPage <= maxScans
     ) {
-    const params = await signParams({
+      const params = await signParams({
         search_type: "video",
-      keyword: upName,
+        keyword: upName,
         page: cache.searchPage,
         page_size: apiPageSize,
         order,
         platform: "pc",
-      single_column: 0,
+        single_column: 0,
         source: "",
       });
 
       const res = await this.client.get("/x/web-interface/wbi/search/type", {
-      params,
+        params,
         headers: { Referer: "https://search.bilibili.com/" },
         validateStatus: () => true,
         timeout: 10000,
       });
 
-    if (res.data?.code !== 0) {
+      if (res.data?.code !== 0) {
         // 搜索也被拦时抛错，让上层展示真实原因，而不是落到「请求错误」
         throw new Error(
           String(res.data?.message ?? "") || "搜索投稿失败，请稍后重试",
@@ -9639,7 +9804,16 @@ class BiliApiService {
     const reply = (
       res.data?.data as { reply?: Record<string, unknown> } | undefined
     )?.reply;
-    return reply ? this.normalizeCommentItem(reply) : null;
+    const item = reply ? this.normalizeCommentItem(reply) : null;
+    if (item) {
+      try {
+        const { captureLocalComment } = await import("./footprint-capture");
+        captureLocalComment(item, type);
+      } catch {
+        // 足迹写入失败不影响发评论
+      }
+    }
+    return item;
   }
 
   private async uploadDrawImages(

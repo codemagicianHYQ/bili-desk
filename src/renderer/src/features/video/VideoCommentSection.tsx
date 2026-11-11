@@ -220,10 +220,38 @@ export function VideoCommentSection({
 
   const loadFocusedReplies = useCallback(
     async (root: number) => {
-      const page = await window.biliDesk.bili.getCommentReplies(aid, root, 1);
-      return page.comments;
+      const collected: CommentItem[] = [];
+      const seen = new Set<number>();
+      let pageNo = 1;
+      let hasMore = true;
+      while (hasMore && pageNo <= 15) {
+        const page = await window.biliDesk.bili.getCommentReplies(
+          aid,
+          root,
+          pageNo,
+        );
+        for (const item of page.comments) {
+          if (seen.has(item.rpid)) continue;
+          seen.add(item.rpid);
+          collected.push(item);
+        }
+        hasMore = page.hasMore && page.comments.length > 0;
+        // 已拉到定位评论所在页后，再多拉一页尽量补齐同层兄弟
+        if (
+          collected.some(
+            (item) =>
+              item.rpid === focusRpid ||
+              item.replies?.some((reply) => reply.rpid === focusRpid),
+          ) &&
+          pageNo >= 2
+        ) {
+          break;
+        }
+        pageNo += 1;
+      }
+      return collected;
     },
-    [aid],
+    [aid, focusRpid],
   );
   useFocusComment({
     comments,

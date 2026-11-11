@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { BinaryImageFile, CommentItem } from "@shared/types";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
@@ -18,6 +18,11 @@ import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn } from "@/lib/utils";
 import { ChevronDown, MessageSquareText, Zap } from "lucide-react";
+
+function treeHasRpid(item: CommentItem, rpid: number): boolean {
+  if (item.rpid === rpid) return true;
+  return item.replies.some((reply) => treeHasRpid(reply, rpid));
+}
 
 export interface CommentThreadHandlers {
   like: (item: CommentItem, next: boolean) => Promise<void>;
@@ -98,6 +103,7 @@ export function CommentThread({
   const level = item.member.level;
   const isSenior = Boolean(item.member.isSeniorMember);
   const hasKids = tree.length > 0;
+  const autoExpandRef = useRef(0);
 
   const toggleCollapsed = (rpid: number) => {
     setCollapsed((prev) => {
@@ -193,28 +199,62 @@ export function CommentThread({
   };
 
   const loadMoreReplies = async () => {
-    if (loadingMore || nested || !handlers.loadMoreReplies) return;
+    if (loadingMore || nested || !handlers.loadMoreReplies) return false;
     setLoadingMore(true);
     setError("");
     try {
       const nextPage = moreReplies.length === 0 ? 1 : morePage + 1;
       const page = await handlers.loadMoreReplies(item, nextPage);
+      let added = 0;
       setMoreReplies((prev) => {
         const seen = new Set(prev.map((reply) => reply.rpid));
         item.replies.forEach((reply) => seen.add(reply.rpid));
         const merged = [...prev];
         for (const reply of page.comments) {
-          if (!seen.has(reply.rpid)) merged.push(reply);
+          if (seen.has(reply.rpid)) continue;
+          seen.add(reply.rpid);
+          merged.push(reply);
+          added += 1;
         }
         return merged;
       });
       setMorePage(nextPage);
+      return added > 0;
     } catch (err) {
       setError(err instanceof Error ? err.message : "楼中楼加载失败");
+      return false;
     } finally {
       setLoadingMore(false);
     }
   };
+
+  // 定位进楼时自动把剩余楼中楼翻完，避免只剩 seek 那一条链路
+  useEffect(() => {
+    if (nested || !highlightRpid || highlightRpid === autoExpandRef.current) {
+      return;
+    }
+    const inThisRoot =
+      item.rpid === highlightRpid || treeHasRpid(item, highlightRpid);
+    if (!inThisRoot) return;
+    if (item.rcount <= loadedCount) {
+      autoExpandRef.current = highlightRpid;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      let guard = 0;
+      while (!cancelled && guard < 20) {
+        const got = await loadMoreReplies();
+        guard += 1;
+        if (!got) break;
+      }
+      if (!cancelled) autoExpandRef.current = highlightRpid;
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 定位命中后自动翻页，避免 loadedCount 抖动重入
+  }, [highlightRpid, item.rpid, item.replies.length, item.rcount, nested]);
 
   const bubbleDeleted = (rpid: number) => {
     setMoreReplies((prev) => stripComment(prev, rpid).list);

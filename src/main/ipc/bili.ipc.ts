@@ -22,7 +22,18 @@ import type {
   DynamicPublishOptions,
   CollectionClassifyMode,
   FollowingOrder,
+  FootprintListQuery,
+  FootprintSyncKinds,
+  PostCommandGradePayload,
+  PostCommandVotePayload,
 } from "@shared/types";
+import { appStore } from "../store/app-store";
+import { listFootprint } from "../store/footprint-store";
+import {
+  abortFootprintSync,
+  getFootprintSyncStatus,
+  startFootprintSync,
+} from "../services/footprint-sync";
 import { biliApi } from "../services/bili-api";
 import {
   classifyCollections,
@@ -241,6 +252,17 @@ export function registerBiliIpc(): void {
   );
   ipcMain.handle(IPC.BILI_DANMAKU_SEND, (_e, payload) =>
     biliApi.sendDanmaku(payload),
+  );
+  handleIpc(IPC.BILI_COMMAND_DANMAKU_LIST, async (_e, ...args: unknown[]) => {
+    const aid = Number(args[0]) || 0;
+    const cid = Number(args[1]) || 0;
+    return biliApi.getCommandDanmakuList(aid, cid);
+  });
+  handleIpc(IPC.BILI_COMMAND_GRADE_POST, async (_e, ...args: unknown[]) =>
+    biliApi.postCommandGrade(args[0] as PostCommandGradePayload),
+  );
+  handleIpc(IPC.BILI_COMMAND_VOTE_POST, async (_e, ...args: unknown[]) =>
+    biliApi.postCommandVote(args[0] as PostCommandVotePayload),
   );
   ipcMain.handle(
     IPC.BILI_COMMENT_LIST,
@@ -961,5 +983,37 @@ export function registerBiliIpc(): void {
   );
   handleIpc(IPC.BILI_MSG_BLOCK_DEL, (_e, word: string) =>
     messageApi.removeBlockWord(word),
+  );
+
+  handleIpc(IPC.BILI_FOOTPRINT_LIST, async (_e, ...args: unknown[]) => {
+    const query = (args[0] as FootprintListQuery | undefined) ?? {
+      kind: "comment" as const,
+    };
+    const uid =
+      Number(appStore.get("cookies").DedeUserID) ||
+      Number(appStore.get("user")?.mid) ||
+      0;
+    if (uid <= 0) {
+      return {
+        items: [],
+        total: 0,
+        syncedAt: null,
+        hasMore: false,
+        replyDone: false,
+        danmakuDone: false,
+      };
+    }
+    return listFootprint(uid, query);
+  });
+  handleIpc(IPC.BILI_FOOTPRINT_SYNC, async (_e, ...args: unknown[]) => {
+    const kinds = (args[0] as FootprintSyncKinds | undefined) ?? "all";
+    const options = args[1] as { reset?: boolean } | undefined;
+    return startFootprintSync(kinds, options);
+  });
+  handleIpc(IPC.BILI_FOOTPRINT_SYNC_ABORT, async () => {
+    abortFootprintSync();
+  });
+  handleIpc(IPC.BILI_FOOTPRINT_SYNC_STATUS, async () =>
+    getFootprintSyncStatus(),
   );
 }

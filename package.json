@@ -68,6 +68,10 @@
       {
         "from": "resources/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "resources/aicu-fetch.py",
+        "to": "aicu-fetch.py"
       }
     ],
     "win": {

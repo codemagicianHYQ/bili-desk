@@ -12,6 +12,8 @@ import type {
   RecommendDislikePayload,
   DanmakuCloudConfig,
   SendDanmakuPayload,
+  PostCommandGradePayload,
+  PostCommandVotePayload,
   WatchHeartbeatPayload,
   Theme,
   DynamicFeedType,
@@ -38,6 +40,9 @@ import type {
   DanmakuFilterKind,
   DynamicPublishOptions,
   WindowState,
+  FootprintListQuery,
+  FootprintSyncKinds,
+  FootprintSyncProgress,
 } from "@shared/types";
 
 const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
@@ -52,6 +57,10 @@ const upActivityProgressCallbacks = new Set<
   (progress: UpActivityScanProgress) => void
 >();
 let upActivityProgressIpcBound = false;
+const footprintProgressCallbacks = new Set<
+  (progress: FootprintSyncProgress) => void
+>();
+let footprintProgressIpcBound = false;
 
 function subscribeFullscreenChange(callback: (on: boolean) => void) {
   if (!fullscreenIpcBound) {
@@ -142,6 +151,26 @@ function subscribeUpActivityProgress(
   upActivityProgressCallbacks.add(callback);
   return () => {
     upActivityProgressCallbacks.delete(callback);
+  };
+}
+
+function subscribeFootprintProgress(
+  callback: (progress: FootprintSyncProgress) => void,
+) {
+  if (!footprintProgressIpcBound) {
+    footprintProgressIpcBound = true;
+    ipcRenderer.on(
+      IPC.BILI_FOOTPRINT_PROGRESS,
+      (_event, progress: FootprintSyncProgress) => {
+        for (const cb of footprintProgressCallbacks) {
+          cb(progress);
+        }
+      },
+    );
+  }
+  footprintProgressCallbacks.add(callback);
+  return () => {
+    footprintProgressCallbacks.delete(callback);
   };
 }
 
@@ -257,6 +286,12 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_DANMAKU_LIST, cid),
     sendDanmaku: (payload: SendDanmakuPayload) =>
       ipcRenderer.invoke(IPC.BILI_DANMAKU_SEND, payload),
+    getCommandDanmakuList: (aid: number, cid: number) =>
+      ipcRenderer.invoke(IPC.BILI_COMMAND_DANMAKU_LIST, aid, cid),
+    postCommandGrade: (payload: PostCommandGradePayload) =>
+      ipcRenderer.invoke(IPC.BILI_COMMAND_GRADE_POST, payload),
+    postCommandVote: (payload: PostCommandVotePayload) =>
+      ipcRenderer.invoke(IPC.BILI_COMMAND_VOTE_POST, payload),
     getDanmakuFilters: () => ipcRenderer.invoke(IPC.BILI_DM_FILTERS),
     addDanmakuFilter: (text: string, kind?: DanmakuFilterKind) =>
       ipcRenderer.invoke(IPC.BILI_DM_FILTER_ADD, text, kind ?? "text"),
@@ -844,6 +879,18 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_MSG_BLOCK_ADD, word),
     removeMessageBlockWord: (word: string) =>
       ipcRenderer.invoke(IPC.BILI_MSG_BLOCK_DEL, word),
+    listFootprint: (query: FootprintListQuery) =>
+      ipcRenderer.invoke(IPC.BILI_FOOTPRINT_LIST, query),
+    syncFootprint: (
+      kinds?: FootprintSyncKinds,
+      options?: { reset?: boolean },
+    ) => ipcRenderer.invoke(IPC.BILI_FOOTPRINT_SYNC, kinds ?? "all", options),
+    abortFootprintSync: () => ipcRenderer.invoke(IPC.BILI_FOOTPRINT_SYNC_ABORT),
+    getFootprintSyncStatus: () =>
+      ipcRenderer.invoke(IPC.BILI_FOOTPRINT_SYNC_STATUS),
+    onFootprintProgress: (
+      callback: (progress: FootprintSyncProgress) => void,
+    ) => subscribeFootprintProgress(callback),
   },
   taxonomy: {
     getTree: () => ipcRenderer.invoke(IPC.TAXONOMY_TREE),

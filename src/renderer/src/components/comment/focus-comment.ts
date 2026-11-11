@@ -10,14 +10,21 @@ export function mergeCommentReplies(
   root: CommentItem,
   extra: CommentItem[],
 ): CommentItem {
-  const seen = new Set(root.replies.map((reply) => reply.rpid));
-  const replies = [...root.replies];
-  for (const reply of extra) {
-    if (seen.has(reply.rpid)) continue;
+  const seen = new Set<number>();
+  const replies: CommentItem[] = [];
+  const push = (reply: CommentItem) => {
+    if (seen.has(reply.rpid)) return;
     seen.add(reply.rpid);
     replies.push(reply);
-  }
-  return { ...root, replies };
+  };
+  // 以接口全量页为主：seek_rpid 常只带定位路径，先放 extra 再补原路径上的节点
+  for (const reply of extra) push(reply);
+  for (const reply of root.replies) push(reply);
+  return {
+    ...root,
+    replies,
+    rcount: Math.max(root.rcount, replies.length),
+  };
 }
 
 export function scrollCommentIntoView(rpid: number): boolean {
@@ -51,19 +58,20 @@ export function useFocusComment(options: {
       const timer = window.setInterval(() => {
         const found = scrollCommentIntoView(focusRpid);
         tries += 1;
-        if (found || tries > 12) window.clearInterval(timer);
+        if (found || tries > 16) window.clearInterval(timer);
       }, 140);
       return () => window.clearInterval(timer);
     };
 
-    if (commentTreeHas(root, focusRpid) || pulledRef.current === focusRpid) {
+    // seek_rpid 已命中时树里往往只有定位链路，仍须拉全量楼中楼补齐兄弟评论
+    if (pulledRef.current === focusRpid) {
       return reveal();
     }
     if (!loadReplies) return reveal();
 
     pulledRef.current = focusRpid;
     let cancel = false;
-    let stopScroll = () => undefined;
+    let stopScroll: () => void = () => {};
     void loadReplies(root.rpid)
       .then((extra) => {
         if (cancel) return;
