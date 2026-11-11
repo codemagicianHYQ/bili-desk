@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Heart, X } from "lucide-react";
 import type { CommandDanmakuItem } from "@shared/types";
 import { cn } from "@/lib/utils";
@@ -76,7 +77,7 @@ export function CommandDanmakuOverlay({
         count: item.count + (item.midScore ? 0 : 1),
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatDisplayedError(err, undefined, "操作失败"));
     } finally {
       setBusyId("");
     }
@@ -103,7 +104,7 @@ export function CommandDanmakuOverlay({
         options,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatDisplayedError(err, undefined, "操作失败"));
     } finally {
       setBusyId("");
     }

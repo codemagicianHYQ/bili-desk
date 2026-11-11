@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type {
   HotSearchItem,
   RecommendDislikeReason,
@@ -63,11 +64,7 @@ function formatCountBadge(n: number): string {
 }
 
 function formatSearchError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "搜索失败";
-  if (message.includes("412") || message.includes("安全策略")) {
-    return "请求被 B 站安全策略拦截，请稍后重试";
-  }
-  return message;
+  return formatDisplayedError(err, undefined, "搜索失败");
 }
 
 /** 前缀匹配高亮（官网 suggest 同款视觉） */

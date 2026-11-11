@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { RecommendDislikeReason, VideoItem } from "@shared/types";
-import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { extractIpcErrorMessage, formatDisplayedError } from "@/lib/ipc-error";
 
 /** 防止推荐无限滚动把堆内存撑爆（首页常挂载 + Zustand 跨路由不清空） */
 const MAX_FEED_VIDEOS = 240;
@@ -80,7 +80,7 @@ export const useHomeFeedStore = create<HomeFeedState>((set, get) => ({
       });
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : "加载推荐失败",
+        error: formatDisplayedError(err, undefined, "加载推荐失败"),
         loading: false,
       });
     }
@@ -125,7 +125,7 @@ export const useHomeFeedStore = create<HomeFeedState>((set, get) => ({
       });
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : "加载更多失败",
+        error: formatDisplayedError(err, undefined, "加载更多失败"),
         loadingMore: false,
       });
     }
@@ -161,7 +161,7 @@ export const useHomeFeedStore = create<HomeFeedState>((set, get) => ({
       });
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : "刷新失败",
+        error: formatDisplayedError(err, undefined, "刷新失败"),
         refreshing: false,
       });
     }

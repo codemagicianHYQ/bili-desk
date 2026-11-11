@@ -1,14 +1,22 @@
+import {
+  describeBiliFailure,
+  formatBiliFailureText,
+  stripIpcErrorText,
+  type BiliFailureHint,
+} from "@shared/bili-error";
+
 /** 解开 Electron IPC 包装后的真实错误文案 */
 export function extractIpcErrorMessage(err: unknown): string {
-  let message = "";
-  if (err instanceof Error) message = err.message;
-  else if (typeof err === "string") message = err;
-  else if (err != null) message = String(err);
+  return stripIpcErrorText(err);
+}
 
-  const match = message.match(
-    /Error invoking remote method '[^']+': (?:(?:Error|TypeError|RangeError): )?([\s\S]+)$/,
-  );
-  return (match?.[1] ?? message).trim();
+/** 页面上展示的一句话原因（含删除、下架、未登录、风控等） */
+export function formatDisplayedError(
+  err: unknown,
+  hint?: BiliFailureHint,
+  fallback = "操作失败，请稍后重试",
+): string {
+  return formatBiliFailureText(err, hint, fallback);
 }
 
 /** 评论区被关闭（正常业务态，不是系统故障） */
@@ -31,7 +39,10 @@ export function formatCommentLoadError(err: unknown): {
   if (isCommentClosedMessage(raw)) {
     return { closed: true, message: "UP主已关闭评论区" };
   }
-  return { closed: false, message: raw || "评论加载失败" };
+  return {
+    closed: false,
+    message: formatDisplayedError(err, undefined, "评论加载失败"),
+  };
 }
 
 /** UP 主页 / 用户空间相关错误，转成可读原因 */
@@ -84,5 +95,24 @@ export function formatUserSpaceError(err: unknown): string {
     return "投稿接口触发风控，请稍后重试或重新登录";
   }
 
-  return raw;
+  return formatDisplayedError(err, "user", "加载失败，请稍后重试");
+}
+
+export interface ContentUnavailableCopy {
+  title: string;
+  detail: string;
+}
+
+/** 视频 / 动态打不开时的具体原因 */
+export function describeContentUnavailable(
+  kind: "video" | "dynamic",
+  err: unknown,
+): ContentUnavailableCopy {
+  return describeBiliFailure(
+    err,
+    kind,
+    kind === "video"
+      ? "视频信息获取失败，请稍后重试。"
+      : "动态加载失败，请稍后重试。",
+  );
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Tv } from "lucide-react";
 import type { SearchMediaItem, SearchMediaKind } from "@shared/types";
@@ -11,12 +12,7 @@ import { cn, formatPubdate } from "@/lib/utils";
 const PAGE_SIZE = 20;
 
 function formatError(err: unknown, kind: SearchMediaKind): string {
-  const fallback = kind === "bangumi" ? "搜索番剧失败" : "搜索影视失败";
-  const message = err instanceof Error ? err.message : fallback;
-  if (message.includes("412") || message.includes("安全策略")) {
-    return "请求被 B 站安全策略拦截，请稍后重试";
-  }
-  return message;
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 interface SearchMediaPanelProps {

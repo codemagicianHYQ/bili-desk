@@ -137,6 +137,7 @@ import type {
   HistoryFeedType,
   HistoryFilters,
   HistoryItem,
+  FootprintItem,
   HistoryPage,
   UserCollectionItem,
   UserCollectionsPage,
@@ -249,10 +250,18 @@ function orderMediaUrls(
 const BILI_CODE_TEXT: Record<number, string> = {
   [-101]: "账号未登录",
   [-111]: "csrf 校验失败，请重新登录",
+  [-352]: "请求被风控拦截，请稍后重试或重新登录",
   [-400]: "请求参数错误",
   [-403]: "没有权限",
   [-404]: "内容不存在",
-  [-412]: "请求被安全策略拦截",
+  [-412]: "请求被安全策略拦截，请稍后重试",
+  [-509]: "请求过于频繁，请稍后再试",
+  [-799]: "请求过于频繁，请稍后再试",
+  62002: "视频不可见",
+  62004: "视频审核中",
+  62012: "视频已删除",
+  4101129: "动态已删除",
+  4101140: "动态已删除",
 };
 
 function looksGarbled(text: string): boolean {
@@ -266,12 +275,14 @@ function formatBiliApiError(
   const code = Number(data?.code);
   const mapped = Number.isFinite(code) ? BILI_CODE_TEXT[code] : undefined;
   const raw = typeof data?.message === "string" ? data.message.trim() : "";
-  const usable = raw && raw !== "0" && !looksGarbled(raw);
-  if (usable) {
-    return Number.isFinite(code) && code !== 0 ? `${raw}（code=${code}）` : raw;
-  }
-  if (mapped) return `${mapped}（code=${code}）`;
-  if (Number.isFinite(code) && code !== 0) return `${fallback}（code=${code}）`;
+  const numericOnly = /^-?\d+$/.test(raw);
+  const usable =
+    Boolean(raw) && raw !== "0" && !numericOnly && !looksGarbled(raw);
+  if (mapped && (!usable || raw === mapped)) return mapped;
+  if (usable) return raw;
+  if (mapped) return mapped;
+  if (Number.isFinite(code) && code !== 0)
+    return `${fallback}（错误码 ${code}）`;
   return fallback;
 }
 
@@ -389,6 +400,29 @@ function parseDanmakuXml(xml: string): DanmakuItem[] {
   return items;
 }
 
+function explainVideoViewError(code: number, message: string): string {
+  const text = message.trim();
+  if (code === 62012 || /已删除/.test(text)) return "视频已删除";
+  if (code === 62002 || /不可见/.test(text)) return "视频不可见";
+  if (code === 62004 || /审核/.test(text)) return "视频审核中";
+  if (code === -404 || code === 404 || /啥都木有|不存在/.test(text)) {
+    return "视频不存在";
+  }
+  if (code === -403 || /权限不足|访问权限/.test(text))
+    return "没有权限观看该视频";
+  if (text && !/^-?\d+$/.test(text)) return text;
+  return "视频信息获取失败";
+}
+
+function explainDynamicDetailError(code: number, message: string): string {
+  const text = message.trim();
+  if (/删除/.test(text)) return "动态已删除";
+  if (/不可见|仅自己可见|权限/.test(text)) return "动态不可见";
+  if (/不存在|失效|下架/.test(text)) return "动态不存在或已失效";
+  if (code === 4101140 || code === 4101129) return "动态已删除";
+  if (text && !/^-?\d+$/.test(text)) return text;
+  return "动态不存在或已失效";
+}
 export const BILI_RISK_CONTROL_MESSAGE = "请求被 B 站安全策略拦截，请稍后重试";
 
 class BiliApiService {
@@ -2258,11 +2292,16 @@ class BiliApiService {
       throw new Error("[412] 请求被 B 站安全策略拦截，请稍后重试");
     }
     if (viewRes.data?.code !== 0) {
-      throw new Error(viewRes.data?.message || "视频信息获取失败");
+      throw new Error(
+        explainVideoViewError(
+          Number(viewRes.data?.code) || 0,
+          String(viewRes.data?.message || ""),
+        ),
+      );
     }
 
     const view = viewRes.data?.data;
-    if (!view?.bvid) throw new Error("Video not found");
+    if (!view?.bvid) throw new Error("视频不存在");
 
     const firstCid = Number(view.pages?.[0]?.cid) || undefined;
     const tags = await this.getVideoTags(view.bvid, view.aid, firstCid);
@@ -3930,7 +3969,7 @@ class BiliApiService {
       (seasonCode !== undefined && seasonCode !== 0 && seasonCode !== "0") ||
       !result
     ) {
-      throw new Error((res.data?.message as string) || "剧集加载失败");
+      throw new Error(formatBiliApiError(res.data, "剧集加载失败"));
     }
     const status = (result.user_status ?? {}) as Record<string, unknown>;
     const rating = (result.rating ?? {}) as Record<string, unknown>;
@@ -4417,9 +4456,16 @@ class BiliApiService {
       throw new Error((res.data?.message as string) || "评论加载失败");
     }
 
-    return this.normalizeCommentPage(res.data?.data, page, pageSize, {
-      includeTop: isFirst,
-    });
+    const commentPage = this.normalizeCommentPage(
+      res.data?.data,
+      page,
+      pageSize,
+      {
+        includeTop: isFirst,
+      },
+    );
+    this.rememberOwnComments(commentPage.comments, type);
+    return commentPage;
   }
 
   async getComments(
@@ -4489,7 +4535,13 @@ class BiliApiService {
       throw new Error((res.data?.message as string) || "楼中楼加载失败");
     }
 
-    return this.normalizeCommentPage(res.data?.data, page, pageSize);
+    const commentPage = this.normalizeCommentPage(
+      res.data?.data,
+      page,
+      pageSize,
+    );
+    this.rememberOwnComments(commentPage.comments, 1);
+    return commentPage;
   }
 
   async addComment(
@@ -4595,6 +4647,329 @@ class BiliApiService {
       },
       pin ? "置顶评论失败" : "取消置顶失败",
     );
+  }
+
+  /**
+   * B 站没有「我发出的全部评论」接口。
+   * 顺着近 50 天的观看记录逐个视频翻时间序评论，把里面属于自己的发言找出来。
+   */
+  async listOwnCommentsFromRecentHistory(
+    uid: number,
+    onProgress?: (done: number, total: number, batch: FootprintItem[]) => void,
+    shouldStop?: () => boolean,
+  ): Promise<{ items: FootprintItem[]; note: string }> {
+    if (uid <= 0) return { items: [], note: "" };
+    const cutoff = Math.floor(Date.now() / 1000) - 50 * 24 * 3600;
+    const targets: { oid: number; type: number; bvid?: string }[] = [];
+    const seenTarget = new Set<string>();
+    let cursor: HistoryCursor | undefined;
+    let note = "";
+
+    for (let page = 0; page < 15 && targets.length < 80; page += 1) {
+      if (shouldStop?.()) break;
+      let history: HistoryPage;
+      try {
+        history = await this.fetchHistoryCursorPage("all", cursor);
+      } catch (error) {
+        note = error instanceof Error ? error.message : String(error);
+        break;
+      }
+      let reachedCutoff = false;
+      for (const item of history.items) {
+        if (item.viewAt > 0 && item.viewAt < cutoff) {
+          reachedCutoff = true;
+          break;
+        }
+        const type =
+          item.business === "article"
+            ? 12
+            : item.business === "archive" || item.bvid
+              ? 1
+              : 0;
+        if (!type || item.oid <= 0) continue;
+        const key = `${type}:${item.oid}`;
+        if (seenTarget.has(key)) continue;
+        seenTarget.add(key);
+        targets.push({ oid: item.oid, type, bvid: item.bvid });
+        if (targets.length >= 80) break;
+      }
+      if (reachedCutoff || !history.hasMore) break;
+      cursor = history.cursor;
+    }
+
+    const found: FootprintItem[] = [];
+    const seenRpid = new Set<string>();
+    for (let index = 0; index < targets.length; index += 1) {
+      if (shouldStop?.()) break;
+      const target = targets[index];
+      const batch: FootprintItem[] = [];
+      let offset = "";
+      let cursorNext = 0;
+      for (let round = 0; round < 4; round += 1) {
+        if (shouldStop?.()) break;
+        const page = await this.fetchTimeSortedReplies(
+          target.oid,
+          target.type,
+          offset,
+          cursorNext,
+        );
+        if (page.blocked) {
+          note = "查找最近评论时被 B 站限流，已保留已经找到的部分";
+          onProgress?.(index + 1, targets.length, batch);
+          found.push(...batch);
+          return { items: found, note };
+        }
+        for (const raw of page.replies) {
+          this.pushOwnReply(raw, uid, target, batch, seenRpid);
+        }
+        const olderThanWindow = page.oldest > 0 && page.oldest < cutoff;
+        if (page.isEnd || olderThanWindow) break;
+        offset = page.nextOffset;
+        cursorNext = page.nextOffset ? 0 : page.next;
+        if (!offset && cursorNext <= 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 140));
+      }
+      found.push(...batch);
+      onProgress?.(index + 1, targets.length, batch);
+      if (index < targets.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 160));
+      }
+    }
+    return { items: found, note };
+  }
+
+  private async fetchTimeSortedReplies(
+    oid: number,
+    type: number,
+    offset: string,
+    cursorNext: number,
+  ): Promise<{
+    replies: Record<string, unknown>[];
+    nextOffset: string;
+    next: number;
+    oldest: number;
+    isEnd: boolean;
+    blocked: boolean;
+  }> {
+    const params: Record<string, string | number> = {
+      oid: String(oid),
+      type,
+      mode: 2,
+      plat: 1,
+    };
+    if (offset) params.pagination_str = JSON.stringify({ offset });
+    else params.next = cursorNext;
+    const res = await this.client.get("/x/v2/reply/main", {
+      params,
+      headers: { Referer: "https://www.bilibili.com/" },
+      timeout: 8000,
+      validateStatus: () => true,
+    });
+    const code = Number(res.data?.code);
+    if (
+      res.status === 412 ||
+      code === -352 ||
+      code === -412 ||
+      code === -509 ||
+      code === -799
+    ) {
+      return {
+        replies: [],
+        nextOffset: "",
+        next: 0,
+        oldest: 0,
+        isEnd: true,
+        blocked: true,
+      };
+    }
+    if (code !== 0) {
+      return {
+        replies: [],
+        nextOffset: "",
+        next: 0,
+        oldest: 0,
+        isEnd: true,
+        blocked: false,
+      };
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const replies = Array.isArray(data.replies)
+      ? (data.replies as Record<string, unknown>[])
+      : [];
+    const cursor = (data.cursor ?? {}) as {
+      is_end?: boolean;
+      next?: number;
+      pagination_reply?: { next_offset?: string };
+    };
+    const nextOffset = String(
+      cursor.pagination_reply?.next_offset ?? "",
+    ).trim();
+    const next = Number(cursor.next) || 0;
+    let oldest = 0;
+    for (const raw of replies) {
+      const ctime = Number(raw.ctime) || 0;
+      if (ctime > 0 && (oldest === 0 || ctime < oldest)) oldest = ctime;
+    }
+    return {
+      replies,
+      nextOffset,
+      next,
+      oldest,
+      isEnd:
+        cursor.is_end === true ||
+        replies.length === 0 ||
+        (!nextOffset && next <= 0),
+      blocked: false,
+    };
+  }
+
+  private pushOwnReply(
+    raw: Record<string, unknown>,
+    uid: number,
+    target: { oid: number; type: number; bvid?: string },
+    found: FootprintItem[],
+    seen: Set<string>,
+  ): void {
+    const member = (raw.member ?? {}) as Record<string, unknown>;
+    const mid = Number(raw.mid) || Number(member.mid) || 0;
+    const rpid = String(raw.rpid_str ?? raw.rpid ?? "").trim();
+    if (mid === uid && rpid && !seen.has(rpid)) {
+      seen.add(rpid);
+      const content = (raw.content ?? {}) as Record<string, unknown>;
+      found.push({
+        id: `comment:${rpid}`,
+        kind: "comment",
+        text: String(content.message ?? ""),
+        time: Number(raw.ctime) || 0,
+        oid: Number(raw.oid) || target.oid,
+        type: Number(raw.type) || target.type,
+        rpid,
+        bvid: target.type === 1 ? target.bvid : undefined,
+        source: "bili",
+      });
+    }
+    const nested = raw.replies;
+    if (!Array.isArray(nested)) return;
+    for (const child of nested) {
+      if (child && typeof child === "object") {
+        this.pushOwnReply(
+          child as Record<string, unknown>,
+          uid,
+          target,
+          found,
+          seen,
+        );
+      }
+    }
+  }
+
+  /**
+   * 这条评论在 B 站还在不在。
+   * /x/v2/reply/reply 用 root=rpid：还在则 code=0；已删除是 12006「没有该评论」。
+   * 楼中楼的 rpid 不是根评论，12006 时再用 seek_rpid 确认，避免误删。
+   */
+  async probeReplyPresence(
+    oid: number,
+    type: number,
+    rpid: number | string,
+  ): Promise<"alive" | "gone" | "unknown"> {
+    const id = String(rpid).trim();
+    if (!oid || !id) return "unknown";
+    const headers = { Referer: "https://www.bilibili.com/" };
+    const res = await this.client.get("/x/v2/reply/reply", {
+      params: { oid: String(oid), type, root: id, pn: 1, ps: 1 },
+      headers,
+      timeout: 8000,
+      validateStatus: () => true,
+    });
+    this.assertReplyProbeAllowed(res.status, res.data);
+    const code = Number(res.data?.code);
+    const message = String(res.data?.message ?? "");
+    const root = res.data?.data?.root as Record<string, unknown> | undefined;
+    if (code === 0 && this.sameReplyId(this.replyIdOf(root), id))
+      return "alive";
+    if (code === 0) return "unknown";
+    if (!this.replyLooksMissing(code, message)) return "unknown";
+
+    const seek = await this.client.get("/x/v2/reply/main", {
+      params: {
+        oid: String(oid),
+        type,
+        mode: 2,
+        plat: 1,
+        seek_rpid: id,
+        next: 0,
+      },
+      headers,
+      timeout: 8000,
+      validateStatus: () => true,
+    });
+    this.assertReplyProbeAllowed(seek.status, seek.data);
+    if (Number(seek.data?.code) !== 0) return "unknown";
+    return this.payloadHasReplyId(seek.data?.data, id) ? "alive" : "gone";
+  }
+
+  private replyIdOf(reply: Record<string, unknown> | undefined): string {
+    if (!reply) return "";
+    const text = reply.rpid_str ?? reply.rpid;
+    return text == null ? "" : String(text);
+  }
+
+  private sameReplyId(a: string, b: string): boolean {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const left = Number(a);
+    const right = Number(b);
+    return Number.isSafeInteger(left) && left > 0 && left === right;
+  }
+
+  private replyLooksMissing(code: number, message: string): boolean {
+    if (code === 12006 || code === 12022) return true;
+    return /没有该评论|评论已删除|已被删除/.test(message);
+  }
+
+  private assertReplyProbeAllowed(
+    status: number,
+    data: { code?: number } | undefined,
+  ): void {
+    const code = Number(data?.code);
+    if (
+      status === 412 ||
+      code === -101 ||
+      code === -111 ||
+      code === -352 ||
+      code === -412 ||
+      code === -509 ||
+      code === -799
+    ) {
+      throw new Error("核对被 B 站限流或登录失效，已保留其余评论");
+    }
+  }
+
+  private payloadHasReplyId(data: unknown, rpid: string): boolean {
+    const target = String(rpid);
+    const stack: unknown[] = [data];
+    let steps = 0;
+    while (stack.length > 0 && steps < 4000) {
+      steps += 1;
+      const current = stack.pop();
+      if (!current || typeof current !== "object") continue;
+      if (Array.isArray(current)) {
+        for (const item of current) stack.push(item);
+        continue;
+      }
+      const row = current as Record<string, unknown>;
+      if (
+        this.sameReplyId(this.replyIdOf(row), target) &&
+        (row.rpid != null || row.rpid_str != null)
+      ) {
+        return true;
+      }
+      for (const key of ["replies", "top", "top_replies", "root", "reply"]) {
+        if (key in row) stack.push(row[key]);
+      }
+    }
+    return false;
   }
 
   async deleteReply(
@@ -4726,6 +5101,26 @@ class BiliApiService {
     for (const [raw, kind] of slots) push(raw, kind);
     push(data.top_replies, "upper");
     return collected;
+  }
+
+  private rememberOwnComments(comments: CommentItem[], type: number): void {
+    const uid =
+      Number(appStore.get("cookies").DedeUserID) ||
+      Number(appStore.get("user")?.mid) ||
+      0;
+    if (uid <= 0 || comments.length === 0) return;
+    const mine: CommentItem[] = [];
+    const walk = (list: CommentItem[]) => {
+      for (const item of list) {
+        if (item.mid === uid || item.member?.mid === uid) mine.push(item);
+        if (item.replies?.length) walk(item.replies);
+      }
+    };
+    walk(comments);
+    if (mine.length === 0) return;
+    void import("./footprint-capture").then(({ captureLocalComment }) => {
+      for (const item of mine) captureLocalComment(item, type, "bili");
+    });
   }
 
   private normalizeCommentItem(
@@ -9336,24 +9731,33 @@ class BiliApiService {
       "x-bili-web-req-json": webJson,
     };
 
-    const rawItem =
-      (await this.fetchPolymerDynamicItem(
-        "/x/polymer/web-dynamic/v1/detail",
-        common,
-        referer,
-      )) ??
-      (await this.fetchPolymerDynamicItem(
-        "/x/polymer/web-dynamic/desktop/v1/detail",
-        common,
-        referer,
-      ));
-    if (!rawItem) throw new Error("动态不存在或已失效");
+    const primary = await this.fetchPolymerDynamicItem(
+      "/x/polymer/web-dynamic/v1/detail",
+      common,
+      referer,
+    );
+    const fallback = primary.item
+      ? primary
+      : await this.fetchPolymerDynamicItem(
+          "/x/polymer/web-dynamic/desktop/v1/detail",
+          common,
+          referer,
+        );
+    const rawItem = fallback.item;
+    if (!rawItem) {
+      throw new Error(
+        explainDynamicDetailError(
+          fallback.code || primary.code,
+          fallback.message || primary.message,
+        ),
+      );
+    }
 
     let item = this.normalizeSpaceDynamicItem(rawItem);
     if (!item) throw new Error("动态不存在或已失效");
     item = this.mergeDynamicMeta(item, rawItem);
 
-    const opusItem = await this.fetchPolymerDynamicItem(
+    const opus = await this.fetchPolymerDynamicItem(
       "/x/polymer/web-dynamic/v1/opus/detail",
       {
         id: dynamicId,
@@ -9363,6 +9767,7 @@ class BiliApiService {
       },
       referer,
     );
+    const opusItem = opus.item;
     if (opusItem) {
       const parsed = this.normalizeSpaceDynamicItem(opusItem);
       item = this.mergeDynamicMeta(
@@ -9391,8 +9796,14 @@ class BiliApiService {
     path: string,
     params: Record<string, string | number>,
     referer: string,
-  ): Promise<Record<string, unknown> | null> {
+  ): Promise<{
+    item: Record<string, unknown> | null;
+    code: number;
+    message: string;
+  }> {
     let blocked = false;
+    let code = 0;
+    let message = "";
     for (const mode of ["wbi", "plain"] as const) {
       const signed = mode === "wbi" ? await signParams(params) : params;
       const res = await this.client.get(path, {
@@ -9402,17 +9813,27 @@ class BiliApiService {
       });
       if (res.status === 412 || res.data?.code === -412) {
         blocked = true;
+        code = -412;
+        message = "请求被 B 站安全策略拦截，请稍后重试";
         continue;
       }
       if (res.data?.code === 0) {
         const item = res.data?.data?.item;
         if (item && typeof item === "object") {
-          return item as Record<string, unknown>;
+          return {
+            item: item as Record<string, unknown>,
+            code: 0,
+            message: "",
+          };
         }
+      } else if (res.data?.code != null) {
+        code = Number(res.data.code) || code;
+        const next = String(res.data?.message || "").trim();
+        if (next) message = next;
       }
     }
     if (blocked) throw new Error("请求被 B 站安全策略拦截，请稍后重试");
-    return null;
+    return { item: null, code, message };
   }
 
   private mergeDynamicMeta(
@@ -9736,7 +10157,13 @@ class BiliApiService {
       throw new Error((res.data?.message as string) || "楼中楼加载失败");
     }
 
-    return this.normalizeCommentPage(res.data?.data, page, pageSize);
+    const commentPage = this.normalizeCommentPage(
+      res.data?.data,
+      page,
+      pageSize,
+    );
+    this.rememberOwnComments(commentPage.comments, type);
+    return commentPage;
   }
 
   async addTargetComment(

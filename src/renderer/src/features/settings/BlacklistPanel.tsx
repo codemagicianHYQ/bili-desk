@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link } from "react-router-dom";
 import type { BlacklistUser } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -33,7 +34,7 @@ export function BlacklistPanel() {
       setTotal(result.total);
       setHasMore(result.hasMore);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "黑名单加载失败");
+      setError(formatDisplayedError(err, undefined, "黑名单加载失败"));
       if (!append) setUsers([]);
     } finally {
       setLoading(false);
@@ -57,7 +58,7 @@ export function BlacklistPanel() {
       setMessage(`已将「${up.uname}」移出黑名单`);
       setTarget(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "取消拉黑失败");
+      setError(formatDisplayedError(err, undefined, "取消拉黑失败"));
     } finally {
       setUnblocking(false);
     }

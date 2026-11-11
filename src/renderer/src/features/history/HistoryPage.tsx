@@ -1,3 +1,4 @@
+import { formatDisplayedError } from "@/lib/ipc-error";
 import {
   useCallback,
   useEffect,
@@ -168,7 +169,7 @@ function trimHistoryPageCache(
 }
 
 function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : "加载失败";
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 function padDuration(seconds: number): string {

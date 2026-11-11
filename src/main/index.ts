@@ -13,6 +13,9 @@ const LOGIN_KEEPALIVE_MS = 6 * 60 * 60 * 1000;
 
 registerMediaScheme();
 
+// 降低 Electron 被 Cloudflare Turnstile 识别为自动化的概率（AICU 验证窗）
+app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled");
+
 // Chromium 在视频解码器初始化/探测时可能输出无害的 ffmpeg_common 日志（播放正常时可忽略）
 if (!app.isPackaged) {
   app.commandLine.appendSwitch("log-level", "3");

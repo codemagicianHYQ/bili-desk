@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link } from "react-router-dom";
 import type {
   UpActivityArchive,
@@ -152,7 +153,7 @@ export function UpActivityPage() {
       setArchive(data);
       setPage(1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "加载失败");
+      setError(formatDisplayedError(err, undefined, "加载失败"));
     } finally {
       setLoading(false);
     }

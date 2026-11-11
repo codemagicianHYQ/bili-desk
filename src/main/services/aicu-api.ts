@@ -1,11 +1,17 @@
 import { execFile, execFileSync } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, writeFileSync } from "fs";
 import { appendFile } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { promisify } from "util";
 import { app, BrowserWindow, net, session } from "electron";
 import type { FootprintItem } from "@shared/types";
+import {
+  closeAicuChrome,
+  fetchAicuViaChrome,
+  resetAicuChromeGate,
+  setAicuChromeListener,
+} from "./aicu-chrome";
 
 const execFileAsync = promisify(execFile);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -13,10 +19,31 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const BASE = "https://api.aicu.cc/api/v3";
 const HOME = "https://www.aicu.cc/";
 const PARTITION = "persist:aicu";
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+/** 必须跟 Electron 内嵌 Chromium 大版本一致，否则 Turnstile 会卡在「正在验证…」然后反复刷新 */
+function aicuUserAgent(): string {
+  const chrome = process.versions.chrome || "132.0.0.0";
+  return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chrome} Safari/537.36`;
+}
 const REQUEST_GAP_MS = 900;
 const SYSTEM_CURL = "C:\\Windows\\System32\\curl.exe";
+
+function ensureStealthPreload(): string {
+  const file = path.join(app.getPath("userData"), "aicu-stealth-preload.js");
+  const source = `"use strict";
+try {
+  Object.defineProperty(navigator, "webdriver", {
+    get: function () { return undefined; },
+    configurable: true
+  });
+} catch (e) {}
+`;
+  try {
+    writeFileSync(file, source, "utf8");
+  } catch {
+    // ignore
+  }
+  return file;
+}
 
 export interface AicuPageResult {
   items: FootprintItem[];
@@ -37,19 +64,129 @@ let bridge: BrowserWindow | null = null;
 let clearanceGate: Promise<boolean> | null = null;
 let clearanceOkUntil = 0;
 let interactiveChallengeUsed = false;
+/** 一旦确认 CF 在拦，后续只走 Chromium（curl 带 cookie 无效） */
+let forceBrowserOnly = false;
+/** 浏览器会话已拿到过用户 JSON：后续只静默导航，绝不弹窗 */
+let browserSessionReady = false;
+/** 整次同步最多弹出人机验证窗口的次数 */
+let challengePromptCount = 0;
+const MAX_CHALLENGE_PROMPTS = 1;
+/** 验证页直接打开真实 uid，避免「uid=1 过了、自己的号又拦」再弹第二次 */
+let challengeUid = 0;
+/** 验证成功时窗口里已有的第一页 JSON，避免立刻再 loadURL 触发 CF */
+let cachedNavJson: { url: string; text: string } | null = null;
+
+type ChallengeListener = (
+  state: "open" | "waiting" | "done" | "fail",
+  detail?: string,
+) => void;
+let challengeListener: ChallengeListener | null = null;
 
 /** 每次点「同步历史」开头调用，允许再弹一次验证（仍不会连弹） */
-export function resetAicuChallengeGate(): void {
+export function resetAicuChallengeGate(uid = 0): void {
   interactiveChallengeUsed = false;
   clearanceGate = null;
+  forceBrowserOnly = false;
+  browserSessionReady = false;
+  challengePromptCount = 0;
+  challengeUid = uid > 0 ? uid : 0;
+  cachedNavJson = null;
+  visibleFetchChain = Promise.resolve();
+  resetAicuChromeGate();
+}
+
+export function setAicuChallengeListener(
+  listener: ChallengeListener | null,
+): void {
+  challengeListener = listener;
+  setAicuChromeListener(listener);
+}
+
+export function closeAicuBridge(): void {
+  if (bridge && !bridge.isDestroyed()) {
+    try {
+      bridge.destroy();
+    } catch {
+      // ignore
+    }
+  }
+  bridge = null;
+  clearanceGate = null;
+  void closeAicuChrome();
+}
+
+function buildReplyProbeUrl(uid: number, ps = 1): string {
+  const id = uid > 0 ? uid : 1;
+  return `${BASE}/search/getreply?uid=${id}&pn=1&ps=${ps}&mode=0`;
+}
+
+async function readBridgeBody(win: BrowserWindow): Promise<string> {
+  return String(
+    (await win.webContents
+      .executeJavaScript(
+        `(() => {
+          const pre = document.querySelector("pre");
+          if (pre && pre.innerText) return pre.innerText;
+          return document.body ? (document.body.innerText || document.body.textContent || "") : "";
+        })()`,
+      )
+      .catch(() => "")) || "",
+  ).trim();
+}
+
+async function bodyLooksLikeAicuJson(
+  win: BrowserWindow,
+): Promise<string | null> {
+  const text = await readBridgeBody(win);
+  if (!text.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(text) as { code?: number };
+    if (typeof parsed.code === "number") return text;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function probeAicuInWindow(win: BrowserWindow): Promise<boolean> {
+  if (win.isDestroyed()) return false;
+  // 优先看地址栏打开的正文（对用户 uid 比 page.fetch 更稳）
+  if (await bodyLooksLikeAicuJson(win)) return true;
+  const probeUrl = buildReplyProbeUrl(challengeUid || 1, 1);
+  const probe = await win.webContents
+    .executeJavaScript(
+      `fetch(${JSON.stringify(probeUrl)}, {
+        credentials: "include",
+        headers: { Accept: "application/json", Referer: ${JSON.stringify(HOME)} }
+      }).then(async (r) => ({ status: r.status, text: (await r.text()).slice(0, 120) }))
+       .catch((e) => ({ status: 0, text: String(e) }))`,
+    )
+    .catch(() => null);
+  return Boolean(
+    probe && probe.status === 200 && String(probe.text || "").startsWith("{"),
+  );
 }
 let cachedProxy: string | null | undefined;
 let cachedPython: string | null | undefined;
 let cachedScript: string | null | undefined;
 
+let stealthRegistered = false;
+
 function aicuSession() {
   const ses = session.fromPartition(PARTITION);
-  ses.setUserAgent(UA);
+  ses.setUserAgent(aicuUserAgent());
+  // Turnstile 在 iframe 里跑，必须给所有 frame 注入，不能只 preload 顶层
+  if (!stealthRegistered) {
+    try {
+      ses.registerPreloadScript({
+        type: "frame",
+        filePath: ensureStealthPreload(),
+      });
+      stealthRegistered = true;
+    } catch {
+      // 旧版 Electron 无此 API 时忽略
+    }
+  }
   return ses;
 }
 
@@ -232,185 +369,272 @@ async function readClearanceCookie(): Promise<string | null> {
   return hit?.value || null;
 }
 
-async function cookieHeaderForAicu(): Promise<string> {
-  const cookies = await aicuSession().cookies.get({});
-  return cookies
-    .filter((cookie) => String(cookie.domain || "").includes("aicu"))
-    .map((cookie) => `${cookie.name}=${cookie.value}`)
-    .join("; ");
+async function clearStaleClearanceCookies(): Promise<void> {
+  try {
+    const ses = aicuSession();
+    const old = await ses.cookies.get({});
+    for (const cookie of old) {
+      if (!String(cookie.domain || "").includes("aicu")) continue;
+      if (cookie.name !== "cf_clearance") continue;
+      const cookieUrl = `https://${String(cookie.domain || "").replace(/^\./, "")}/`;
+      await ses.cookies.remove(cookieUrl, cookie.name);
+    }
+  } catch {
+    // ignore
+  }
 }
 
-/** 只打开官网一次做人机验证，拿 cf_clearance；不要反复 load API 页 */
-async function ensureInteractiveClearance(): Promise<boolean> {
-  if (Date.now() < clearanceOkUntil && (await readClearanceCookie())) {
-    return true;
+async function ensureBridgeWindow(show: boolean): Promise<BrowserWindow> {
+  const proxy = resolveProxyUrl();
+  const ses = aicuSession();
+  if (proxy) {
+    await ses.setProxy({
+      proxyRules: proxy.replace(/^https?:\/\//i, ""),
+    });
   }
-  if (clearanceGate) return clearanceGate;
 
-  clearanceGate = (async () => {
-    // 整次同步只弹一次：弹过且没拿到 cookie 也不再刷窗
-    if (interactiveChallengeUsed) {
-      const existing = await readClearanceCookie();
-      if (existing) {
-        clearanceOkUntil = Date.now() + 25 * 60 * 1000;
-        return true;
-      }
-      return false;
+  let win = bridge && !bridge.isDestroyed() ? bridge : null;
+  if (!win) {
+    if (!interactiveChallengeUsed) {
+      await clearStaleClearanceCookies();
+      interactiveChallengeUsed = true;
     }
-    interactiveChallengeUsed = true;
-
-    const proxy = resolveProxyUrl();
-    const ses = aicuSession();
-    if (proxy) {
-      await ses.setProxy({
-        proxyRules: proxy.replace(/^https?:\/\//i, ""),
-      });
-    }
-
-    if (bridge && !bridge.isDestroyed()) {
-      try {
-        bridge.destroy();
-      } catch {
-        // ignore
-      }
-      bridge = null;
-    }
-
-    const win = new BrowserWindow({
-      show: true,
+    const ua = aicuUserAgent();
+    win = new BrowserWindow({
+      show,
       width: 920,
-      height: 640,
-      title: "AICU 安全验证（只需一次）",
+      height: 680,
+      title: "AICU 同步（勾选真人后等到出现 JSON）",
       autoHideMenuBar: true,
-      alwaysOnTop: true,
       webPreferences: {
         partition: PARTITION,
+        preload: ensureStealthPreload(),
         backgroundThrottling: false,
         nodeIntegration: false,
         contextIsolation: true,
+        sandbox: false,
       },
     });
     bridge = win;
     win.on("closed", () => {
       if (bridge === win) bridge = null;
     });
-    win.webContents.setUserAgent(UA);
+    win.webContents.setUserAgent(ua);
+  }
 
-    // 只加载官网，不要反复打开 api 地址（否则验证完又跳挑战）
-    await win.loadURL(HOME, { userAgent: UA, httpReferrer: HOME });
-
-    const ok = await waitForClearance(win, 180_000);
-    if (!win.isDestroyed()) {
-      win.hide();
-    }
-    if (ok) {
-      clearanceOkUntil = Date.now() + 25 * 60 * 1000;
-      await writeDebug("cf_clearance ok");
-    } else {
-      await writeDebug("cf_clearance timeout/cancel");
-    }
-    return ok;
-  })().finally(() => {
-    clearanceGate = null;
-  });
-
-  return clearanceGate;
+  if (show && !win.isDestroyed()) {
+    if (!win.isVisible()) win.show();
+    win.focus();
+  }
+  return win;
 }
 
-async function waitForClearance(
+/**
+ * 等窗口正文变成 AICU JSON。
+ * 铁律：等待期间禁止 loadURL / 禁止反复注入 DOM —— 那会把 Turnstile 打断成「点了又弹」。
+ */
+async function waitForJsonBody(
   win: BrowserWindow,
+  targetUrl: string,
   timeoutMs: number,
-): Promise<boolean> {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (win.isDestroyed()) return false;
-    const value = await readClearanceCookie();
-    if (value) {
-      // 给 Turnstile 一点落盘时间
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      return true;
+): Promise<string | null> {
+  challengeListener?.(
+    "waiting",
+    "请勾选「请验证您是真人」，然后停手等待；不要连点，不要关窗",
+  );
+
+  return await new Promise<string | null>((resolve) => {
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      try {
+        win.webContents.removeListener("did-finish-load", onLoaded);
+      } catch {
+        // ignore
+      }
+      clearInterval(timer);
+      clearTimeout(timeout);
+      resolve(value);
+    };
+
+    const checkOnce = async () => {
+      if (settled || win.isDestroyed()) {
+        finish(null);
+        return;
+      }
+      const json = await bodyLooksLikeAicuJson(win);
+      if (json) {
+        cachedNavJson = { url: targetUrl, text: json };
+        finish(json);
+      }
+    };
+
+    const onLoaded = () => {
+      void checkOnce();
+    };
+
+    win.webContents.on("did-finish-load", onLoaded);
+    // 低频探测即可；高频 executeJavaScript 也会干扰 Turnstile
+    const timer = setInterval(() => {
+      void checkOnce();
+    }, 2500);
+    const timeout = setTimeout(() => finish(null), timeoutMs);
+
+    win.once("closed", () => finish(null));
+    void checkOnce();
+  });
+}
+
+function urlsMatchApi(a: string, b: string): boolean {
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    if (ua.origin !== ub.origin || ua.pathname !== ub.pathname) return false;
+    const keys = new Set([
+      ...ua.searchParams.keys(),
+      ...ub.searchParams.keys(),
+    ]);
+    for (const key of keys) {
+      if (ua.searchParams.get(key) !== ub.searchParams.get(key)) return false;
     }
-    const title = win.webContents.getTitle();
-    // 官网已离开挑战页且无挑战控件时，也尝试用页面 fetch 探活
-    if (title && !/just a moment|请稍候|验证/i.test(title)) {
-      const probe = await win.webContents
-        .executeJavaScript(
-          `fetch(${JSON.stringify(`${BASE}/search/getreply?uid=1&pn=1&ps=1&mode=0`)}, {
-            credentials: "include",
-            headers: { Accept: "application/json", Referer: ${JSON.stringify(HOME)} }
-          }).then(async (r) => ({ status: r.status, text: (await r.text()).slice(0, 80) }))
-           .catch((e) => ({ status: 0, text: String(e) }))`,
-        )
-        .catch(() => null);
-      if (
-        probe &&
-        probe.status === 200 &&
-        String(probe.text || "").startsWith("{")
-      ) {
+    return true;
+  } catch {
+    return a === b;
+  }
+}
+
+/** 串行化可见拉取，防止并发 loadURL 把验证框刷爆 */
+let visibleFetchChain: Promise<unknown> = Promise.resolve();
+
+/**
+ * 核心拉取：验证窗打开的就是目标接口 URL。
+ * 同一 URL 最多 loadURL 一次，然后干等 JSON；绝不再刷新。
+ */
+async function fetchViaVisibleBrowser(url: string): Promise<FetchResult> {
+  const prev = visibleFetchChain;
+  let release!: () => void;
+  visibleFetchChain = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await prev.catch(() => undefined);
+
+  try {
+    if (cachedNavJson && urlsMatchApi(cachedNavJson.url, url)) {
+      const text = cachedNavJson.text;
+      cachedNavJson = null;
+      browserSessionReady = true;
+      clearanceOkUntil = Date.now() + 25 * 60 * 1000;
+      if (bridge && !bridge.isDestroyed() && bridge.isVisible()) bridge.hide();
+      return { status: 200, text, via: "page-cache" };
+    }
+
+    const win = await ensureBridgeWindow(true);
+    const alreadyOnUrl = urlsMatchApi(win.webContents.getURL(), url);
+
+    if (alreadyOnUrl) {
+      const existing = await bodyLooksLikeAicuJson(win);
+      if (existing) {
+        browserSessionReady = true;
         clearanceOkUntil = Date.now() + 25 * 60 * 1000;
-        return true;
+        if (win.isVisible()) win.hide();
+        return { status: 200, text: existing, via: "page-current" };
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    // 已有会话时先试页内 fetch，不要先静默 loadURL（再亮窗又 load = 无限弹）
+    if (browserSessionReady && !alreadyOnUrl) {
+      const xhr = await fetchViaInPageXhr(url);
+      if (isGoodJson(xhr)) return xhr;
+    }
+
+    challengeListener?.(
+      "open",
+      "请勾选「请验证您是真人」，点一次后停手等待页面变成 JSON",
+    );
+    challengePromptCount += 1;
+    if (!win.isVisible()) win.show();
+
+    // 已经在目标页（含挑战页）就不要再 loadURL，否则复选框会重置
+    if (!alreadyOnUrl) {
+      await win.loadURL(url, {
+        userAgent: aicuUserAgent(),
+        httpReferrer: HOME,
+      });
+    }
+
+    const json = await waitForJsonBody(win, url, 300_000);
+    if (json) {
+      forceBrowserOnly = true;
+      browserSessionReady = true;
+      clearanceOkUntil = Date.now() + 25 * 60 * 1000;
+      cachedNavJson = null;
+      if (!win.isDestroyed()) win.hide();
+      challengeListener?.("done", "本页数据已拿到，继续同步…");
+      await writeDebug(
+        `aicu page ok via=visible uid=${challengeUid || "-"} bytes=${json.length}`,
+      );
+      return { status: 200, text: json, via: "page-visible" };
+    }
+
+    challengeListener?.("fail", "等待 JSON 超时，请重试同步");
+    return {
+      status: 403,
+      text: "",
+      via: "page-visible",
+      detail: "等待人机验证后的 JSON 超时",
+    };
+  } catch (error) {
+    return {
+      status: 0,
+      text: "",
+      via: "page-visible",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    release();
   }
-  return Boolean(await readClearanceCookie());
 }
 
 async function aicuFetch(url: string): Promise<FetchResult> {
-  const attempts: FetchResult[] = [];
-  const cookie = await cookieHeaderForAicu();
-
-  const viaCurl = await fetchViaCurl(url, cookie);
-  attempts.push(viaCurl);
-  if (isGoodJson(viaCurl)) return viaCurl;
-
-  const viaSession = await fetchViaNet(url);
-  attempts.push(viaSession);
-  if (isGoodJson(viaSession)) return viaSession;
-
-  const viaPython = await fetchViaPython(url);
-  attempts.push(viaPython);
-  if (isGoodJson(viaPython)) return viaPython;
-
-  const blocked = attempts.some(
-    (item) => item.status === 403 || looksLikeCfChallenge(item.text),
-  );
-
-  if (blocked) {
-    const cleared = await ensureInteractiveClearance();
-    if (cleared) {
-      const cookie2 = await cookieHeaderForAicu();
-      const afterCurl = await fetchViaCurl(url, cookie2);
-      attempts.push(afterCurl);
-      if (isGoodJson(afterCurl)) return afterCurl;
-
-      const afterSession = await fetchViaNet(url);
-      attempts.push(afterSession);
-      if (isGoodJson(afterSession)) return afterSession;
-
-      // 用已验证的隐藏窗口 fetch，不再 loadURL 弹挑战
-      const afterPage = await fetchViaPageQuiet(url);
-      attempts.push(afterPage);
-      if (isGoodJson(afterPage)) return afterPage;
+  // Electron 内嵌窗过不了 Turnstile（会无限弹验证框），CF 一律走系统 Chrome
+  if (forceBrowserOnly || Date.now() < clearanceOkUntil) {
+    const page = await fetchAicuViaChrome(url);
+    if (isGoodJson(page)) {
+      forceBrowserOnly = true;
+      clearanceOkUntil = Date.now() + 25 * 60 * 1000;
+      browserSessionReady = true;
     }
+    await writeDebug(
+      `url=${url} proxy=${resolveProxyUrl() || "-"} forceBrowser=true | ${page.via}:${page.status}${page.detail ? `(${page.detail})` : ""}`,
+    );
+    return page;
   }
 
-  await writeDebug(
-    `url=${url} proxy=${resolveProxyUrl() || "-"} | ` +
-      attempts
-        .map(
-          (item) =>
-            `${item.via}:${item.status}${item.detail ? `(${item.detail})` : ""}`,
-        )
-        .join(" | "),
-  );
+  const viaCurl = await fetchViaCurl(url);
+  if (isGoodJson(viaCurl)) return viaCurl;
 
-  return (
-    attempts.find((item) => isGoodJson(item)) ||
-    attempts.find((item) => item.status === 403) ||
-    attempts.find((item) => item.status > 0) ||
-    viaCurl
+  if (viaCurl.status === 403 || looksLikeCfChallenge(viaCurl.text)) {
+    forceBrowserOnly = true;
+    interactiveChallengeUsed = true;
+    const page = await fetchAicuViaChrome(url);
+    if (isGoodJson(page)) {
+      clearanceOkUntil = Date.now() + 25 * 60 * 1000;
+      browserSessionReady = true;
+    }
+    await writeDebug(
+      `url=${url} proxy=${resolveProxyUrl() || "-"} forceBrowser=true | curl:403 | ${page.via}:${page.status}${page.detail ? `(${page.detail})` : ""}`,
+    );
+    return page;
+  }
+
+  const viaSession = await fetchViaNet(url);
+  if (isGoodJson(viaSession)) return viaSession;
+
+  await writeDebug(
+    `url=${url} proxy=${resolveProxyUrl() || "-"} | curl:${viaCurl.status} | session:${viaSession.status}`,
   );
+  return viaSession.status > 0 ? viaSession : viaCurl;
 }
 
 /** Electron 进程常带奇怪的 NO_PROXY / SSL 变量，子进程继承后会直连被墙 */
@@ -525,7 +749,7 @@ async function fetchViaCurl(
       "--max-time",
       "45",
       "-A",
-      UA,
+      aicuUserAgent(),
       "-e",
       HOME,
       "-H",
@@ -582,7 +806,7 @@ $url = ${JSON.stringify(url)}
 $proxy = ${JSON.stringify(proxy || "")}
 try {
   $headers = @{
-    'User-Agent' = ${JSON.stringify(UA)}
+    'User-Agent' = ${JSON.stringify(aicuUserAgent())}
     'Referer' = ${JSON.stringify(HOME)}
     'Accept' = 'application/json, text/plain, */*'
   }
@@ -673,7 +897,7 @@ async function fetchViaNet(url: string): Promise<FetchResult> {
       credentials: "include",
       headers: {
         Accept: "application/json, text/plain, */*",
-        "User-Agent": UA,
+        "User-Agent": aicuUserAgent(),
         Referer: HOME,
       },
     });
@@ -684,7 +908,7 @@ async function fetchViaNet(url: string): Promise<FetchResult> {
         method: "GET",
         headers: {
           Accept: "application/json, text/plain, */*",
-          "User-Agent": UA,
+          "User-Agent": aicuUserAgent(),
           Referer: HOME,
         },
       });
@@ -700,45 +924,12 @@ async function fetchViaNet(url: string): Promise<FetchResult> {
   }
 }
 
-/** 已有验证窗口时静默 fetch，禁止再 loadURL 弹挑战页 */
-async function fetchViaPageQuiet(url: string): Promise<FetchResult> {
+async function fetchViaInPageXhr(url: string): Promise<FetchResult> {
+  const win = bridge;
+  if (!win || win.isDestroyed()) {
+    return { status: 0, text: "", via: "page-xhr", detail: "无浏览器会话" };
+  }
   try {
-    const win =
-      bridge && !bridge.isDestroyed()
-        ? bridge
-        : await (async () => {
-            const proxy = resolveProxyUrl();
-            const ses = aicuSession();
-            if (proxy) {
-              await ses.setProxy({
-                proxyRules: proxy.replace(/^https?:\/\//i, ""),
-              });
-            }
-            const created = new BrowserWindow({
-              show: false,
-              width: 920,
-              height: 640,
-              title: "AICU",
-              autoHideMenuBar: true,
-              webPreferences: {
-                partition: PARTITION,
-                backgroundThrottling: false,
-                nodeIntegration: false,
-                contextIsolation: true,
-              },
-            });
-            created.webContents.setUserAgent(UA);
-            await created.loadURL(HOME, {
-              userAgent: UA,
-              httpReferrer: HOME,
-            });
-            bridge = created;
-            created.on("closed", () => {
-              if (bridge === created) bridge = null;
-            });
-            return created;
-          })();
-
     const result = (await win.webContents.executeJavaScript(
       `(() => {
         const target = ${JSON.stringify(url)};
@@ -758,12 +949,12 @@ async function fetchViaPageQuiet(url: string): Promise<FetchResult> {
         }));
       })()`,
     )) as { status: number; text: string };
-    return { status: result.status, text: result.text, via: "page" };
+    return { status: result.status, text: result.text, via: "page-xhr" };
   } catch (error) {
     return {
       status: 0,
       text: "",
-      via: "page",
+      via: "page-xhr",
       detail: error instanceof Error ? error.message : String(error),
     };
   }
@@ -778,8 +969,8 @@ async function aicuGet(
     url.searchParams.set(key, String(value));
   }
 
-  // 验证窗只在 aicuFetch 内触发一次；这里最多静默重试 2 次
-  const maxAttempts = 3;
+  // 验证后首页应走 cache；失败就快速报错，避免 UI 卡在「准备中」好几分钟
+  const maxAttempts = forceBrowserOnly ? 1 : 2;
   let last: FetchResult | null = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     await throttle();
@@ -808,8 +999,7 @@ async function aicuGet(
       res.status === 0 ||
       looksLikeCfChallenge(res.text);
     if (!retryable || attempt === maxAttempts) break;
-    // 已经弹过验证窗就别狂重试刷屏
-    if (interactiveChallengeUsed && !(await readClearanceCookie())) break;
+    if (interactiveChallengeUsed) break;
     const waitMs = 1200 * attempt;
     await writeDebug(
       `retry ${attempt}/${maxAttempts} ${pathName} status=${res.status} wait=${waitMs}`,
@@ -822,7 +1012,7 @@ async function aicuGet(
     const proxy = resolveProxyUrl();
     throw new Error(
       proxy
-        ? `AICU 仍被 Cloudflare 拦截（经 ${res.via}）。请完成一次验证后等半分钟再同步；勿连续狂点。`
+        ? `AICU 仍被拦截（经 ${res.via}）。请重新同步：在弹出的系统 Chrome 里勾选「请验证您是真人」，等到出现 JSON 即可（应用内窗口已不再使用）。`
         : `AICU 403（经 ${res.via}，未检测到代理）。请开启系统代理后重试。`,
     );
   }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { useNavigate } from "react-router-dom";
 import type { BangumiFollowItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -7,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { Loader2, Tv } from "lucide-react";
 
 function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : "加载失败";
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 type FollowTab = "bangumi" | "cinema";

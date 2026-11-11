@@ -5,6 +5,7 @@ import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { BiliImage } from "@/components/ui/bili-image";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { ErrorState } from "@/components/ui/content-unavailable";
 import { cn, formatDuration } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 
@@ -103,7 +104,14 @@ export function SeasonPage() {
               加载剧集...
             </p>
           )}
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && (
+            <ErrorState
+              error={error}
+              hint="season"
+              fallback="剧集加载失败，请稍后重试。"
+              className="min-h-[40vh]"
+            />
+          )}
           {detail && (
             <>
               <div className="flex items-start justify-between gap-3">

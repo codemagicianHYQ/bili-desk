@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
 import {
@@ -12,6 +13,7 @@ import { RepostDialog } from "@/components/dynamic/RepostDialog";
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
+import { ContentUnavailable } from "@/components/ui/content-unavailable";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { cn, formatCount } from "@/lib/utils";
 import { Loader2, MessageCircle, Share2, Star, ThumbsUp } from "lucide-react";
@@ -63,7 +65,7 @@ export function DynamicDetailPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "加载动态失败");
+        setError(formatDisplayedError(err, undefined, "加载动态失败"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -94,7 +96,7 @@ export function DynamicDetailPage() {
       setLiked(next);
       setLikeCount((prev) => Math.max(0, prev + (next ? 1 : -1)));
     } catch (err) {
-      showTip(err instanceof Error ? err.message : "点赞失败");
+      showTip(formatDisplayedError(err, undefined, "点赞失败"));
     } finally {
       setLiking(false);
     }
@@ -110,7 +112,7 @@ export function DynamicDetailPage() {
       setFavCount((prev) => Math.max(0, prev + (next ? 1 : -1)));
       showTip(next ? "已收藏" : "已取消收藏");
     } catch (err) {
-      showTip(err instanceof Error ? err.message : "收藏失败");
+      showTip(formatDisplayedError(err, undefined, "收藏失败"));
     } finally {
       setFavoriting(false);
     }
@@ -134,7 +136,7 @@ export function DynamicDetailPage() {
             加载动态中...
           </div>
         ) : error ? (
-          <p className="px-6 py-16 text-center text-sm text-red-400">{error}</p>
+          <ContentUnavailable kind="dynamic" error={error} />
         ) : !item ? (
           <p className="px-6 py-16 text-center text-sm text-muted-foreground">
             动态不存在

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type { LiveRoomItem } from "@shared/types";
 import { useFollowingStore } from "@/stores/following-store";
 
@@ -94,7 +95,7 @@ export const useHomeLiveStore = create<HomeLiveState>((set, get) => ({
       .getLiveRecommend(1)
       .catch((err: unknown) => {
         set({
-          error: err instanceof Error ? err.message : "加载直播推荐失败",
+          error: formatDisplayedError(err, undefined, "加载直播推荐失败"),
         });
         return { rooms: [] as LiveRoomItem[], page: 1, hasMore: false };
       });
@@ -104,7 +105,7 @@ export const useHomeLiveStore = create<HomeLiveState>((set, get) => ({
       .catch((err: unknown) => {
         set({
           followingError:
-            err instanceof Error ? err.message : "关注直播加载失败",
+            formatDisplayedError(err, undefined, "关注直播加载失败"),
         });
         return { rooms: [] as LiveRoomItem[], count: 0 };
       });
@@ -212,7 +213,7 @@ export const useHomeLiveStore = create<HomeLiveState>((set, get) => ({
       });
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : "加载更多失败",
+        error: formatDisplayedError(err, undefined, "加载更多失败"),
         hasMore: false,
         loadingMore: false,
       });
@@ -240,7 +241,7 @@ export const useHomeLiveStore = create<HomeLiveState>((set, get) => ({
       .getLiveRecommend(1)
       .catch((err: unknown) => {
         set({
-          error: err instanceof Error ? err.message : "刷新直播推荐失败",
+          error: formatDisplayedError(err, undefined, "刷新直播推荐失败"),
         });
         return null;
       });
@@ -250,7 +251,7 @@ export const useHomeLiveStore = create<HomeLiveState>((set, get) => ({
       .catch((err: unknown) => {
         set({
           followingError:
-            err instanceof Error ? err.message : "关注直播加载失败",
+            formatDisplayedError(err, undefined, "关注直播加载失败"),
         });
         return null;
       });

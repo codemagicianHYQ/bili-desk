@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link } from "react-router-dom";
 import type { BinaryImageFile, CommentItem } from "@shared/types";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
@@ -128,7 +129,7 @@ export function CommentThread({
       setLiked(next);
       setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "点赞失败");
+      setError(formatDisplayedError(err, undefined, "点赞失败"));
     } finally {
       setLiking(false);
     }
@@ -148,7 +149,7 @@ export function CommentThread({
       await handlers.hate(item, next);
       setHated(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "点踩失败");
+      setError(formatDisplayedError(err, undefined, "点踩失败"));
     } finally {
       setHating(false);
     }
@@ -161,7 +162,7 @@ export function CommentThread({
       await handlers.delete(item);
       onDeleted(item.rpid);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败");
+      setError(formatDisplayedError(err, undefined, "删除失败"));
     } finally {
       setDeleting(false);
     }
@@ -173,7 +174,7 @@ export function CommentThread({
     try {
       await handlers.report(item, reason);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "举报失败");
+      setError(formatDisplayedError(err, undefined, "举报失败"));
     } finally {
       setReporting(false);
     }
@@ -192,7 +193,7 @@ export function CommentThread({
       setShowReply(false);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "回复失败");
+      setError(formatDisplayedError(err, undefined, "回复失败"));
     } finally {
       setReplying(false);
     }
@@ -221,7 +222,7 @@ export function CommentThread({
       setMorePage(nextPage);
       return added > 0;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "楼中楼加载失败");
+      setError(formatDisplayedError(err, undefined, "楼中楼加载失败"));
       return false;
     } finally {
       setLoadingMore(false);
@@ -401,7 +402,7 @@ export function CommentThread({
               .pin(item, !item.pinned)
               .then(() => onChanged())
               .catch((err: unknown) =>
-                setError(err instanceof Error ? err.message : "置顶失败"),
+                setError(formatDisplayedError(err, undefined, "置顶失败")),
               );
           }}
         />

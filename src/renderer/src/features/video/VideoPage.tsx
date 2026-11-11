@@ -20,7 +20,8 @@ import { VideoWatchExtras } from "@/components/video/VideoWatchExtras";
 import { VideoSideTools } from "@/components/video/VideoSideTools";
 import { VideoPlaylistPanel } from "@/components/video/VideoPlaylistPanel";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
-import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { extractIpcErrorMessage, formatDisplayedError } from "@/lib/ipc-error";
+import { ContentUnavailable } from "@/components/ui/content-unavailable";
 import { videoDetailCache } from "@/lib/session-data-cache";
 import {
   readQualityPref,
@@ -210,7 +211,9 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
             : (detail.pages[0]?.cid ?? null);
         setSelectedCid(preferredCid);
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: unknown) =>
+        setError(formatDisplayedError(e, undefined, "视频信息获取失败")),
+      );
   }, [bvid, resumeCid]);
 
   useEffect(() => {
@@ -391,11 +394,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   }, []);
 
   if (error) {
-    return (
-      <div className="flex h-full items-center justify-center text-red-400">
-        {error}
-      </div>
-    );
+    return <ContentUnavailable kind="video" error={error} />;
   }
 
   if (!video) {

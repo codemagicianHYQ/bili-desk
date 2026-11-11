@@ -1,3 +1,4 @@
+import { formatDisplayedError } from "@/lib/ipc-error";
 import {
   Fragment,
   useCallback,
@@ -140,11 +141,7 @@ const EMPTY_UNREAD: MessageUnread = {
 };
 
 function tidyError(error: unknown): string {
-  const message = error instanceof Error ? error.message : "操作失败";
-  return message.replace(
-    /^Error invoking remote method '[^']+': (?:Error: )?/,
-    "",
-  );
+  return formatDisplayedError(error, undefined, "操作失败");
 }
 
 function pad(value: number): string {
@@ -627,7 +624,7 @@ function FootprintList({
         setSyncedAt(page.syncedAt);
         setHasMore(page.hasMore);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(formatDisplayedError(err, undefined, "操作失败"));
       } finally {
         setLoading(false);
       }
@@ -640,13 +637,28 @@ function FootprintList({
   }, [load]);
 
   useEffect(() => {
-    void window.biliDesk.bili.getFootprintSyncStatus().then(setProgress);
-    return window.biliDesk.bili.onFootprintProgress((next) => {
-      setProgress(next);
-      if (!next.running && (next.phase === "done" || next.phase === "idle")) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = (delay: number) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
         void load(0, false);
-      }
+      }, delay);
+    };
+    void window.biliDesk.bili.getFootprintSyncStatus().then(setProgress);
+    const stop = window.biliDesk.bili.onFootprintProgress((next) => {
+      setProgress(next);
+      const finished =
+        !next.running &&
+        (next.phase === "done" ||
+          next.phase === "idle" ||
+          next.phase === "error");
+      if (finished) refresh(0);
+      else if (next.phase === "recent") refresh(600);
     });
+    return () => {
+      if (timer) clearTimeout(timer);
+      stop();
+    };
   }, [load]);
 
   const sync = async (reset = false) => {
@@ -658,7 +670,7 @@ function FootprintList({
       }
       await load(0, false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatDisplayedError(err, undefined, "操作失败"));
     }
   };
 
@@ -736,19 +748,109 @@ function FootprintList({
           )}
         </div>
       </div>
-      <div className="shrink-0 space-y-1 border-b border-border/40 px-5 py-2 text-[11px] text-muted-foreground">
+      <div className="shrink-0 space-y-2 border-b border-border/40 px-5 py-2.5 text-[11px] text-muted-foreground">
         <p>
           共 {total} 条
           {syncedAt
             ? ` · 最近同步 ${formatMessageTime(Math.floor(syncedAt / 1000))}`
             : " · 尚未同步"}
-          {progress.running || progress.message
-            ? ` · ${progress.message || "同步中…"}`
+          {!progress.running && progress.message && progress.phase !== "idle"
+            ? ` · ${progress.message}`
             : ""}
         </p>
+        {(progress.running ||
+          progress.phase === "challenge" ||
+          progress.phase === "error") && (
+          <div
+            className={cn(
+              "rounded-xl border px-3 py-2.5",
+              progress.phase === "error"
+                ? "border-destructive/30 bg-destructive/10"
+                : progress.phase === "challenge"
+                  ? "border-amber-500/30 bg-amber-500/10"
+                  : "border-primary/25 bg-primary/10",
+            )}
+          >
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <p
+                className={cn(
+                  "text-xs font-medium",
+                  progress.phase === "error"
+                    ? "text-destructive"
+                    : progress.phase === "challenge"
+                      ? "text-amber-200"
+                      : "text-foreground",
+                )}
+              >
+                {progress.phase === "challenge"
+                  ? "人机验证"
+                  : progress.phase === "comment"
+                    ? "同步评论中"
+                    : progress.phase === "danmaku"
+                      ? "同步弹幕中"
+                      : progress.phase === "verify"
+                        ? "核对已删除"
+                        : progress.phase === "recent"
+                          ? "查看过的视频"
+                          : progress.phase === "error"
+                            ? "同步失败"
+                            : "同步中"}
+                {progress.phase !== "verify" &&
+                progress.phase !== "recent" &&
+                progress.page
+                  ? ` · 第 ${progress.page} 页`
+                  : ""}
+              </p>
+              <span className="tabular-nums text-[11px] text-muted-foreground">
+                {progress.totalHint > 0
+                  ? `${Math.min(progress.fetched, progress.totalHint)} / ${progress.totalHint}`
+                  : progress.fetched > 0
+                    ? `已拉取 ${progress.fetched}`
+                    : progress.running
+                      ? "准备中"
+                      : ""}
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-secondary/80">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width] duration-300",
+                  progress.phase === "error"
+                    ? "bg-destructive"
+                    : progress.phase === "challenge"
+                      ? "bg-amber-400"
+                      : "bg-primary",
+                )}
+                style={{
+                  width: `${
+                    progress.phase === "challenge"
+                      ? 12
+                      : progress.totalHint > 0
+                        ? Math.min(
+                            100,
+                            Math.round(
+                              (progress.fetched / progress.totalHint) * 100,
+                            ),
+                          )
+                        : progress.running
+                          ? Math.min(90, 8 + progress.fetched / 5)
+                          : 0
+                  }%`,
+                }}
+              />
+            </div>
+            {progress.message && (
+              <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">
+                {progress.message}
+              </p>
+            )}
+          </div>
+        )}
         <p>
-          历史数据来自第三方索引（AICU），非 B
-          站官方实时接口，可能延迟或缺条；本应用内新发的会即时写入。
+          旧记录来自第三方索引（AICU），它不是全量，最近发的经常没有。同步时会再查近
+          50 天看过的视频和专栏，把评论区里还靠前的、你自己的发言补进来，并去掉
+          B
+          站上已经删除的。动态下的评论，以及被大量新评论压到很后面的，这样仍然可能没有。在本应用里新发的会马上记上。
         </p>
       </div>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
@@ -783,7 +885,11 @@ function FootprintList({
                     </>
                   )}
                   <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                    {item.source === "local" ? "本机" : "索引"}
+                    {item.source === "local"
+                      ? "本机"
+                      : item.source === "bili"
+                        ? "官方"
+                        : "索引"}
                   </Badge>
                 </div>
               </div>
@@ -814,7 +920,7 @@ function FootprintList({
         {!loading && items.length === 0 && !error && (
           <EmptyState
             title={kind === "comment" ? "还没有评论足迹" : "还没有弹幕足迹"}
-            detail="点右上角「同步历史」从第三方索引拉取过往记录；之后在本应用里发的会自动记入。"
+            detail="点右上角「同步历史」拉取过往记录，并对照 B 站去掉已经删除的评论；之后在本应用里发的会自动记入。"
           />
         )}
         {hasMore && (
@@ -2197,9 +2303,7 @@ function FeedList({
             : await window.biliDesk.bili.getMessageFeed(kind, id, time);
         setItems((current) => {
           const mapped =
-            kind === "sent"
-              ? page.items.map(withSelfAvatar)
-              : page.items;
+            kind === "sent" ? page.items.map(withSelfAvatar) : page.items;
           if (append) return [...current, ...mapped];
           if (kind !== "sent") return mapped;
           const local = readLocalSent()

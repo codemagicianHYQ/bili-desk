@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link } from "react-router-dom";
 import type { LiveChatMessage } from "@shared/types";
 import { mergeLiveEmoteMaps } from "@shared/utils/live-danmu-emotes";
@@ -169,7 +170,7 @@ export function LiveChatPanel({
         },
       ]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发送失败");
+      setError(formatDisplayedError(err, undefined, "发送失败"));
     } finally {
       setSending(false);
     }

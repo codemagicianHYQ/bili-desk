@@ -13,6 +13,7 @@ function currentUid(): number {
 export function captureLocalComment(
   comment: CommentItem | null | undefined,
   type = 1,
+  source: FootprintItem["source"] = "local",
 ): void {
   if (!comment) return;
   const uid = currentUid();
@@ -27,7 +28,7 @@ export function captureLocalComment(
     oid: Number(comment.oid) || 0,
     type,
     rpid,
-    source: "local",
+    source,
   };
   upsertFootprintItems(uid, [item]);
 }

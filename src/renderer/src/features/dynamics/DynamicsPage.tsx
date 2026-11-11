@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link, useLocation } from "react-router-dom";
 import type {
   DynamicFeedType,
@@ -32,7 +33,7 @@ const TABS: Array<{ id: UiTab; label: string }> = [
 ];
 
 function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : "加载失败";
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 function matchesTab(item: SpaceDynamicItem, tab: UiTab): boolean {

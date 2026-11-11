@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link } from "react-router-dom";
 import { Loader2, Radio } from "lucide-react";
 import type { SearchLiveItem, SearchLiveOrder } from "@shared/types";
@@ -15,11 +16,7 @@ const ORDER_OPTIONS: Array<{ value: SearchLiveOrder; label: string }> = [
 ];
 
 function formatError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "搜索直播失败";
-  if (message.includes("412") || message.includes("安全策略")) {
-    return "请求被 B 站安全策略拦截，请稍后重试";
-  }
-  return message;
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 interface SearchLivePanelProps {

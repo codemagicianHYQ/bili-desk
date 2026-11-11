@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { createPortal } from "react-dom";
 import {
   FolderCog,
@@ -110,7 +111,7 @@ export function FollowActionButton({
       onFollowingChange(true);
       invalidateFollowings();
     } catch (error) {
-      onError?.(error instanceof Error ? error.message : "关注失败");
+      onError?.(formatDisplayedError(error, undefined, "关注失败"));
     } finally {
       setLoading(false);
     }
@@ -126,7 +127,7 @@ export function FollowActionButton({
       invalidateFollowings();
       setUnfollowOpen(false);
     } catch (error) {
-      onError?.(error instanceof Error ? error.message : "取消关注失败");
+      onError?.(formatDisplayedError(error, undefined, "取消关注失败"));
     } finally {
       setLoading(false);
     }
@@ -142,7 +143,7 @@ export function FollowActionButton({
       invalidateFollowings();
       setBlockOpen(false);
     } catch (error) {
-      onError?.(error instanceof Error ? error.message : "拉黑失败");
+      onError?.(formatDisplayedError(error, undefined, "拉黑失败"));
     } finally {
       setLoading(false);
     }

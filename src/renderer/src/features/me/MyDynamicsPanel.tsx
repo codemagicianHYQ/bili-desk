@@ -23,7 +23,7 @@ import {
   ForwardedOrigEmbed,
   ImageGrid,
 } from "@/components/dynamic/DynamicFeedCard";
-import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { extractIpcErrorMessage, formatDisplayedError } from "@/lib/ipc-error";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 import {
   Loader2,
@@ -43,7 +43,7 @@ interface MyDynamicsPanelProps {
 }
 
 function formatError(err: unknown): string {
-  return extractIpcErrorMessage(err) || "操作失败";
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 function visibleForwardText(item: SpaceDynamicItem): string {

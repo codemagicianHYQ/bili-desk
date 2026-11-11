@@ -28,7 +28,10 @@ import type {
   PostCommandVotePayload,
 } from "@shared/types";
 import { appStore } from "../store/app-store";
-import { listFootprint } from "../store/footprint-store";
+import {
+  listFootprint,
+  removeFootprintComments,
+} from "../store/footprint-store";
 import {
   abortFootprintSync,
   getFootprintSyncStatus,
@@ -303,8 +306,14 @@ export function registerBiliIpc(): void {
   );
   handleIpc(
     IPC.BILI_COMMENT_DELETE,
-    (_e, oid: string, type: number, rpid: number | string) =>
-      biliApi.deleteReply(oid, type, rpid),
+    async (_e, oid: string, type: number, rpid: number | string) => {
+      await biliApi.deleteReply(oid, type, rpid);
+      const uid =
+        Number(appStore.get("cookies").DedeUserID) ||
+        Number(appStore.get("user")?.mid) ||
+        0;
+      if (uid > 0) removeFootprintComments(uid, [String(rpid)]);
+    },
   );
   handleIpc(
     IPC.BILI_COMMENT_PIN,

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type {
   CollectionClassifyProgress,
   CollectionClassifyResult,
@@ -76,7 +77,7 @@ export function createBackgroundTask<P, R, M = undefined>(
         set({
           running: false,
           progress: null,
-          error: err instanceof Error ? err.message : String(err),
+          error: formatDisplayedError(err, undefined, "操作失败"),
         });
         throw err;
       }

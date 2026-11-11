@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type { CollectionGroup, UserCollectionItem } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,7 +53,7 @@ export function CollectionMoveDialog({
       await onConfirm(group);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(formatDisplayedError(err, undefined, "保存失败"));
     } finally {
       setBusy(false);
     }

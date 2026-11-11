@@ -11,7 +11,7 @@ import {
   APP_OVERLAY_ZCLASS,
   OverlayPortal,
 } from "@/components/ui/overlay-portal";
-import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { extractIpcErrorMessage, formatDisplayedError } from "@/lib/ipc-error";
 import { upRelationCache } from "@/lib/session-data-cache";
 import { cn } from "@/lib/utils";
 import { useFollowingStore } from "@/stores/following-store";
@@ -36,7 +36,7 @@ function shareUrl(item: SpaceDynamicItem): string {
 }
 
 function formatError(err: unknown): string {
-  return extractIpcErrorMessage(err) || "操作失败";
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 export function DynamicMoreSheet({

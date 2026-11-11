@@ -31,7 +31,7 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Link } from "react-router-dom";
-import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { extractIpcErrorMessage, formatDisplayedError } from "@/lib/ipc-error";
 import { useFollowedMidSet } from "@/lib/use-followed-mids";
 import { cn, formatDuration } from "@/lib/utils";
 import {
@@ -763,7 +763,7 @@ export function FavoritesPage() {
       void enrichCoversOnce();
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "分类失败，请确认已登录";
+        formatDisplayedError(err, undefined, "分类失败，请确认已登录");
       setClassifyMessage(
         message.startsWith("[412]")
           ? "请求被 B 站安全策略拦截，请等 3～5 分钟再点，会接着上次继续"
@@ -844,7 +844,7 @@ export function FavoritesPage() {
       }
     } catch (err) {
       setClassifyMessage(
-        err instanceof Error ? err.message : "整理失败，请确认已登录",
+        formatDisplayedError(err, undefined, "整理失败，请确认已登录"),
       );
     } finally {
       setClassifying(false);
@@ -872,7 +872,7 @@ export function FavoritesPage() {
     } catch (err) {
       mergeDumpKickRef.current = false;
       setClassifyMessage(
-        err instanceof Error ? err.message : "把「其他」并入 default 失败",
+        formatDisplayedError(err, undefined, "把「其他」并入 default 失败"),
       );
     } finally {
       setClassifying(false);
@@ -900,7 +900,7 @@ export function FavoritesPage() {
     } catch (err) {
       mergeDupKickRef.current = false;
       setClassifyMessage(
-        err instanceof Error ? err.message : "合并同主题收藏夹失败",
+        formatDisplayedError(err, undefined, "合并同主题收藏夹失败"),
       );
     } finally {
       setClassifying(false);

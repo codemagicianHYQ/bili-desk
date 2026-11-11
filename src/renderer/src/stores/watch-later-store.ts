@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type { ToViewItem, ToViewSource, VideoItem } from "@shared/types";
 
 const TOVIEW_MAX = 1000;
@@ -99,7 +100,7 @@ export const useWatchLaterStore = create<WatchLaterState>((set, get) => ({
       });
     } catch (err) {
       set({
-        error: err instanceof Error ? err.message : "加载稍后再看失败",
+        error: formatDisplayedError(err, undefined, "加载稍后再看失败"),
         ready: true,
       });
     } finally {

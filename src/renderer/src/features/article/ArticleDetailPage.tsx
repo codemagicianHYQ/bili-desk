@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import {
   Link,
   useNavigate,
@@ -9,6 +10,7 @@ import type { ArticleDetail } from "@shared/types";
 import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection";
 import { BiliImage } from "@/components/ui/bili-image";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
+import { ErrorState } from "@/components/ui/content-unavailable";
 import { sanitizeArticleHtml } from "@/lib/sanitize-article-html";
 import { openBiliHref } from "@/lib/open-bili-href";
 import { cn, formatCount, formatPubdate } from "@/lib/utils";
@@ -77,7 +79,7 @@ export function ArticleDetailPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "加载专栏失败");
+        setError(formatDisplayedError(err, undefined, "加载专栏失败"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -107,7 +109,7 @@ export function ArticleDetailPage() {
       setLiked(next);
       setLikeCount((prev) => Math.max(0, prev + (next ? 1 : -1)));
     } catch (err) {
-      showTip(err instanceof Error ? err.message : "点赞失败");
+      showTip(formatDisplayedError(err, undefined, "点赞失败"));
     } finally {
       setLiking(false);
     }
@@ -122,7 +124,7 @@ export function ArticleDetailPage() {
       setCoinCount((prev) => prev + 1);
       showTip("已投币");
     } catch (err) {
-      showTip(err instanceof Error ? err.message : "投币失败");
+      showTip(formatDisplayedError(err, undefined, "投币失败"));
     } finally {
       setCoining(false);
     }
@@ -137,7 +139,7 @@ export function ArticleDetailPage() {
       setFavorited(next);
       setFavCount((prev) => Math.max(0, prev + (next ? 1 : -1)));
     } catch (err) {
-      showTip(err instanceof Error ? err.message : "收藏失败");
+      showTip(formatDisplayedError(err, undefined, "收藏失败"));
     } finally {
       setFavoriting(false);
     }
@@ -176,7 +178,12 @@ export function ArticleDetailPage() {
             加载专栏中...
           </div>
         ) : error ? (
-          <p className="px-6 py-16 text-center text-sm text-red-400">{error}</p>
+          <ErrorState
+            error={error}
+            hint="article"
+            fallback="专栏加载失败，请稍后重试。"
+            className="min-h-[50vh]"
+          />
         ) : !article ? (
           <p className="px-6 py-16 text-center text-sm text-muted-foreground">
             专栏不存在

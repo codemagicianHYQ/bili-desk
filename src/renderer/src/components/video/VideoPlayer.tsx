@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import Artplayer from "artplayer";
 import artplayerPluginDanmuku from "artplayer-plugin-danmuku";
 import flvjs from "flv.js";
@@ -517,7 +518,7 @@ export function VideoPlayer({
               return true;
             } catch (error) {
               const message =
-                error instanceof Error ? error.message : "发送弹幕失败";
+                formatDisplayedError(error, undefined, "发送弹幕失败");
               onErrorRef.current?.(message);
               return false;
             }

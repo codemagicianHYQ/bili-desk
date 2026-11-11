@@ -6,6 +6,7 @@ import { BiliImage } from "@/components/ui/bili-image";
 import { LivePlayer } from "@/components/live/LivePlayer";
 import { LiveChatPanel } from "@/components/live/LiveChatPanel";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { ErrorState } from "@/components/ui/content-unavailable";
 import { formatCount } from "@/lib/utils";
 import { Eye, Loader2, Radio, Users } from "lucide-react";
 
@@ -183,12 +184,16 @@ export function LivePage({ roomId, active = true }: LivePageProps) {
 
   if (error || !room) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-red-400">
-        <p>{error || "直播间加载失败"}</p>
-        <Button variant="secondary" size="sm" onClick={() => loadRoom(roomId)}>
-          重试
-        </Button>
-      </div>
+      <ErrorState
+        error={error || "直播间加载失败"}
+        hint="live"
+        fallback="直播间加载失败，请稍后重试。"
+        action={
+          <Button variant="secondary" size="sm" onClick={() => loadRoom(roomId)}>
+            重试
+          </Button>
+        }
+      />
     );
   }
 

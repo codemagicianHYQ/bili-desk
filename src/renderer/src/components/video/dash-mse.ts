@@ -1,4 +1,5 @@
 import type { BiliDashPlayInfo, BiliDashTrackInfo } from "@shared/types";
+import { formatDisplayedError } from "@/lib/ipc-error";
 
 interface ByteRange {
   start: number;
@@ -439,7 +440,7 @@ export function attachBiliDash(
           } catch (error) {
             if (abort.signal.aborted || epoch !== seekEpoch) return;
             const message =
-              error instanceof Error ? error.message : "DASH 缓冲失败";
+              formatDisplayedError(error, undefined, "DASH 缓冲失败");
             console.warn("[BiliDesk][dash-mse]", message, error);
             onError(message);
           } finally {
@@ -528,7 +529,7 @@ export function attachBiliDash(
       } catch (error) {
         if (abort.signal.aborted) return;
         const message =
-          error instanceof Error ? error.message : "DASH 播放失败";
+          formatDisplayedError(error, undefined, "DASH 播放失败");
         console.warn("[BiliDesk][dash-mse]", message, error);
         onError(message);
       }

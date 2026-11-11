@@ -4,6 +4,7 @@ import type { AudioSong } from "@shared/types";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { BiliImage } from "@/components/ui/bili-image";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { ErrorState } from "@/components/ui/content-unavailable";
 import { Loader2 } from "lucide-react";
 
 export function AudioPage() {
@@ -49,7 +50,14 @@ export function AudioPage() {
               加载音频...
             </p>
           )}
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && (
+            <ErrorState
+              error={error}
+              hint="audio"
+              fallback="音频加载失败，请稍后重试。"
+              className="min-h-[40vh]"
+            />
+          )}
           {song && (
             <>
               {song.cover ? (
@@ -59,7 +67,9 @@ export function AudioPage() {
                   className="mx-auto h-48 w-48 rounded-xl object-cover"
                 />
               ) : null}
-              <h1 className="text-center text-xl font-semibold">{song.title}</h1>
+              <h1 className="text-center text-xl font-semibold">
+                {song.title}
+              </h1>
               {song.author && (
                 <p className="text-center text-sm text-muted-foreground">
                   {song.author}

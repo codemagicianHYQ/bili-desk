@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link } from "react-router-dom";
 import type { FavMediaItem, OpusFavItem } from "@shared/types";
 import { OpusAppLink } from "@/components/opus/OpusAppLink";
@@ -12,14 +13,7 @@ import {
 import { FileText, Loader2, Video } from "lucide-react";
 
 function formatError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "加载失败";
-  if (message.includes("412") || message.includes("安全策略")) {
-    return "请求被 B 站安全策略拦截，请稍后重试";
-  }
-  if (message.startsWith("Error invoking remote method")) {
-    return "加载失败，请完全重启应用后重试";
-  }
-  return message;
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 type FavTab = "video" | "opus";

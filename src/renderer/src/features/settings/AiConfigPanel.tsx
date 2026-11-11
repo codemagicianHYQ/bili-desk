@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type { AiConfig, AiProviderId } from "@shared/types";
 import {
   AI_PROVIDER_PRESETS,
@@ -93,7 +94,7 @@ export function AiConfigPanel() {
         setTestMessage(result.message);
       }
     } catch (err) {
-      setTestMessage(err instanceof Error ? err.message : "测试失败");
+      setTestMessage(formatDisplayedError(err, undefined, "测试失败"));
     } finally {
       setTesting(false);
     }

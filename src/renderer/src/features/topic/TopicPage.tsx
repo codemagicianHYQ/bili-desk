@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { useParams, useSearchParams } from "react-router-dom";
 import type { SpaceDynamicItem, TopicHead } from "@shared/types";
 import { DynamicFeedCard } from "@/components/dynamic/DynamicFeedCard";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
+import { ErrorState } from "@/components/ui/content-unavailable";
 import { Loader2 } from "lucide-react";
 
 export function TopicPage() {
@@ -36,7 +38,7 @@ export function TopicPage() {
         setHasMore(page.hasMore);
         setItems((prev) => (append ? [...prev, ...page.items] : page.items));
       } catch (err) {
-        setError(err instanceof Error ? err.message : "话题加载失败");
+        setError(formatDisplayedError(err, undefined, "话题加载失败"));
       } finally {
         setLoading(false);
       }
@@ -61,11 +63,11 @@ export function TopicPage() {
         <div className="mx-auto max-w-3xl space-y-4 px-6 py-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h1 className="text-xl font-semibold">
-                #{head?.name || name}
-              </h1>
+              <h1 className="text-xl font-semibold">#{head?.name || name}</h1>
               {head?.desc ? (
-                <p className="mt-1 text-sm text-muted-foreground">{head.desc}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {head.desc}
+                </p>
               ) : null}
             </div>
             <button
@@ -91,7 +93,12 @@ export function TopicPage() {
               加载话题...
             </p>
           ) : error && items.length === 0 ? (
-            <p className="text-sm text-red-400">{error}</p>
+            <ErrorState
+              error={error}
+              hint="dynamic"
+              fallback="话题加载失败，请稍后重试。"
+              className="min-h-[40vh]"
+            />
           ) : items.length === 0 ? (
             <p className="text-sm text-muted-foreground">这个话题还没有动态</p>
           ) : (

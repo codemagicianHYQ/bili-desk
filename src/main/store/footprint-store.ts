@@ -1,11 +1,17 @@
 import { app } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import type { FootprintItem, FootprintKind, FootprintListQuery } from "@shared/types";
+import type {
+  FootprintItem,
+  FootprintKind,
+  FootprintListQuery,
+} from "@shared/types";
 
 export interface FootprintFile {
   uid: number;
   items: FootprintItem[];
+  /** 本机已删除的评论 rpid。AICU 索引有延迟，再同步也不能把它们加回来 */
+  removedCommentIds: string[];
   syncedAt: number | null;
   replyPn: number;
   replyDone: boolean;
@@ -30,6 +36,7 @@ function emptyFile(uid: number): FootprintFile {
   return {
     uid,
     items: [],
+    removedCommentIds: [],
     syncedAt: null,
     replyPn: 1,
     replyDone: false,
@@ -55,8 +62,10 @@ function readFromDisk(uid: number): FootprintFile {
       ...parsed,
       uid,
       items: Array.isArray(parsed.items) ? parsed.items : [],
-      syncedAt:
-        typeof parsed.syncedAt === "number" ? parsed.syncedAt : null,
+      removedCommentIds: Array.isArray(parsed.removedCommentIds)
+        ? parsed.removedCommentIds.map((id) => String(id))
+        : [],
+      syncedAt: typeof parsed.syncedAt === "number" ? parsed.syncedAt : null,
       replyPn: Math.max(1, Number(parsed.replyPn) || 1),
       replyDone: Boolean(parsed.replyDone),
       dmPn: Math.max(1, Number(parsed.dmPn) || 1),
@@ -121,9 +130,17 @@ export function upsertFootprintItems(
 ): number {
   if (incoming.length === 0) return 0;
   const data = loadFootprint(uid);
+  const removed = new Set(data.removedCommentIds);
   const map = new Map(data.items.map((item) => [item.id, item]));
   let added = 0;
   for (const item of incoming) {
+    if (
+      item.kind === "comment" &&
+      item.rpid &&
+      removed.has(String(item.rpid))
+    ) {
+      continue;
+    }
     const prev = map.get(item.id);
     if (!prev) {
       map.set(item.id, item);
@@ -142,6 +159,27 @@ export function upsertFootprintItems(
   data.items = [...map.values()].sort((a, b) => b.time - a.time);
   markDirty(uid);
   return added;
+}
+
+/** 评论在 B 站删除成功后，从本地足迹去掉，并记住 rpid，避免历史同步又加回来 */
+export function removeFootprintComments(uid: number, rpids: string[]): number {
+  const ids = [
+    ...new Set(rpids.map((id) => String(id).trim()).filter(Boolean)),
+  ];
+  if (uid <= 0 || ids.length === 0) return 0;
+  const data = loadFootprint(uid);
+  const drop = new Set(ids);
+  const before = data.items.length;
+  data.items = data.items.filter(
+    (item) =>
+      !(item.kind === "comment" && item.rpid && drop.has(String(item.rpid))),
+  );
+  const removed = new Set(data.removedCommentIds);
+  for (const id of ids) removed.add(id);
+  data.removedCommentIds = [...removed];
+  markDirty(uid);
+  flushFootprintStore();
+  return before - data.items.length;
 }
 
 export function setFootprintSyncCursor(
@@ -202,10 +240,7 @@ export function listFootprint(
   };
 }
 
-export function countFootprintByKind(
-  uid: number,
-  kind: FootprintKind,
-): number {
+export function countFootprintByKind(uid: number, kind: FootprintKind): number {
   return loadFootprint(uid).items.filter((item) => item.kind === kind).length;
 }
 

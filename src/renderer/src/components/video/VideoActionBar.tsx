@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import type { VideoDetail, VideoRelation } from "@shared/types";
@@ -24,11 +25,7 @@ const CHARGE_DELAY_MS = 800;
 const CHARGE_MS = 1500;
 
 function formatActionError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "操作失败";
-  if (message.includes("412") || message.includes("安全策略")) {
-    return "请求被 B 站安全策略拦截，请稍后重试";
-  }
-  return message;
+  return formatDisplayedError(err, undefined, "操作失败");
 }
 
 function LikeGlyph({ filled }: { filled?: boolean }) {

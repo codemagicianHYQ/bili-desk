@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link } from "react-router-dom";
 import {
   BarChart3,
@@ -78,7 +79,7 @@ const FILTERS_COLLAPSED_KEY = "bilidesk:popular-filters-collapsed";
 const OTHER_PARTITION = "其他";
 
 function formatError(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback;
+  return formatDisplayedError(err, undefined, fallback);
 }
 
 function formatMusicPeriod(period: MusicRankPeriod): string {

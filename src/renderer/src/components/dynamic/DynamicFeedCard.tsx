@@ -1,4 +1,5 @@
 import { useRef, useState, type MouseEvent } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -68,7 +69,7 @@ function DynamicActionBar({
       setLikeCount(nextCount);
       onLikedChange?.(next, nextCount);
     } catch (err) {
-      showTip(err instanceof Error ? err.message : "点赞失败");
+      showTip(formatDisplayedError(err, undefined, "点赞失败"));
     } finally {
       setLiking(false);
     }

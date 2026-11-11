@@ -1624,7 +1624,8 @@ export interface FootprintItem {
   /** 弹幕在视频内进度（毫秒） */
   progressMs?: number;
   bvid?: string;
-  source: "aicu" | "local";
+  /** aicu 旧索引 / local 本应用里新发 / bili 从 B 站评论区对上的 */
+  source: "aicu" | "local" | "bili";
 }
 
 export interface FootprintListQuery {
@@ -1649,9 +1650,19 @@ export interface FootprintListResult {
 
 export interface FootprintSyncProgress {
   running: boolean;
-  phase: "idle" | "comment" | "danmaku" | "done" | "error";
+  phase:
+    | "idle"
+    | "challenge"
+    | "comment"
+    | "danmaku"
+    | "verify"
+    | "recent"
+    | "done"
+    | "error";
   fetched: number;
   totalHint: number;
+  /** 当前同步页码（评论/弹幕各自计数） */
+  page?: number;
   message: string;
 }
 

@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { useNavigate } from "react-router-dom";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
 
 function formatLoginError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "登录失败，请重试";
-  if (
-    message.includes("412") ||
-    message.includes("request was banned") ||
-    message.includes("风控")
-  ) {
-    return "请求被 B 站安全策略拦截，请稍后重试或更换网络";
-  }
-  if (message.startsWith("Error invoking remote method")) {
-    return "登录服务异常，请重新生成二维码";
-  }
-  return message;
+  return formatDisplayedError(err, undefined, "登录失败，请重试");
 }
 
 export function LoginPage() {

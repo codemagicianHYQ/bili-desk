@@ -25,6 +25,7 @@ import { UpSpaceHome } from "@/features/up/UpSpaceHome";
 import { UpSpaceOpusPanel } from "@/features/up/UpSpaceOpusPanel";
 import { cn } from "@/lib/utils";
 import { formatUserSpaceError } from "@/lib/ipc-error";
+import { ErrorState } from "@/components/ui/content-unavailable";
 import {
   upProfileCache,
   upRelationCache,
@@ -484,20 +485,21 @@ export function UpSpacePage() {
 
   if (!mid) {
     return (
-      <div className="flex h-full items-center justify-center text-red-400">
-        无效的 UP 主 ID
-      </div>
+      <ErrorState
+        error="无效的 UP 主 ID"
+        hint="user"
+        fallback="这个用户链接无效。"
+      />
     );
   }
 
   if (profileError && !profile) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-        <p className="text-sm text-red-400">{profileError}</p>
-        <p className="text-xs text-muted-foreground">
-          可能是账号已注销、不存在，或暂时无法访问
-        </p>
-      </div>
+      <ErrorState
+        error={profileError}
+        hint="user"
+        fallback="这个用户暂时无法访问，可能已注销或不存在。"
+      />
     );
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type { VideoItem } from "@shared/types";
 import { VideoCard } from "@/components/video/VideoCard";
 import { cn } from "@/lib/utils";
@@ -29,7 +30,7 @@ export function RelatedVideosPanel({
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "相关推荐加载失败");
+        setError(formatDisplayedError(err, undefined, "相关推荐加载失败"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

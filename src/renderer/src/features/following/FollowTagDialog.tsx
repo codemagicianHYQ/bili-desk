@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import type { FollowTag } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { CreateFollowTagControl } from "@/components/following/CreateFollowTagControl";
@@ -42,7 +43,7 @@ export function FollowTagDialog({
         setInitialTagIds([...next]);
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "加载分组失败");
+        setError(formatDisplayedError(err, undefined, "加载分组失败"));
       })
       .finally(() => setLoading(false));
   }, [up]);
@@ -68,7 +69,7 @@ export function FollowTagDialog({
       onSaved({ prevTagIds: initialTagIds, nextTagIds: [...selected] });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存分组失败");
+      setError(formatDisplayedError(err, undefined, "保存分组失败"));
     } finally {
       setSaving(false);
     }

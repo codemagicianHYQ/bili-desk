@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { createPortal } from "react-dom";
 import type { ReplyEmoteItem, ReplyEmotePackage } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
@@ -54,7 +55,7 @@ export function EmotePickerButton({
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "表情加载失败");
+          setError(formatDisplayedError(err, undefined, "表情加载失败"));
         }
       })
       .finally(() => {

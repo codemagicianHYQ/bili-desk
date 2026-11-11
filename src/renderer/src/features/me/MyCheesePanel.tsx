@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link, useNavigate } from "react-router-dom";
 import { openBiliHref } from "@/lib/open-bili-href";
 import type { ChargeUpItem, CheeseCourseItem } from "@shared/types";
@@ -7,7 +8,7 @@ import { cn, formatCount } from "@/lib/utils";
 import { BookOpen, Loader2, Zap } from "lucide-react";
 
 function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : "加载失败";
+  return formatDisplayedError(err, undefined, "加载失败");
 }
 
 function formatChargeExpire(expireTime: number, expired: boolean): string {

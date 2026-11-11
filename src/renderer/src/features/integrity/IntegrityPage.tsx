@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link } from "react-router-dom";
 import type {
   AbnormalFollowingRecord,
@@ -74,7 +75,7 @@ export function IntegrityPage() {
       const data = await window.biliDesk.bili.getIntegrityArchive();
       setArchive(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "加载归档失败");
+      setError(formatDisplayedError(err, undefined, "加载归档失败"));
     } finally {
       setLoading(false);
     }

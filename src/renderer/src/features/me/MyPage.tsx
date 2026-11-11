@@ -9,6 +9,7 @@ import { VideoCard } from "@/components/video/VideoCard";
 import { SpaceTabBar } from "@/components/space/SpaceTabBar";
 import { formatCount } from "@/lib/utils";
 import { extractIpcErrorMessage, formatUserSpaceError } from "@/lib/ipc-error";
+import { ErrorState } from "@/components/ui/content-unavailable";
 import { imageFilesToPayload } from "@/components/comment/comment-images";
 import { upProfileCache } from "@/lib/session-data-cache";
 import { MyCheesePanel, MyUpowerPanel } from "./MyCheesePanel";
@@ -254,9 +255,11 @@ export function MyPage() {
 
   if (profileError && !profile) {
     return (
-      <div className="flex h-full items-center justify-center text-red-400">
-        {profileError}
-      </div>
+      <ErrorState
+        error={profileError}
+        hint="user"
+        fallback="个人资料加载失败，请稍后重试。"
+      />
     );
   }
 

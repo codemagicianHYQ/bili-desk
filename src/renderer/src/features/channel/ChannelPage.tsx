@@ -4,6 +4,7 @@ import type { VideoItem } from "@shared/types";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { VideoCard } from "@/components/video/VideoCard";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
+import { ErrorState } from "@/components/ui/content-unavailable";
 import { Loader2 } from "lucide-react";
 
 export function ChannelPage() {
@@ -32,10 +33,14 @@ export function ChannelPage() {
           channelId,
           nextPage,
         );
-        setName(result.name && result.name !== "频道" ? result.name : fallbackName);
+        setName(
+          result.name && result.name !== "频道" ? result.name : fallbackName,
+        );
         setPage(result.page);
         setHasMore(result.hasMore);
-        setVideos((prev) => (append ? [...prev, ...result.videos] : result.videos));
+        setVideos((prev) =>
+          append ? [...prev, ...result.videos] : result.videos,
+        );
       } catch (err) {
         setError(extractIpcErrorMessage(err) || "频道加载失败");
       } finally {
@@ -55,7 +60,13 @@ export function ChannelPage() {
       <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl space-y-4 px-6 py-5">
           <h1 className="text-xl font-semibold">{name}</h1>
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && videos.length === 0 && (
+            <ErrorState
+              error={error}
+              fallback="频道加载失败，请稍后重试。"
+              className="min-h-[40vh]"
+            />
+          )}
           <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
             {videos.map((video) => (
               <VideoCard key={video.bvid} video={video} meta="stats" />

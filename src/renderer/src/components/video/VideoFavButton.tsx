@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
 import { createPortal } from "react-dom";
 import type { VideoFavFolder } from "@shared/types";
 import { CreateFavFolderControl } from "@/components/favorites/CreateFavFolderControl";
@@ -30,7 +31,7 @@ interface VideoFavButtonProps {
 }
 
 function formatFavError(err: unknown): string {
-  const message = err instanceof Error ? err.message : "操作失败";
+  const message = formatDisplayedError(err, undefined, "操作失败");
   if (message.includes("412") || message.includes("安全策略")) {
     return "请求被 B 站安全策略拦截，请稍后重试";
   }
