@@ -3,6 +3,7 @@ import { IPC } from "@shared/ipc-channels";
 import type { FootprintSyncKinds, FootprintSyncProgress } from "@shared/types";
 import { appStore } from "../store/app-store";
 import { biliApi } from "./bili-api";
+import { messageApi } from "./message-api";
 import {
   loadFootprint,
   setFootprintSyncCursor,
@@ -271,6 +272,41 @@ export async function startFootprintSync(
       removedComments = verified.removed;
       verifyNote = verified.note;
     }
+    const newestCommentAt = loadFootprint(uid).items.reduce(
+      (max, item) =>
+        item.kind === "comment" ? Math.max(max, item.time || 0) : max,
+      0,
+    );
+    const sinceLabel =
+      newestCommentAt > 0
+        ? `${new Date(newestCommentAt * 1000).getMonth() + 1}月${new Date(newestCommentAt * 1000).getDate()}日`
+        : "现有记录";
+    if (doComment && !abortFlag) {
+      try {
+        setProgress({
+          phase: "recent",
+          running: true,
+          page: 0,
+          fetched: 0,
+          totalHint: 0,
+          message: "正在把「我回复的」写进我的评论…",
+        });
+        const sent = await messageApi.listSentCommentsForFootprint();
+        if (abortFlag) throw new Error("已中止同步");
+        if (sent.length > 0) filled += upsertFootprintItems(uid, sent);
+        setProgress({
+          phase: "recent",
+          running: true,
+          fetched: sent.length,
+          totalHint: sent.length,
+          message: `「我回复的」写入 ${sent.length} 条，其中新出现 ${filled} 条`,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("中止")) throw error;
+        fillNote = message;
+      }
+    }
     if (doComment && !abortFlag) {
       try {
         const found = await biliApi.listOwnCommentsFromRecentHistory(
@@ -283,10 +319,11 @@ export async function startFootprintSync(
               page: 0,
               fetched: done,
               totalHint: total,
-              message: `正在查近 50 天看过的视频 · ${done}/${total}，新找到 ${filled} 条`,
+              message: `正在补 ${sinceLabel} 之后看过的视频 · ${done}/${total}，新找到 ${filled} 条`,
             });
           },
           () => abortFlag,
+          newestCommentAt,
         );
         fillNote = found.note;
       } catch (error) {
@@ -303,8 +340,8 @@ export async function startFootprintSync(
       if (removedComments > 0)
         bits.push(`去掉 ${removedComments} 条已删除评论`);
       else if (!verifyNote) bits.push("没有发现已删除评论");
-      if (filled > 0) bits.push(`从近 50 天观看记录补入 ${filled} 条`);
-      else if (!fillNote) bits.push("近 50 天看过的视频里没有新评论");
+      if (filled > 0) bits.push(`补入 ${filled} 条近期发言`);
+      else if (!fillNote) bits.push("「我回复的」和近期观看里没有新评论");
     }
     const extra = [verifyNote, fillNote].filter(
       (text) => text && text !== "已停止",

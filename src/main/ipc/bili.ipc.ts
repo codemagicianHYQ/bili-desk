@@ -325,6 +325,11 @@ export function registerBiliIpc(): void {
     (_e, oid: string, type: number, rpid: number | string, reason: number) =>
       biliApi.reportComment(oid, type, rpid, reason),
   );
+  handleIpc(
+    IPC.BILI_COMMENT_TRANSLATE,
+    (_e, oid: string, type: number, rpid: number | string) =>
+      biliApi.translateComment(oid, type, rpid),
+  );
   ipcMain.handle(IPC.BILI_REPLY_EMOTES, () => biliApi.getReplyEmotes());
   ipcMain.handle(IPC.BILI_FAV_FOLDERS, () => biliApi.getFavFolders());
   ipcMain.handle(

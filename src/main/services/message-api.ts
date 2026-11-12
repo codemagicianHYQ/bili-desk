@@ -21,8 +21,10 @@ import type {
   NewFansPage,
   SystemNotice,
   SystemNoticePage,
+  FootprintItem,
 } from "@shared/types";
 import { appStore, getCookieString, isLoggedIn } from "../store/app-store";
+import { upsertFootprintItems } from "../store/footprint-store";
 import { defaultHeaders, getCsrf, signParams } from "./wbi";
 
 const WEB = { build: 0, mobi_app: "web" } as const;
@@ -394,6 +396,25 @@ function toMyReplyFromNotice(raw: unknown): MessageFeedItem | null {
     businessId: numOf(body.business_id) || 1,
     rootId: rootId || rpid,
     sourceId: rpid,
+  };
+}
+
+function sentNoticeToFootprint(item: MessageFeedItem): FootprintItem | null {
+  const rpid = String(item.sourceId || item.id || "").trim();
+  if (!rpid || item.subjectId <= 0 || !item.content.trim()) return null;
+  let time = item.time;
+  if (time > 1e12) time = Math.floor(time / 1000);
+  const bvid = item.uri.match(/BV[0-9A-Za-z]+/)?.[0];
+  return {
+    id: `comment:${rpid}`,
+    kind: "comment",
+    text: item.content,
+    time,
+    oid: item.subjectId,
+    type: item.businessId || 1,
+    rpid,
+    bvid,
+    source: "bili",
   };
 }
 
@@ -1129,7 +1150,63 @@ class MessageApiService {
       }
       if (nextId <= 0) isEnd = true;
     }
+    this.rememberSentFootprints(items);
     return { items, cursorId: nextId, cursorTime: nextTime, isEnd };
+  }
+  async listSentCommentsForFootprint(maxItems = 300): Promise<FootprintItem[]> {
+    requireCsrf();
+    const items: FootprintItem[] = [];
+    const seen = new Set<string>();
+    let nextId = 0;
+    let nextTime = 0;
+    let isEnd = false;
+    const cutoff = Math.floor(Date.now() / 1000) - 120 * 24 * 3600;
+    for (let hop = 0; hop < 25 && items.length < maxItems && !isEnd; hop += 1) {
+      const res = await this.client.get("/x/msgfeed/reply", {
+        params: {
+          platform: "web",
+          ...WEB,
+          ps: 20,
+          ...(nextId > 0 ? { id: nextId, reply_time: nextTime } : {}),
+        },
+        validateStatus: () => true,
+      });
+      const data = assertOk(res.data, "我回复的加载失败");
+      const total = asRecord(data.total);
+      const cursor = asRecord(data.cursor) ?? asRecord(total?.cursor) ?? {};
+      const rows = asArray(data.items ?? total?.items);
+      nextId = numOf(cursor.id);
+      nextTime = numOf(cursor.time);
+      isEnd =
+        cursor.is_end === true ||
+        numOf(cursor.is_end) === 1 ||
+        rows.length === 0;
+      for (const row of rows) {
+        const mine = toMyReplyFromNotice(row);
+        const item = mine ? sentNoticeToFootprint(mine) : null;
+        if (!item || seen.has(item.rpid || "")) continue;
+        if (item.time > 0 && item.time < cutoff) {
+          isEnd = true;
+          break;
+        }
+        seen.add(item.rpid || item.id);
+        items.push(item);
+      }
+      if (nextId <= 0) isEnd = true;
+    }
+    return items;
+  }
+
+  private rememberSentFootprints(items: MessageFeedItem[]): void {
+    const uid =
+      Number(appStore.get("cookies").DedeUserID) ||
+      Number(appStore.get("user")?.mid) ||
+      0;
+    if (uid <= 0 || items.length === 0) return;
+    const rows = items
+      .map(sentNoticeToFootprint)
+      .filter((item): item is FootprintItem => item != null);
+    if (rows.length > 0) upsertFootprintItems(uid, rows);
   }
 
   async deleteFeed(kind: MessageFeedKind, id: string): Promise<void> {

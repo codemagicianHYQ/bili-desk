@@ -64,6 +64,7 @@ export const IPC = {
   BILI_COMMENT_DELETE: "bili:comment-delete",
   BILI_COMMENT_PIN: "bili:comment-pin",
   BILI_COMMENT_REPORT: "bili:comment-report",
+  BILI_COMMENT_TRANSLATE: "bili:comment-translate",
   BILI_REPLY_EMOTES: "bili:reply-emotes",
   BILI_FAV_FOLDERS: "bili:fav-folders",
   BILI_FAV_FOLDER_CREATE: "bili:fav-folder-create",

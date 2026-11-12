@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn, formatCount } from "@/lib/utils";
 import {
@@ -41,6 +41,8 @@ interface CommentActionBarProps {
   canPin?: boolean;
   pinned?: boolean;
   onPin?: () => void;
+  /** 外部菜单要求打开举报理由 */
+  reportSignal?: number;
 }
 
 export function CommentActionBar({
@@ -63,10 +65,15 @@ export function CommentActionBar({
   canPin = false,
   pinned = false,
   onPin,
+  reportSignal = 0,
 }: CommentActionBarProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [copyTip, setCopyTip] = useState("");
+
+  useEffect(() => {
+    if (reportSignal > 0) setShowReport(true);
+  }, [reportSignal]);
 
   const handleCopy = async () => {
     const text = copyText?.trim();

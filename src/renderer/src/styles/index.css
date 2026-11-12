@@ -864,7 +864,7 @@ html.bili-os-fullscreen .bili-player-stage video {
   --cmt-avatar: 40px;
   --cmt-indent: 18px;
   --cmt-stroke: 1px;
-  --cmt-line: hsl(var(--muted-foreground) / 0.38);
+  --cmt-line: hsl(var(--muted-foreground) / 0.45);
   --cmt-chip: hsl(var(--background));
   display: grid;
   grid-template-columns: var(--cmt-avatar) minmax(0, 1fr);
@@ -879,6 +879,11 @@ html.bili-os-fullscreen .bili-player-stage video {
   --cmt-avatar: 32px;
 }
 
+.bili-cmt-node:not(.is-nested) {
+  border-bottom: 1px solid hsl(var(--border) / 0.72);
+  padding-bottom: 14px;
+}
+
 .bili-cmt-rail {
   position: relative;
   grid-column: 1;
@@ -889,6 +894,15 @@ html.bili-os-fullscreen .bili-player-stage video {
 .bili-cmt-body {
   grid-column: 2;
   grid-row: 1;
+}
+
+.bili-cmt-more-btn {
+  opacity: 0;
+}
+
+.bili-cmt-body:hover > .relative .bili-cmt-more-btn,
+.bili-cmt-more-btn.is-open {
+  opacity: 1;
 }
 
 .bili-cmt-node.has-kids > .bili-cmt-rail::after {
@@ -1029,7 +1043,7 @@ html.bili-os-fullscreen .bili-player-stage video {
   color: hsl(var(--primary));
 }
 
-/* 有楼中楼的评论要一眼看出来：主题色胶囊，左对齐贴正文 */
+/* 未展开的楼中楼：官网是一行灰字，不是色块按钮 */
 .bili-cmt-more {
   grid-column: 2;
   grid-row: 3;
@@ -1037,17 +1051,13 @@ html.bili-os-fullscreen .bili-player-stage video {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 6px;
-  border-radius: 9999px;
-  border: 1px solid hsl(var(--primary) / 0.35);
-  background: hsl(var(--primary) / 0.12);
-  padding: 2px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: hsl(var(--primary));
-  transition:
-    background-color 0.15s,
-    border-color 0.15s;
+  margin-top: 2px;
+  border: 0;
+  background: transparent;
+  padding: 2px 0 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: hsl(var(--muted-foreground));
 }
 
 .bili-cmt-node.has-kids > .bili-cmt-more {
@@ -1056,8 +1066,7 @@ html.bili-os-fullscreen .bili-player-stage video {
 }
 
 .bili-cmt-more:hover {
-  background: hsl(var(--primary) / 0.22);
-  border-color: hsl(var(--primary) / 0.6);
+  color: hsl(var(--primary));
 }
 
 .bili-cmt-more:disabled {

@@ -330,6 +330,9 @@ function normalizeCommandDanmaku(raw: {
         idx: Number(row.idx) || 0,
         desc: String(row.desc ?? ""),
         count: Number(row.cnt ?? row.count) || 0,
+        hasSelfDef: Boolean(
+          Number(row.has_self_def) || row.has_self_def === true,
+        ),
       };
     })
     .filter((item) => item.idx > 0);
@@ -359,6 +362,7 @@ function normalizeCommandDanmaku(raw: {
         ? undefined
         : Number(extra.avg_score),
     voteId: Number(extra.vote_id) || undefined,
+    voteType: Number(extra.vote_type) || 0,
     myVote: Number(extra.my_vote) || 0,
     options: options.length > 0 ? options : undefined,
     skinFontColor: String(extra.skin_font_color ?? "") || undefined,
@@ -4384,12 +4388,18 @@ class BiliApiService {
   ): Promise<{ myVote: number }> {
     const csrf = getCsrf();
     if (!csrf) throw new Error("请先登录后再投票");
+    // 字段对齐官网播放器 dmCmdStore.vote：option_id 才是选项，vote 会被当成非法参数
     const body = new URLSearchParams({
       aid: String(payload.aid),
       cid: String(payload.cid),
       progress: String(Math.max(0, Math.floor(payload.progress))),
       vote_id: String(payload.voteId),
-      idx: String(payload.idx),
+      vote_type: String(payload.voteType ?? 0),
+      cmd_id_str: payload.cmdId || "",
+      option_id: String(payload.idx),
+      has_self_def: payload.hasSelfDef ? "1" : "0",
+      polaris_app_id: "100",
+      polaris_platform: "5",
       csrf,
     });
     const res = await this.client.post("/x/v2/dm/command/vote/post", body, {
@@ -4403,7 +4413,7 @@ class BiliApiService {
       throw new Error("请求被 B 站安全策略拦截，请稍后重试");
     }
     if (res.data?.code !== 0) {
-      throw new Error((res.data?.message as string) || "投票失败");
+      throw new Error(formatBiliApiError(res.data, "投票失败"));
     }
     return { myVote: payload.idx };
   }
@@ -4651,21 +4661,24 @@ class BiliApiService {
 
   /**
    * B 站没有「我发出的全部评论」接口。
-   * 顺着近 50 天的观看记录逐个视频翻时间序评论，把里面属于自己的发言找出来。
+   * 从观看记录往回翻到已有索引的时间，把这段缺口里的评论和楼中楼补上。
    */
   async listOwnCommentsFromRecentHistory(
     uid: number,
     onProgress?: (done: number, total: number, batch: FootprintItem[]) => void,
     shouldStop?: () => boolean,
+    sinceTs = 0,
   ): Promise<{ items: FootprintItem[]; note: string }> {
     if (uid <= 0) return { items: [], note: "" };
-    const cutoff = Math.floor(Date.now() / 1000) - 50 * 24 * 3600;
+    const fallback = Math.floor(Date.now() / 1000) - 120 * 24 * 3600;
+    const cutoff =
+      sinceTs > 0 ? Math.max(fallback, sinceTs - 2 * 24 * 3600) : fallback;
     const targets: { oid: number; type: number; bvid?: string }[] = [];
     const seenTarget = new Set<string>();
     let cursor: HistoryCursor | undefined;
     let note = "";
 
-    for (let page = 0; page < 15 && targets.length < 80; page += 1) {
+    for (let page = 0; page < 40 && targets.length < 400; page += 1) {
       if (shouldStop?.()) break;
       let history: HistoryPage;
       try {
@@ -4691,7 +4704,7 @@ class BiliApiService {
         if (seenTarget.has(key)) continue;
         seenTarget.add(key);
         targets.push({ oid: item.oid, type, bvid: item.bvid });
-        if (targets.length >= 80) break;
+        if (targets.length >= 400) break;
       }
       if (reachedCutoff || !history.hasMore) break;
       cursor = history.cursor;
@@ -4703,9 +4716,10 @@ class BiliApiService {
       if (shouldStop?.()) break;
       const target = targets[index];
       const batch: FootprintItem[] = [];
+      const threadRoots: string[] = [];
       let offset = "";
       let cursorNext = 0;
-      for (let round = 0; round < 4; round += 1) {
+      for (let round = 0; round < 8; round += 1) {
         if (shouldStop?.()) break;
         const page = await this.fetchTimeSortedReplies(
           target.oid,
@@ -4721,13 +4735,43 @@ class BiliApiService {
         }
         for (const raw of page.replies) {
           this.pushOwnReply(raw, uid, target, batch, seenRpid);
+          const rootId = String(raw.rpid_str ?? raw.rpid ?? "").trim();
+          const childCount =
+            Number(raw.rcount) ||
+            (Array.isArray(raw.replies) ? raw.replies.length : 0);
+          if (
+            childCount > 0 &&
+            rootId &&
+            threadRoots.length < 8 &&
+            !threadRoots.includes(rootId)
+          ) {
+            threadRoots.push(rootId);
+          }
         }
         const olderThanWindow = page.oldest > 0 && page.oldest < cutoff;
         if (page.isEnd || olderThanWindow) break;
         offset = page.nextOffset;
         cursorNext = page.nextOffset ? 0 : page.next;
         if (!offset && cursorNext <= 0) break;
-        await new Promise((resolve) => setTimeout(resolve, 140));
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+      for (const root of threadRoots) {
+        if (shouldStop?.()) break;
+        const thread = await this.fetchReplyChildren(
+          target.oid,
+          target.type,
+          root,
+        );
+        for (const raw of thread.replies) {
+          this.pushOwnReply(raw, uid, target, batch, seenRpid);
+        }
+        if (thread.blocked) {
+          note = "查找最近评论时被 B 站限流，已保留已经找到的部分";
+          found.push(...batch);
+          onProgress?.(index + 1, targets.length, batch);
+          return { items: found, note };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 120));
       }
       found.push(...batch);
       onProgress?.(index + 1, targets.length, batch);
@@ -4821,6 +4865,35 @@ class BiliApiService {
         (!nextOffset && next <= 0),
       blocked: false,
     };
+  }
+
+  private async fetchReplyChildren(
+    oid: number,
+    type: number,
+    root: string,
+  ): Promise<{ replies: Record<string, unknown>[]; blocked: boolean }> {
+    const res = await this.client.get("/x/v2/reply/reply", {
+      params: { oid: String(oid), type, root, pn: 1, ps: 20 },
+      headers: { Referer: "https://www.bilibili.com/" },
+      timeout: 8000,
+      validateStatus: () => true,
+    });
+    const code = Number(res.data?.code);
+    if (
+      res.status === 412 ||
+      code === -352 ||
+      code === -412 ||
+      code === -509 ||
+      code === -799
+    ) {
+      return { replies: [], blocked: true };
+    }
+    if (code !== 0) return { replies: [], blocked: false };
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const replies = Array.isArray(data.replies)
+      ? (data.replies as Record<string, unknown>[])
+      : [];
+    return { replies, blocked: false };
   }
 
   private pushOwnReply(
@@ -5004,6 +5077,38 @@ class BiliApiService {
       },
       "举报失败",
     );
+  }
+
+  /** 网页评论翻译。未登录是 -101；评论不存在是 12006。译文在 translated_content.message */
+  async translateComment(
+    oid: string,
+    type: number,
+    rpid: number | string,
+  ): Promise<string> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再翻译");
+    const res = await this.client.get("/x/v2/reply/translate", {
+      params: {
+        type,
+        oid: String(oid),
+        rpid: String(rpid),
+        csrf,
+      },
+      headers: { Referer: "https://www.bilibili.com/" },
+      validateStatus: () => true,
+    });
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "翻译失败"));
+    }
+    const content = (
+      res.data?.data as { translated_content?: { message?: unknown } } | undefined
+    )?.translated_content;
+    const message = String(content?.message ?? "").trim();
+    if (!message) throw new Error("这条评论没有译文");
+    return message;
   }
 
   private normalizeCommentPage(

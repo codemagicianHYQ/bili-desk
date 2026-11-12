@@ -18,7 +18,37 @@ import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { useReplyEmotes } from "@/hooks/use-reply-emotes";
 import { cn } from "@/lib/utils";
-import { ChevronDown, MessageSquareText, Zap } from "lucide-react";
+import { MoreHorizontal, Zap } from "lucide-react";
+
+function commentNeedsTranslation(text: string): boolean {
+  const plain = text
+    .replace(/\[[^\]]{1,24}\]/g, "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/@\S+/g, "");
+  const hangul = plain.match(/[가-힣]/g)?.length ?? 0;
+  const kana = plain.match(/[\u3040-\u30ff]/g)?.length ?? 0;
+  const cjk = plain.match(/[\u4e00-\u9fff]/g)?.length ?? 0;
+  const latin = plain.match(/[A-Za-z]/g)?.length ?? 0;
+  if (hangul + kana >= 2) return true;
+  if (cjk === 0 && latin >= 8) return true;
+  return hangul + kana + latin >= 12 && hangul + kana + latin > cjk * 1.5;
+}
+
+function commentPermalink(
+  item: CommentItem,
+  subjectType: number,
+  bvid?: string,
+): string {
+  const rpid = item.rpidStr || String(item.rpid);
+  if (subjectType === 12) {
+    return `https://www.bilibili.com/read/cv${item.oid}#reply${rpid}`;
+  }
+  if (subjectType === 11 || subjectType === 17) {
+    return `https://t.bilibili.com/${item.oid}#reply${rpid}`;
+  }
+  const vid = bvid?.startsWith("BV") ? bvid : `av${item.oid}`;
+  return `https://www.bilibili.com/video/${vid}#reply${rpid}`;
+}
 
 function treeHasRpid(item: CommentItem, rpid: number): boolean {
   if (item.rpid === rpid) return true;
@@ -51,6 +81,9 @@ interface CommentThreadProps {
   onChanged: () => void;
   onDeleted: (rpid: number) => void;
   highlightRpid?: number;
+  /** 评论区类型，视频是 1 */
+  subjectType?: number;
+  bvid?: string;
 }
 
 export function CommentThread({
@@ -62,6 +95,8 @@ export function CommentThread({
   onChanged,
   onDeleted,
   highlightRpid = 0,
+  subjectType = 1,
+  bvid,
 }: CommentThreadProps) {
   const emotes = useReplyEmotes(item.emotes);
   const [liked, setLiked] = useState(item.action === 1);
@@ -81,6 +116,15 @@ export function CommentThread({
   const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
   const [error, setError] = useState("");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmBlock, setConfirmBlock] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [menuTip, setMenuTip] = useState("");
+  const [reportSignal, setReportSignal] = useState(0);
+  const [translated, setTranslated] = useState("");
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const tree = useMemo(
     () => nestCommentReplies([...item.replies, ...moreReplies], item.rpid),
@@ -105,6 +149,20 @@ export function CommentThread({
   const isSenior = Boolean(item.member.isSeniorMember);
   const hasKids = tree.length > 0;
   const autoExpandRef = useRef(0);
+  const canTranslate = commentNeedsTranslation(item.content);
+  const shownContent = showTranslated && translated ? translated : item.content;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+        setConfirmBlock(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
 
   const toggleCollapsed = (rpid: number) => {
     setCollapsed((prev) => {
@@ -262,6 +320,66 @@ export function CommentThread({
     onDeleted(rpid);
   };
 
+  const copyPermalink = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        commentPermalink(item, subjectType, bvid),
+      );
+      setMenuTip("已复制链接");
+    } catch {
+      setMenuTip("复制失败");
+    }
+    setMenuOpen(false);
+    window.setTimeout(() => setMenuTip(""), 1600);
+  };
+
+  const blockAuthor = async () => {
+    if (!confirmBlock) {
+      setConfirmBlock(true);
+      return;
+    }
+    if (!commentMid) return;
+    setBlocking(true);
+    setError("");
+    try {
+      await window.biliDesk.bili.modifyBlock(commentMid, true);
+      setMenuTip("已加入黑名单");
+      setMenuOpen(false);
+      setConfirmBlock(false);
+      window.setTimeout(() => setMenuTip(""), 1600);
+    } catch (err) {
+      setError(formatDisplayedError(err, undefined, "拉黑失败"));
+    } finally {
+      setBlocking(false);
+    }
+  };
+
+  const toggleTranslate = async () => {
+    if (showTranslated) {
+      setShowTranslated(false);
+      return;
+    }
+    if (translated) {
+      setShowTranslated(true);
+      return;
+    }
+    setTranslating(true);
+    setError("");
+    try {
+      const text = await window.biliDesk.bili.translateComment(
+        String(item.oid),
+        subjectType,
+        item.rpidStr || item.rpid,
+      );
+      setTranslated(text);
+      setShowTranslated(true);
+    } catch (err) {
+      setError(formatDisplayedError(err, undefined, "翻译失败"));
+    } finally {
+      setTranslating(false);
+    }
+  };
+
   return (
     <div
       data-comment-rpid={item.rpid}
@@ -324,12 +442,22 @@ export function CommentThread({
         {item.content.trim() && (
           <p className="mt-1 text-sm leading-relaxed text-foreground/90">
             <BiliEmoteText
-              text={item.content}
+              text={shownContent}
               emotes={emotes}
               mentions={item.mentions}
               size={nested ? 20 : 22}
             />
           </p>
+        )}
+        {canTranslate && (
+          <button
+            type="button"
+            disabled={translating}
+            onClick={() => void toggleTranslate()}
+            className="mt-1 text-xs text-[#00AEEC] hover:underline disabled:opacity-60"
+          >
+            {translating ? "翻译中..." : showTranslated ? "查看原文" : "翻译"}
+          </button>
         )}
         {item.pictures && item.pictures.length > 0 && (
           <div
@@ -377,35 +505,100 @@ export function CommentThread({
           onClose={() => setPreviewIndex(null)}
           onIndexChange={setPreviewIndex}
         />
-        <CommentActionBar
-          leading={<span>{formatCommentTime(item.ctime)}</span>}
-          liked={liked}
-          hated={hated}
-          likeCount={likeCount}
-          liking={liking}
-          hating={hating}
-          deleting={deleting}
-          reporting={reporting}
-          isOwn={isOwn}
-          canDelete={canDelete}
-          copyText={item.content}
-          onLike={() => void handleLike()}
-          onHate={() => void handleHate()}
-          onReply={() => setShowReply((value) => !value)}
-          onDelete={() => void handleDelete()}
-          onReport={(reason) => void handleReport(reason)}
-          canPin={canPin}
-          pinned={Boolean(item.pinned)}
-          onPin={() => {
-            if (!handlers.pin) return;
-            void handlers
-              .pin(item, !item.pinned)
-              .then(() => onChanged())
-              .catch((err: unknown) =>
-                setError(formatDisplayedError(err, undefined, "置顶失败")),
-              );
-          }}
-        />
+        <div className="relative pr-8">
+          <CommentActionBar
+            leading={<span>{formatCommentTime(item.ctime)}</span>}
+            liked={liked}
+            hated={hated}
+            likeCount={likeCount}
+            liking={liking}
+            hating={hating}
+            deleting={deleting}
+            reporting={reporting}
+            isOwn={isOwn}
+            canDelete={canDelete}
+            copyText={item.content}
+            onLike={() => void handleLike()}
+            onHate={() => void handleHate()}
+            onReply={() => setShowReply((value) => !value)}
+            onDelete={() => void handleDelete()}
+            onReport={(reason) => void handleReport(reason)}
+            canPin={canPin}
+            pinned={Boolean(item.pinned)}
+            onPin={() => {
+              if (!handlers.pin) return;
+              void handlers
+                .pin(item, !item.pinned)
+                .then(() => onChanged())
+                .catch((err: unknown) =>
+                  setError(formatDisplayedError(err, undefined, "置顶失败")),
+                );
+            }}
+            reportSignal={reportSignal}
+          />
+          <div
+            ref={menuRef}
+            className={cn(
+              "bili-cmt-more-btn absolute right-0 top-0",
+              menuOpen && "is-open",
+            )}
+          >
+            <button
+              type="button"
+              className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              aria-label="更多"
+              onClick={() => {
+                setMenuOpen((open) => !open);
+                setConfirmBlock(false);
+              }}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-7 z-30 w-36 overflow-hidden rounded-lg border border-border/80 bg-popover py-1 text-[13px] text-popover-foreground shadow-lg">
+                <button
+                  type="button"
+                  className="block w-full px-3 py-1.5 text-left hover:bg-secondary"
+                  onClick={() => void copyPermalink()}
+                >
+                  复制评论链接
+                </button>
+                {!isOwn && (
+                  <button
+                    type="button"
+                    disabled={blocking}
+                    className="block w-full px-3 py-1.5 text-left hover:bg-secondary disabled:opacity-60"
+                    onClick={() => void blockAuthor()}
+                  >
+                    {blocking
+                      ? "处理中..."
+                      : confirmBlock
+                        ? "确认加入黑名单"
+                        : "加入黑名单"}
+                  </button>
+                )}
+                {!isOwn && (
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-1.5 text-left hover:bg-secondary"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setConfirmBlock(false);
+                      setReportSignal((value) => value + 1);
+                    }}
+                  >
+                    硬核会员举报
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {menuTip && (
+            <p className="absolute -top-5 right-0 text-[11px] text-muted-foreground">
+              {menuTip}
+            </p>
+          )}
+        </div>
         {showReply && (
           <div className="mt-3 space-y-2">
             <textarea
@@ -486,6 +679,8 @@ export function CommentThread({
                     ownerMid={ownerMid}
                     selfMid={selfMid}
                     nested
+                    subjectType={subjectType}
+                    bvid={bvid}
                     handlers={handlers}
                     onChanged={onChanged}
                     onDeleted={bubbleDeleted}
@@ -505,13 +700,11 @@ export function CommentThread({
           onClick={() => void loadMoreReplies()}
           className="bili-cmt-more"
         >
-          <MessageSquareText className="h-3.5 w-3.5" />
           {loadingMore
             ? "加载中..."
             : loadedCount > 0
-              ? `展开更多回复（共 ${item.rcount}）`
-              : `查看 ${item.rcount} 条回复`}
-          {!loadingMore && <ChevronDown className="h-3.5 w-3.5" />}
+              ? `展开更多回复，共 ${item.rcount} 条`
+              : `共 ${item.rcount} 条回复，点击查看`}
         </button>
       )}
     </div>

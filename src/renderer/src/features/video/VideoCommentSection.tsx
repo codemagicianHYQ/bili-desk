@@ -53,6 +53,7 @@ function estimateCommentSize(item: CommentItem): number {
 
 export function VideoCommentSection({
   aid,
+  bvid,
   ownerMid,
   replyCount = 0,
   scrollRootRef,
@@ -440,11 +441,12 @@ export function VideoCommentSection({
           scrollToKey={focusRoot || focusRpid || null}
           onEndReached={handleLoadMore}
           renderItem={(item) => (
-            <div className="pb-5">
+            <div className="pb-1">
               <CommentThread
                 item={item}
                 ownerMid={ownerMid}
                 selfMid={selfMid}
+                bvid={bvid}
                 handlers={handlers}
                 highlightRpid={focusRpid}
                 onChanged={() => void loadComments(1, sort, true)}

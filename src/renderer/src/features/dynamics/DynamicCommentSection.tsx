@@ -404,13 +404,14 @@ export function DynamicCommentSection({
           还没有评论，来抢沙发吧
         </p>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-1">
           {comments.map((item) => (
             <CommentThread
               key={item.rpid}
               item={item}
               ownerMid={ownerMid}
               selfMid={selfMid}
+              subjectType={type}
               handlers={handlers}
               highlightRpid={focusRpid}
               onChanged={() => setReloadToken((token) => token + 1)}

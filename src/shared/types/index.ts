@@ -223,6 +223,8 @@ export interface CommandDanmakuVoteOption {
   idx: number;
   desc: string;
   count: number;
+  /** 该选项是否允许自定义补充，对应 extra.options[].has_self_def */
+  hasSelfDef?: boolean;
 }
 
 export interface CommandDanmakuItem {
@@ -243,6 +245,8 @@ export interface CommandDanmakuItem {
   midScore?: number;
   avgScore?: number;
   voteId?: number;
+  /** extra.vote_type，没有时按官网传 0 */
+  voteType?: number;
   /** 用户已选选项，0=未投 */
   myVote?: number;
   options?: CommandDanmakuVoteOption[];
@@ -261,9 +265,16 @@ export interface PostCommandGradePayload {
 export interface PostCommandVotePayload {
   aid: number;
   cid: number;
+  /** 当前播放进度，毫秒 */
   progress: number;
   voteId: number;
+  /** 选项 idx，请求里对应 option_id */
   idx: number;
+  voteType?: number;
+  /** 互动弹幕 id，请求里对应 cmd_id_str */
+  cmdId?: string;
+  /** 0/1，对应该选项的 has_self_def */
+  hasSelfDef?: number;
 }
 
 export interface BinaryImageFile {
@@ -2146,6 +2157,11 @@ export interface BiliDeskApi {
       rpid: number | string,
       reason: number,
     ) => Promise<void>;
+    translateComment: (
+      oid: string,
+      type: number,
+      rpid: number | string,
+    ) => Promise<string>;
     getReplyEmotes: () => Promise<ReplyEmotePanel>;
     getFavFolders: () => Promise<FavFolder[]>;
     createFavFolder: (payload: CreateFavFolderPayload) => Promise<FavFolder>;

@@ -387,6 +387,8 @@ const api = {
       rpid: number | string,
       reason: number,
     ) => ipcRenderer.invoke(IPC.BILI_COMMENT_REPORT, oid, type, rpid, reason),
+    translateComment: (oid: string, type: number, rpid: number | string) =>
+      ipcRenderer.invoke(IPC.BILI_COMMENT_TRANSLATE, oid, type, rpid),
     getReplyEmotes: () => ipcRenderer.invoke(IPC.BILI_REPLY_EMOTES),
     getFavFolders: () => ipcRenderer.invoke(IPC.BILI_FAV_FOLDERS),
     createFavFolder: (payload: {

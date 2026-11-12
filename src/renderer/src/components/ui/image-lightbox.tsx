@@ -127,10 +127,7 @@ export function ImageLightbox({
           </>
         )}
 
-        <div
-          className="max-h-[90vh] max-w-[92vw]"
-          onClick={(event) => event.stopPropagation()}
-        >
+        <div className="max-h-[90vh] max-w-[92vw]">
           <BiliImage
             src={src}
             alt="评论图片预览"
