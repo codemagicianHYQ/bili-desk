@@ -1467,27 +1467,7 @@ html[data-theme-preset="glass"] [data-app-main] > * {
   scrollbar-gutter: auto;
 }
 
-/* 播放页：主区已有玻璃圆角框，去掉内层卡片边框和留白，画面贴满 */
-html[data-theme-preset="glass"] .bili-watch-player-wrap {
-  padding: 0 !important;
-  max-width: none !important;
-}
-
-html[data-theme-preset="glass"] [data-app-main]:has(.bili-watch-player-card) {
-  background: #000 !important;
-}
-
-html[data-theme-preset="glass"] .bili-watch-player-card,
-html[data-theme-preset="glass"]:not(.dark) .bili-watch-player-card.bg-card,
-html[data-theme-preset="glass"].dark .bili-watch-player-card.bg-card {
-  border: none !important;
-  border-radius: 0 !important;
-  background: #000 !important;
-  background-color: #000 !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
+/* 播放页和首页同一套玻璃：主区透壁纸，只有画面本身留黑边 */
 
 /*
  * Windows 原生下拉不跟页面主题：液态玻璃下弹层是浅底，
@@ -1599,6 +1579,8 @@ html[data-theme-preset="glass"]:not(.dark)
 
 /* 视频卡片略实一点，保证可读；缝隙仍透壁纸 */
 html[data-theme-preset="glass"] .rounded-xl.border.bg-card,
+html[data-theme-preset="glass"] .rounded-2xl.border.bg-card,
+html[data-theme-preset="glass"] .bili-watch-player-card,
 html[data-theme-preset="glass"] article.bg-card,
 html[data-theme-preset="glass"] .group.bg-card {
   background: rgb(255 255 255 / var(--ui-card-alpha)) !important;
@@ -1611,6 +1593,8 @@ html[data-theme-preset="glass"] .group.bg-card {
 }
 
 html[data-theme-preset="glass"].dark .rounded-xl.border.bg-card,
+html[data-theme-preset="glass"].dark .rounded-2xl.border.bg-card,
+html[data-theme-preset="glass"].dark .bili-watch-player-card,
 html[data-theme-preset="glass"].dark article.bg-card,
 html[data-theme-preset="glass"].dark .group.bg-card {
   background: rgb(255 255 255 / var(--ui-card-alpha)) !important;
