@@ -25,6 +25,11 @@ function exe(name) {
   return process.platform === "win32" ? `${name}.cmd` : name;
 }
 
+function shellArg(arg) {
+  if (!/[\s"]/.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
 function run(command, args, extraEnv) {
   const useShell = process.platform === "win32";
   const options = {
@@ -34,7 +39,7 @@ function run(command, args, extraEnv) {
     env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
   };
   const result = useShell
-    ? spawnSync([command, ...args].join(" "), options)
+    ? spawnSync([command, ...args.map(shellArg)].join(" "), options)
     : spawnSync(command, args, options);
   if (result.error) {
     console.error(result.error.message);
