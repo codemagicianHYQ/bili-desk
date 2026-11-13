@@ -26,11 +26,16 @@ function exe(name) {
 }
 
 function run(command, args, extraEnv) {
-  const result = spawnSync(command, args, {
+  const useShell = process.platform === "win32";
+  const options = {
     cwd: root,
     stdio: "inherit",
+    shell: useShell,
     env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
-  });
+  };
+  const result = useShell
+    ? spawnSync([command, ...args].join(" "), options)
+    : spawnSync(command, args, options);
   if (result.error) {
     console.error(result.error.message);
     process.exit(1);
