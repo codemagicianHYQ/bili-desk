@@ -175,7 +175,11 @@ function stepForces(
   }
 }
 
-export function UpPortraitMap() {
+export function UpPortraitMap({
+  focus = null,
+}: {
+  focus?: { mid: number; uname: string; l1: string; l2: string } | null;
+}) {
   const navigate = useNavigate();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -197,6 +201,8 @@ export function UpPortraitMap() {
     | { kind: "pan"; moved: boolean; x: number; y: number }
     | null
   >(null);
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
 
   const [graph, setGraph] = useState<UpPortraitGraph | null>(null);
   const [loading, setLoading] = useState(true);
@@ -283,6 +289,34 @@ export function UpPortraitMap() {
   useEffect(() => {
     selectedRef.current = { id: selectedId, mid: selectedMid };
   }, [selectedId, selectedMid]);
+
+  useEffect(() => {
+    if (!focus) return;
+    const member = membersRef.current.find((item) => item.mid === focus.mid);
+    const node =
+      (member
+        ? nodesRef.current.find((item) => item.id === member.domainId)
+        : undefined) ??
+      (focus.l2
+        ? nodesRef.current.find(
+            (item) => item.level === 2 && item.name === focus.l2,
+          )
+        : undefined) ??
+      (focus.l1
+        ? nodesRef.current.find(
+            (item) => item.level === 1 && item.name === focus.l1,
+          )
+        : undefined);
+    if (!node) return;
+    setSelectedId(node.id);
+    setSelectedMid(member?.mid ?? null);
+    viewRef.current = {
+      x: node.x,
+      y: node.y,
+      scale: node.level === 2 ? 1.28 : 1.08,
+    };
+    alphaRef.current = Math.max(alphaRef.current, 0.55);
+  }, [focus, graph]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -535,6 +569,51 @@ export function UpPortraitMap() {
         ctx.fillText(text, point.x, box.y);
         ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
+      }
+
+      const pin = focusRef.current;
+      const pinMember = pin
+        ? membersRef.current.find((item) => item.mid === pin.mid)
+        : undefined;
+      const pinNode = pin
+        ? (nodesRef.current.find((item) => item.id === pinMember?.domainId) ??
+          nodesRef.current.find(
+            (item) => item.level === 2 && item.name === pin.l2,
+          ) ??
+          nodesRef.current.find(
+            (item) => item.level === 1 && item.name === pin.l1,
+          ))
+        : undefined;
+      if (pin && pinNode && visible(pinNode) && selected.id === pinNode.id) {
+        const point = toScreen(pinNode.x, pinNode.y);
+        const screenR = Math.max(2.4, pinNode.radius * view.scale);
+        const where = [pin.l1, pin.l2].filter(Boolean).join(" / ");
+        const text = where ? `${pin.uname} · ${where}` : pin.uname;
+        ctx.font = "12px Microsoft YaHei, Segoe UI, sans-serif";
+        const widthText = ctx.measureText(text).width;
+        const padX = 8;
+        const boxW = widthText + padX * 2;
+        const boxH = 22;
+        const boxX = point.x - boxW / 2;
+        const boxY = point.y - screenR - boxH - 8;
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxW, boxH, 11);
+        ctx.fillStyle = "rgba(15, 18, 24, 0.92)";
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = pinNode.color;
+        ctx.stroke();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillText(text, point.x, boxY + boxH / 2);
+        ctx.beginPath();
+        ctx.moveTo(point.x - 5, boxY + boxH);
+        ctx.lineTo(point.x + 5, boxY + boxH);
+        ctx.lineTo(point.x, boxY + boxH + 6);
+        ctx.closePath();
+        ctx.fillStyle = pinNode.color;
+        ctx.fill();
       }
 
       if (view.scale >= UP_ZOOM && focus) {

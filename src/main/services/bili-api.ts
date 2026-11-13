@@ -7751,9 +7751,13 @@ class BiliApiService {
     const sort = order === "click" ? "click" : "pubdate";
     const kw = keyword.trim();
 
-    // 空间内关键词搜索：走 arc/search 的 keyword
+    // 空间内关键词搜索：先走 arc/search，翻页被拒时改走系列投稿接口
     if (kw) {
-      return this.fetchSpaceArcList(mid, page, sort, kw);
+      try {
+        return await this.fetchSpaceArcList(mid, page, sort, kw);
+      } catch {
+        return this.fetchRecArchivePage(mid, page, sort, kw);
+      }
     }
 
     const currentUser = this.getAuthStatus();
@@ -7778,6 +7782,18 @@ class BiliApiService {
     } catch (error) {
       lastError =
         error instanceof Error ? error : new Error("投稿列表获取失败");
+    }
+
+    try {
+      const rec = await this.fetchRecArchivePage(mid, page, sort);
+      if (rec.videos.length > 0 || (page === 1 && rec.total === 0)) {
+        return rec;
+      }
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error
+          : (lastError ?? new Error("投稿列表获取失败"));
     }
 
     try {
@@ -7832,6 +7848,84 @@ class BiliApiService {
     if (res.data?.code !== 0) return "";
     const card = res.data?.data?.card as { name?: string } | undefined;
     return String(card?.name ?? "").trim();
+  }
+
+  private upNameCache = new Map<number, string>();
+
+  /**
+   * 空间 wbi 投稿从第 2 页起常返回 -403。
+   * 这个接口不走 wbi，页码和总数与投稿页一致。
+   */
+  private async fetchRecArchivePage(
+    mid: number,
+    page: number,
+    order: UpVideosOrder,
+    keyword = "",
+  ): Promise<UpVideosPage> {
+    const orderby = order === "click" ? "click" : "pubdate";
+    const params: Record<string, string | number> = {
+      mid,
+      keywords: keyword,
+      pn: page,
+      ps: 30,
+      orderby,
+    };
+    let res = await this.client.get("/x/series/recArchivesByKeywords", {
+      params,
+      headers: { Referer: `https://space.bilibili.com/${mid}/upload/video` },
+      validateStatus: () => true,
+      timeout: 10000,
+    });
+    if (res.data?.code !== 0) {
+      res = await this.client.get("/x/series/recArchivesByKeywords", {
+        params: { mid, keywords: keyword, pn: page, ps: 30 },
+        headers: { Referer: `https://space.bilibili.com/${mid}/upload/video` },
+        validateStatus: () => true,
+        timeout: 10000,
+      });
+    }
+    if (res.data?.code !== 0) {
+      throw new Error(
+        this.formatUserSpaceApiError(
+          res.data?.code,
+          res.data?.message,
+          page > 1 ? "翻页失败，请稍后重试" : "投稿列表获取失败，请稍后重试",
+        ),
+      );
+    }
+
+    const data = res.data?.data as Record<string, unknown> | undefined;
+    const pageInfo = data?.page as
+      | { total?: number; size?: number; num?: number }
+      | undefined;
+    const total = Number(pageInfo?.total ?? 0) || 0;
+    const pageSize = Number(pageInfo?.size ?? 30) || 30;
+    let name = this.upNameCache.get(mid) ?? "";
+    if (!name) {
+      try {
+        name = await this.fetchUpName(mid);
+      } catch {
+        name = "";
+      }
+      if (name) this.upNameCache.set(mid, name);
+    }
+    const archives = (data?.archives ?? []) as Record<string, unknown>[];
+    const videos = archives
+      .filter((item) => item.bvid)
+      .map((item) => {
+        const video = this.normalizeArchiveVideo(item, mid);
+        if (name) video.owner.name = name;
+        return video;
+      });
+    if (page > 1 && videos.length === 0 && total > (page - 1) * pageSize) {
+      throw new Error("投稿翻页返回空数据，正在尝试其它通道");
+    }
+    return {
+      videos,
+      page,
+      total,
+      hasMore: page * pageSize < total,
+    };
   }
 
   /** APP 空间投稿分页；需要 TV 登录的 access_key，否则会直接「请求错误」 */
@@ -8780,6 +8874,7 @@ class BiliApiService {
       );
       if (result.ok) return result.page;
       lastError = result.error;
+      if (lastError.message.includes("访问权限不足")) break;
     }
 
     throw lastError ?? new Error("投稿列表获取失败，请稍后重试");
@@ -8843,6 +8938,18 @@ class BiliApiService {
 
         const payload = res.data;
         const code = payload?.code as number | undefined;
+        if (code === -403) {
+          return {
+            ok: false,
+            error: new Error(
+              this.formatUserSpaceApiError(
+                code,
+                payload?.message,
+                "投稿列表获取失败，请稍后重试",
+              ),
+            ),
+          };
+        }
         if (code === 0) {
           const vlist = (payload?.data?.list?.vlist ?? []) as Record<
             string,

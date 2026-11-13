@@ -135,6 +135,12 @@ export function FollowingPage() {
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("bilibili");
   const [portraitOpen, setPortraitOpen] = useState(false);
+  const [portraitFocus, setPortraitFocus] = useState<{
+    mid: number;
+    uname: string;
+    l1: string;
+    l2: string;
+  } | null>(null);
   const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
   const [localSelection, setLocalSelection] = useState<UpGroupSelection>({
     level: "l1",
@@ -214,12 +220,28 @@ export function FollowingPage() {
 
   const handleSearchPick = useCallback(
     (selection: UpGroupSelection, mid: number) => {
+      const up = (allFollowings ?? []).find((item) => item.mid === mid);
+      const assignment = assignments.find((item) => item.mid === mid);
+      const focus = {
+        mid,
+        uname: up?.uname ?? "",
+        l1: assignment?.l1 ?? "",
+        l2: assignment?.l2 ?? "",
+      };
+      setPortraitFocus(focus);
+      if (portraitOpen) {
+        const where = [focus.l1, focus.l2].filter(Boolean).join(" / ");
+        setActionMessage(
+          where ? `已在领域图标出「${where}」` : "已在领域图中标出这位 UP",
+        );
+        return;
+      }
       setSidebarMode("local");
       setLocalSelection(selection);
       setHighlightMid(mid);
       setActionMessage("已定位到搜索结果所在的本地分组");
     },
-    [],
+    [allFollowings, assignments, portraitOpen],
   );
 
   const applyTagListCache = (list: TagListCache) => {
@@ -997,7 +1019,7 @@ export function FollowingPage() {
         </div>
 
         {portraitOpen ? (
-          <UpPortraitMap />
+          <UpPortraitMap focus={portraitFocus} />
         ) : (
           <div
             ref={scrollRef}

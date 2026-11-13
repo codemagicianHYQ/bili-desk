@@ -27,6 +27,7 @@ if (process.platform === "win32") {
 }
 
 let mainWindow: BrowserWindow | null = null;
+
 app.whenReady().then(async () => {
   const mediaUrls = [
     "*://*.bilibili.com/*",
