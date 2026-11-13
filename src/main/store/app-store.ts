@@ -65,6 +65,19 @@ interface StoreSchema {
   upClassifyCache: Record<string, UpClassifyCacheEntry>;
   /** 进行中的深度整理；中断后再跑会跳过这次已经判断过的 UP */
   upClassifyDeepRun: { startedAt: number; version: string } | null;
+  /** 关注 UP 画像：多标签领域，供领域图读取 */
+  upPortraits: {
+    updatedAt: number;
+    titledCount: number;
+    items: Array<{
+      mid: number;
+      uname: string;
+      face: string;
+      tags: Array<{ l1: string; l2: string; score: number }>;
+      headline: string;
+      updatedAt: number;
+    }>;
+  };
 }
 
 export interface UpClassifyCacheEntry {
@@ -114,6 +127,7 @@ const defaults: StoreSchema = {
   upTitleCache: {},
   upClassifyCache: {},
   upClassifyDeepRun: null,
+  upPortraits: { updatedAt: 0, titledCount: 0, items: [] },
 };
 
 const diskStore = new Store<StoreSchema>({

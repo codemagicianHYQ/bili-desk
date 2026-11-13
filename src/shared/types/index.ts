@@ -1956,6 +1956,62 @@ export interface UpClassifyInfo {
   runningTaskId: number | null;
 }
 
+export interface UpPortraitTag {
+  l1: string;
+  l2: string;
+  score: number;
+}
+
+export interface UpPortraitDomain {
+  id: string;
+  parentId: string | null;
+  name: string;
+  level: 1 | 2;
+  count: number;
+  color: string;
+}
+
+export interface UpPortraitLink {
+  source: string;
+  target: string;
+  weight: number;
+  /** parent：二级挂在一级下；cross：同一位 UP 跨了两个领域；l1：一级之间有交集 */
+  kind: "parent" | "cross" | "l1";
+}
+
+export interface UpPortraitMember {
+  mid: number;
+  uname: string;
+  face: string;
+  /** 主领域节点 id */
+  domainId: string;
+  /** 其余领域节点 id */
+  also: string[];
+  tags: string[];
+  headline: string;
+}
+
+/** 关注 UP 画像库投影成的领域图。点是领域，人数决定点的大小。 */
+export interface UpPortraitGraph {
+  updatedAt: number;
+  upCount: number;
+  taggedCount: number;
+  /** 用过近期投稿标题的人数；其余只按昵称、签名和已有分组贴标签 */
+  titledCount: number;
+  domains: UpPortraitDomain[];
+  links: UpPortraitLink[];
+  members: UpPortraitMember[];
+}
+
+export interface UpPortraitProgress {
+  running: boolean;
+  phase: "followings" | "tagging" | "done" | "error";
+  done: number;
+  /** 关注列表阶段还不知道总数时为 0 */
+  total: number;
+  message: string;
+}
+
 /** 收藏全量本地分类的断点：进收藏页时据此自动接着跑 */
 export interface FavClassifyResumeInfo {
   /** 当前进程里还在跑的任务 */
@@ -2529,6 +2585,11 @@ export interface BiliDeskApi {
     createUpGroup: (name: string, color?: string) => Promise<UpGroup>;
     getUpGroupMemberMids: (selection: UpGroupSelection) => Promise<number[]>;
     getUpAssignmentPaths: () => Promise<UpAssignmentPath[]>;
+    getUpPortraitGraph: () => Promise<UpPortraitGraph>;
+    rebuildUpPortraits: () => Promise<UpPortraitGraph>;
+    onUpPortraitProgress: (
+      callback: (progress: UpPortraitProgress) => void,
+    ) => () => void;
     renameUpGroup: (id: number, name: string) => Promise<void>;
     reorderUpGroups: (ids: number[]) => Promise<void>;
   };

@@ -5104,7 +5104,9 @@ class BiliApiService {
       throw new Error(formatBiliApiError(res.data, "翻译失败"));
     }
     const content = (
-      res.data?.data as { translated_content?: { message?: unknown } } | undefined
+      res.data?.data as
+        | { translated_content?: { message?: unknown } }
+        | undefined
     )?.translated_content;
     const message = String(content?.message ?? "").trim();
     if (!message) throw new Error("这条评论没有译文");
@@ -7765,44 +7767,41 @@ class BiliApiService {
 
     let lastError: Error | null = null;
 
-    // 第 1 页走空间 wbi（每页 30，支持 pn）。第 2 页起 wbi 常返回空列表，
-    // APP `/x/v2/space/archive?pn=` 会稳定 -400，改走带签名的 archive/cursor。
-    if (page === 1) {
-      try {
-        const space = await this.fetchSpaceArcList(mid, page, sort);
-        if (space.videos.length > 0) {
+    try {
+      const space = await this.fetchSpaceArcList(mid, page, sort);
+      if (space.videos.length > 0 || space.total === 0) {
+        if (page === 1 && space.videos.length > 0) {
           this.seedUpVideoCursor(mid, sort, space.videos, space.total);
-          return space;
         }
-        if (space.total === 0) {
-          return { videos: [], page: 1, total: 0, hasMore: false };
-        }
-      } catch (error) {
-        lastError =
-          error instanceof Error ? error : new Error("投稿列表获取失败");
+        return space;
       }
+    } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error("投稿列表获取失败");
+    }
 
-      try {
-        const upName = await this.fetchUpName(mid);
-        if (upName) {
-          const fallback = await this.fetchUpVideosBySearchPaged(
-            mid,
-            upName,
-            page,
-            sort,
-            0,
-          );
-          if (fallback.videos.length > 0) {
+    try {
+      const upName = await this.fetchUpName(mid);
+      if (upName) {
+        const fallback = await this.fetchUpVideosBySearchPaged(
+          mid,
+          upName,
+          page,
+          sort,
+          0,
+        );
+        if (fallback.videos.length > 0) {
+          if (page === 1) {
             this.seedUpVideoCursor(mid, sort, fallback.videos, fallback.total);
-            return fallback;
           }
+          return fallback;
         }
-      } catch (error) {
-        lastError =
-          error instanceof Error
-            ? error
-            : (lastError ?? new Error("投稿列表获取失败"));
       }
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error
+          : (lastError ?? new Error("投稿列表获取失败"));
     }
 
     try {
@@ -8999,18 +8998,13 @@ class BiliApiService {
       fetches += 1;
       const prevAid = cache.lastAid;
 
-      const extra: Record<string, string | number> = {
+      // 这个接口用 Cookie 即可。带上 TV 签名和 platform 会被判成参数错误（-400）。
+      const params: Record<string, string | number> = {
         vmid: mid,
         ps: fetchSize,
         order: order === "click" ? "click" : "pubdate",
-        platform: "web",
-        mobi_app: "web",
       };
-      const accessKey = appStore.get("accessToken");
-      if (accessKey) extra.access_key = accessKey;
-      if (cache.lastAid > 0) extra.aid = cache.lastAid;
-
-      const params = this.buildTvSignedParams(extra);
+      if (cache.lastAid > 0) params.aid = cache.lastAid;
       const hosts = [
         "https://app.biliapi.com/x/v2/space/archive/cursor",
         "https://app.bilibili.com/x/v2/space/archive/cursor",

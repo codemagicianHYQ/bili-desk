@@ -5,6 +5,10 @@ import type { FavFolderGroupOverrides } from "@shared/utils/fav-folder-groups";
 import { taxonomyRepo } from "../db/repositories/taxonomy";
 import { favClassifyEngine } from "../services/fav-classify-engine";
 import { biliApi } from "../services/bili-api";
+import {
+  readUpPortraitGraph,
+  rebuildUpPortraits,
+} from "../services/up-portrait";
 
 export function registerTaxonomyIpc(): void {
   ipcMain.handle(IPC.TAXONOMY_TREE, () => taxonomyRepo.getTree());
@@ -94,4 +98,6 @@ export function registerTaxonomyIpc(): void {
   ipcMain.handle(IPC.TAXONOMY_UP_ASSIGNMENT_PATHS, () =>
     taxonomyRepo.getUpAssignmentPaths(),
   );
+  ipcMain.handle(IPC.TAXONOMY_UP_PORTRAIT_GRAPH, () => readUpPortraitGraph());
+  ipcMain.handle(IPC.TAXONOMY_UP_PORTRAIT_REBUILD, () => rebuildUpPortraits());
 }

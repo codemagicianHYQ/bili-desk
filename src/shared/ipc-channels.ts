@@ -242,6 +242,9 @@ export const IPC = {
   TAXONOMY_UP_GROUP_REORDER: "taxonomy:up-group-reorder",
   TAXONOMY_UP_GROUP_MEMBERS: "taxonomy:up-group-members",
   TAXONOMY_UP_ASSIGNMENT_PATHS: "taxonomy:up-assignment-paths",
+  TAXONOMY_UP_PORTRAIT_GRAPH: "taxonomy:up-portrait-graph",
+  TAXONOMY_UP_PORTRAIT_REBUILD: "taxonomy:up-portrait-rebuild",
+  TAXONOMY_UP_PORTRAIT_PROGRESS: "taxonomy:up-portrait-progress",
 
   AI_CONFIG_GET: "ai:config-get",
   AI_CONFIG_SET: "ai:config-set",

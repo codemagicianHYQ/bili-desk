@@ -20,13 +20,14 @@ import {
 } from "@/components/ui/overlay-portal";
 import { FollowingSearch } from "@/components/following/FollowingSearch";
 import { cn } from "@/lib/utils";
-import { Folder, Loader2, Sparkles, Upload } from "lucide-react";
+import { Folder, Loader2, Network, Sparkles, Upload } from "lucide-react";
 import { FollowTagDialog } from "./FollowTagDialog";
 import { FollowingUpCard } from "./FollowingUpCard";
 import { UnfollowConfirmDialog } from "./UnfollowConfirmDialog";
 import { CreateFollowTagControl } from "@/components/following/CreateFollowTagControl";
 import { FollowTagList } from "@/components/following/FollowTagList";
 import { FollowTagSyncDialog } from "@/components/following/FollowTagSyncDialog";
+import { UpPortraitMap } from "./UpPortraitMap";
 import { upRelationCache, upSpaceCache } from "@/lib/session-data-cache";
 
 type SidebarMode = "bilibili" | "local";
@@ -133,6 +134,7 @@ export function FollowingPage() {
   const needsFullTag = upSort === "earliest" || upSort === "name";
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("bilibili");
+  const [portraitOpen, setPortraitOpen] = useState(false);
   const [selectedTagId, setSelectedTagId] = useState<number | null>(null);
   const [localSelection, setLocalSelection] = useState<UpGroupSelection>({
     level: "l1",
@@ -938,7 +940,9 @@ export function FollowingPage() {
             onPickLocal={handleSearchPick}
           />
           <div className="min-w-0 flex-1 truncate">
-            {isLocalMode ? (
+            {portraitOpen ? (
+              <>领域画像：一个点是一个方向，放大后拆成更细的领域和具体 UP</>
+            ) : isLocalMode ? (
               <>
                 本地分组「{localSelectionLabel}」：共 {followings.length} 个 UP
               </>
@@ -953,88 +957,110 @@ export function FollowingPage() {
               <span className="ml-2 text-foreground">{actionMessage}</span>
             )}
           </div>
-          {(sortLoading || fullSortPending) && (
+          <button
+            type="button"
+            onClick={() => setPortraitOpen((open) => !open)}
+            className={cn(
+              "flex h-7 shrink-0 items-center gap-1 rounded-md border px-2",
+              portraitOpen
+                ? "border-primary bg-primary/15 text-foreground"
+                : "border-border text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Network className="h-3.5 w-3.5" />
+            领域画像
+          </button>
+          {!portraitOpen && (sortLoading || fullSortPending) && (
             <span className="flex shrink-0 items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" />
               {fullSortPending ? "正在拉取整组以排序…" : "正在准备排序…"}
             </span>
           )}
-          <label className="flex shrink-0 items-center gap-1.5">
-            排序
-            <select
-              value={upSort}
-              onChange={(event) =>
-                changeSort(event.target.value as FollowingSort)
-              }
-              className="h-7 rounded-md border border-border bg-background/70 px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!portraitOpen && (
+            <label className="flex shrink-0 items-center gap-1.5">
+              排序
+              <select
+                value={upSort}
+                onChange={(event) =>
+                  changeSort(event.target.value as FollowingSort)
+                }
+                className="h-7 rounded-md border border-border bg-background/70 px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
-        <div ref={scrollRef} className="scrollbar-none flex-1 overflow-y-auto">
-          {showListLoading ? (
-            <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {isLocalMode && followingsLoading && followingsProgress > 0
-                ? `正在从 B 站同步关注列表，已拿到 ${followingsProgress} 位（首次较慢，之后秒开）…`
-                : "加载关注列表..."}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
-              {displayFollowings.map((up) => (
-                <FollowingUpCard
-                  key={up.mid}
-                  up={up}
-                  showGroupActions={!isLocalMode}
-                  isSpecial={Boolean(up.special) || inSpecialGroup}
-                  specialPending={specialPendingMid === up.mid}
-                  highlighted={highlightMid === up.mid}
-                  onSetGroup={setTagDialogUp}
-                  onToggleSpecial={(target, next) =>
-                    void handleToggleSpecial(target, next)
-                  }
-                  onUnfollow={(up) => {
-                    setUnfollowError("");
-                    setUnfollowTarget(up);
-                  }}
-                />
-              ))}
+        {portraitOpen ? (
+          <UpPortraitMap />
+        ) : (
+          <div
+            ref={scrollRef}
+            className="scrollbar-none flex-1 overflow-y-auto"
+          >
+            {showListLoading ? (
+              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {isLocalMode && followingsLoading && followingsProgress > 0
+                  ? `正在从 B 站同步关注列表，已拿到 ${followingsProgress} 位（首次较慢，之后秒开）…`
+                  : "加载关注列表..."}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
+                {displayFollowings.map((up) => (
+                  <FollowingUpCard
+                    key={up.mid}
+                    up={up}
+                    showGroupActions={!isLocalMode}
+                    isSpecial={Boolean(up.special) || inSpecialGroup}
+                    specialPending={specialPendingMid === up.mid}
+                    highlighted={highlightMid === up.mid}
+                    onSetGroup={setTagDialogUp}
+                    onToggleSpecial={(target, next) =>
+                      void handleToggleSpecial(target, next)
+                    }
+                    onUnfollow={(up) => {
+                      setUnfollowError("");
+                      setUnfollowTarget(up);
+                    }}
+                  />
+                ))}
 
-              {followings.length === 0 && (
-                <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
-                  {error ||
-                    (isLocalMode
-                      ? "该本地分组暂无成员，可点击上方 ✨ 运行智能分组"
-                      : "该分组暂无关注的 UP")}
-                </p>
-              )}
-            </div>
-          )}
-
-          {!isLocalMode &&
-            (hasMore || loadingMore) &&
-            followings.length > 0 && (
-              <div
-                ref={sentinelRef}
-                className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground"
-              >
-                {loadingMore ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    加载更多...
-                  </>
-                ) : (
-                  "继续下滑加载更多"
+                {followings.length === 0 && (
+                  <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                    {error ||
+                      (isLocalMode
+                        ? "该本地分组暂无成员，可点击上方 ✨ 运行智能分组"
+                        : "该分组暂无关注的 UP")}
+                  </p>
                 )}
               </div>
             )}
-        </div>
+
+            {!isLocalMode &&
+              (hasMore || loadingMore) &&
+              followings.length > 0 && (
+                <div
+                  ref={sentinelRef}
+                  className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground"
+                >
+                  {loadingMore ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      加载更多...
+                    </>
+                  ) : (
+                    "继续下滑加载更多"
+                  )}
+                </div>
+              )}
+          </div>
+        )}
       </div>
 
       <FollowTagDialog

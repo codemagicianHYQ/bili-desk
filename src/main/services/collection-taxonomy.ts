@@ -32,6 +32,13 @@ export interface TaxonomyMatch {
   support: number;
 }
 
+/** 同一位 UP 可以同时命中的多个领域 */
+export interface TaxonomyTag {
+  l1: string;
+  l2: string;
+  score: number;
+}
+
 const RULES: TaxonomyRule[] = [
   // 计算机
   {
@@ -492,7 +499,13 @@ function normalize(text: string): string {
   return text.normalize("NFKC").toLowerCase();
 }
 
-export function scoreEvidence(evidence: Evidence[]): TaxonomyMatch | null {
+interface TaxonomyScoreBook {
+  l2Scores: Map<string, number>;
+  l1Scores: Map<string, number>;
+  l1Support: Map<string, number>;
+}
+
+function collectTaxonomyScores(evidence: Evidence[]): TaxonomyScoreBook | null {
   const l2Scores = new Map<string, number>();
   const l1Scores = new Map<string, number>();
   const l1Support = new Map<string, number>();
@@ -522,11 +535,17 @@ export function scoreEvidence(evidence: Evidence[]): TaxonomyMatch | null {
     const total = sorted[0] + sorted.slice(1).reduce((s, v) => s + v / 2, 0);
     l1Scores.set(l1, total);
   }
+  return { l2Scores, l1Scores, l1Support };
+}
 
-  const rankedL1 = [...l1Scores].sort((a, b) => b[1] - a[1]);
+export function scoreEvidence(evidence: Evidence[]): TaxonomyMatch | null {
+  const book = collectTaxonomyScores(evidence);
+  if (!book) return null;
+
+  const rankedL1 = [...book.l1Scores].sort((a, b) => b[1] - a[1]);
   const [bestL1, bestL1Score] = rankedL1[0];
   const runnerUp = rankedL1[1]?.[1] ?? 0;
-  const bestL2 = [...l2Scores]
+  const bestL2 = [...book.l2Scores]
     .filter(([key]) => key.startsWith(`${bestL1}/`))
     .sort((a, b) => b[1] - a[1])[0];
   return {
@@ -534,8 +553,30 @@ export function scoreEvidence(evidence: Evidence[]): TaxonomyMatch | null {
     l2: bestL2[0].slice(bestL1.length + 1),
     score: bestL1Score,
     runnerUp,
-    support: l1Support.get(bestL1) ?? 0,
+    support: book.l1Support.get(bestL1) ?? 0,
   };
+}
+
+/** 留下分数够高的多个二级领域，供画像贴标签，不替代单一分组结果 */
+export function scoreEvidenceTags(
+  evidence: Evidence[],
+  limit = 4,
+): TaxonomyTag[] {
+  const book = collectTaxonomyScores(evidence);
+  if (!book) return [];
+  const tags: TaxonomyTag[] = [...book.l2Scores].map(([key, score]) => {
+    const slash = key.indexOf("/");
+    return {
+      l1: key.slice(0, slash),
+      l2: key.slice(slash + 1),
+      score,
+    };
+  });
+  tags.sort((a, b) => b.score - a.score);
+  const best = tags[0]?.score ?? 0;
+  if (best < 3) return [];
+  const floor = Math.max(3, best * 0.34);
+  return tags.filter((tag) => tag.score >= floor).slice(0, limit);
 }
 
 /** 置信：总分够高且明显领先第二名 */

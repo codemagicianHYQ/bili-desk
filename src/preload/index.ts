@@ -43,6 +43,7 @@ import type {
   FootprintListQuery,
   FootprintSyncKinds,
   FootprintSyncProgress,
+  UpPortraitProgress,
 } from "@shared/types";
 
 const fullscreenChangeCallbacks = new Set<(on: boolean) => void>();
@@ -61,6 +62,10 @@ const footprintProgressCallbacks = new Set<
   (progress: FootprintSyncProgress) => void
 >();
 let footprintProgressIpcBound = false;
+const upPortraitProgressCallbacks = new Set<
+  (progress: UpPortraitProgress) => void
+>();
+let upPortraitProgressIpcBound = false;
 
 function subscribeFullscreenChange(callback: (on: boolean) => void) {
   if (!fullscreenIpcBound) {
@@ -171,6 +176,26 @@ function subscribeFootprintProgress(
   footprintProgressCallbacks.add(callback);
   return () => {
     footprintProgressCallbacks.delete(callback);
+  };
+}
+
+function subscribeUpPortraitProgress(
+  callback: (progress: UpPortraitProgress) => void,
+) {
+  if (!upPortraitProgressIpcBound) {
+    upPortraitProgressIpcBound = true;
+    ipcRenderer.on(
+      IPC.TAXONOMY_UP_PORTRAIT_PROGRESS,
+      (_event, progress: UpPortraitProgress) => {
+        for (const cb of upPortraitProgressCallbacks) {
+          cb(progress);
+        }
+      },
+    );
+  }
+  upPortraitProgressCallbacks.add(callback);
+  return () => {
+    upPortraitProgressCallbacks.delete(callback);
   };
 }
 
@@ -934,6 +959,12 @@ const api = {
       ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_MEMBERS, selection),
     getUpAssignmentPaths: () =>
       ipcRenderer.invoke(IPC.TAXONOMY_UP_ASSIGNMENT_PATHS),
+    getUpPortraitGraph: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_UP_PORTRAIT_GRAPH),
+    rebuildUpPortraits: () =>
+      ipcRenderer.invoke(IPC.TAXONOMY_UP_PORTRAIT_REBUILD),
+    onUpPortraitProgress: (callback: (progress: UpPortraitProgress) => void) =>
+      subscribeUpPortraitProgress(callback),
     renameUpGroup: (id: number, name: string) =>
       ipcRenderer.invoke(IPC.TAXONOMY_UP_GROUP_RENAME, id, name),
     reorderUpGroups: (ids: number[]) =>
