@@ -4,6 +4,11 @@ import type {
   UserRelationListType,
 } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
+import {
+  OfficialVerifyBadge,
+  OfficialVerifyLine,
+  officialKind,
+} from "@/components/up/OfficialVerify";
 import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { cn, formatCount } from "@/lib/utils";
 
@@ -24,6 +29,8 @@ export function UpSpaceHeader({
   onSpecialChange: (special: boolean) => void;
   onError: (message: string) => void;
 }) {
+  const official = officialKind(profile.officialType, profile.officialDesc);
+
   return (
     <div className="relative">
       <div className="relative h-48 overflow-hidden sm:h-60">
@@ -41,11 +48,14 @@ export function UpSpaceHeader({
 
       <div className="relative mx-auto max-w-5xl px-6">
         <div className="-mt-12 flex flex-col gap-4 sm:flex-row sm:items-end">
-          <BiliImage
-            src={profile.face}
-            alt={profile.name}
-            className="h-24 w-24 shrink-0 rounded-full border-4 border-background object-cover shadow-lg ring-2 ring-primary/25"
-          />
+          <span className="relative shrink-0">
+            <BiliImage
+              src={profile.face}
+              alt={profile.name}
+              className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-lg ring-2 ring-primary/25"
+            />
+            {official && <OfficialVerifyBadge type={official.type} size="md" />}
+          </span>
 
           <div className="flex min-w-0 flex-1 flex-col gap-3 pb-1 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex flex-wrap items-end gap-6 text-sm">
@@ -126,12 +136,12 @@ export function UpSpaceHeader({
                 LV{profile.level}
               </span>
             )}
-            {profile.officialDesc && (
-              <span className="truncate text-xs text-primary">
-                {profile.officialDesc}
-              </span>
-            )}
           </div>
+          {official && (
+            <div className="mt-1.5">
+              <OfficialVerifyLine type={official.type} desc={official.desc} />
+            </div>
+          )}
           <p className="mt-1.5 line-clamp-2 text-sm text-muted-foreground">
             {profile.sign || "这个人很神秘，什么都没有写"}
           </p>

@@ -7306,6 +7306,21 @@ class BiliApiService {
     }
   }
 
+  /** 0 个人认证，1 机构认证。无认证说明时不标。 */
+  private resolveOfficialType(
+    types: unknown[],
+    role: number,
+    desc: string,
+  ): 0 | 1 | undefined {
+    const known = types
+      .map((value) => Number(value))
+      .filter((value) => value === 0 || value === 1);
+    if (known.includes(1)) return 1;
+    if (known.includes(0)) return 0;
+    if (!desc) return undefined;
+    return [3, 4, 5, 6].includes(role) ? 1 : 0;
+  }
+
   async getUpProfile(mid: number): Promise<UpProfile> {
     await this.ensureBuvid3();
 
@@ -7371,7 +7386,7 @@ class BiliApiService {
       | { current_level?: number }
       | undefined;
     const official = (card?.Official ?? card?.official) as
-      | { title?: string; desc?: string; type?: number }
+      | { role?: number; title?: string; desc?: string; type?: number }
       | undefined;
     const officialVerify = card?.official_verify as
       | { desc?: string; type?: number }
@@ -7404,12 +7419,22 @@ class BiliApiService {
       | { l_img?: string; s_img?: string }
       | undefined;
 
+    const accOfficial = accData?.official as
+      | { role?: number; title?: string; desc?: string; type?: number }
+      | undefined;
+    const textOf = (value: unknown) =>
+      typeof value === "string" ? value.trim() : "";
     const officialDesc =
-      (typeof official?.title === "string" && official.title.trim()) ||
-      (typeof official?.desc === "string" && official.desc.trim()) ||
-      (typeof officialVerify?.desc === "string" &&
-        officialVerify.desc.trim()) ||
-      "";
+      textOf(official?.title) ||
+      textOf(official?.desc) ||
+      textOf(officialVerify?.desc) ||
+      textOf(accOfficial?.title) ||
+      textOf(accOfficial?.desc);
+    const officialType = this.resolveOfficialType(
+      [official?.type, officialVerify?.type, accOfficial?.type],
+      Number(official?.role ?? accOfficial?.role),
+      officialDesc,
+    );
 
     const videos = Number(payload?.archive_count ?? navnum?.video ?? 0) || 0;
     const articleCount = Number(navnum?.article ?? 0) || 0;
@@ -7457,6 +7482,7 @@ class BiliApiService {
       videos,
       level: Number(levelInfo?.current_level ?? accData?.level ?? 0) || 0,
       officialDesc: officialDesc || undefined,
+      officialType,
       likes: Number(payload?.like_num ?? upstat?.likes ?? 0) || 0,
       archiveViews: Number(archiveStat?.view ?? 0) || 0,
       favourites,

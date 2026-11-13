@@ -807,8 +807,10 @@ export interface UpProfile {
   videos: number;
   /** 用户等级 0-6 */
   level?: number;
-  /** 认证/官方称号 */
+  /** 认证说明，如「加拿大歌手」 */
   officialDesc?: string;
+  /** 0 个人认证（黄标），1 机构认证（蓝标） */
+  officialType?: 0 | 1;
   /** 获赞数 */
   likes?: number;
   /** 稿件总播放 */

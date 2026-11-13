@@ -10,6 +10,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "dist:win": "electron-vite build && electron-builder --win && node ./scripts/clean-old-releases.mjs",
+    "release:win": "node ./scripts/release-win.mjs",
     "dist:win:zip": "electron-vite build && electron-builder --win zip && node ./scripts/clean-old-releases.mjs",
     "typecheck": "tsc --noEmit"
   },

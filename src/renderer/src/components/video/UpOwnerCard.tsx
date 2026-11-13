@@ -3,6 +3,11 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { UpProfile, UpRelation } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
+import {
+  OfficialVerifyBadge,
+  OfficialVerifyLine,
+  officialKind,
+} from "@/components/up/OfficialVerify";
 import { FollowActionButton } from "@/components/video/FollowActionButton";
 import { formatCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -51,6 +56,7 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
 
   const displayName = profile?.name || name;
   const displayFace = profile?.face || face;
+  const official = officialKind(profile?.officialType, profile?.officialDesc);
 
   return (
     <div className="space-y-2">
@@ -59,11 +65,14 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
           to={`/up/${mid}`}
           className="flex min-w-0 flex-1 items-center gap-3 transition-opacity hover:opacity-80"
         >
-          <BiliImage
-            src={displayFace}
-            alt={displayName}
-            className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-border"
-          />
+          <span className="relative shrink-0">
+            <BiliImage
+              src={displayFace}
+              alt={displayName}
+              className="h-12 w-12 rounded-full object-cover ring-2 ring-border"
+            />
+            {official && <OfficialVerifyBadge type={official.type} />}
+          </span>
           <div className="min-w-0 text-left">
             <div className="flex flex-wrap items-center gap-1.5">
               <p className="truncate font-medium">{displayName}</p>
@@ -88,6 +97,11 @@ export function UpOwnerCard({ mid, name, face, trailing }: UpOwnerCardProps) {
                 ? ` · ${formatCount(profile.likes)} 获赞`
                 : ""}
             </p>
+            {official && (
+              <div className="mt-0.5">
+                <OfficialVerifyLine type={official.type} desc={official.desc} />
+              </div>
+            )}
           </div>
         </Link>
 
