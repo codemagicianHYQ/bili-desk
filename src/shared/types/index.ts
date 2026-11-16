@@ -833,6 +833,10 @@ export interface UpProfile {
   upowerEnabled?: boolean;
   /** 账号封禁：acc/info.silence === 1 */
   silenced?: boolean;
+  /** 正在直播 */
+  isLive?: boolean;
+  /** 直播间号，直播中时点头像进这个房间 */
+  liveRoomId?: number;
 }
 
 /** 失效视频来源 */

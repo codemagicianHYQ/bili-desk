@@ -7327,50 +7327,63 @@ class BiliApiService {
     await this.ensureBuvid3();
 
     const accParams = await signParams({ mid: String(mid) });
-    const [cardRes, statRes, upstatRes, navnumRes, accRes, settingsRes] =
-      await Promise.all([
-        this.client.get("/x/web-interface/card", {
-          params: { mid: String(mid), photo: true },
+    const [
+      cardRes,
+      statRes,
+      upstatRes,
+      navnumRes,
+      accRes,
+      settingsRes,
+      liveRes,
+    ] = await Promise.all([
+      this.client.get("/x/web-interface/card", {
+        params: { mid: String(mid), photo: true },
+        validateStatus: () => true,
+      }),
+      this.client.get("/x/relation/stat", {
+        params: { vmid: String(mid) },
+        validateStatus: () => true,
+      }),
+      this.client
+        .get("/x/space/upstat", {
+          params: { mid: String(mid) },
+          headers: { Referer: `https://space.bilibili.com/${mid}` },
           validateStatus: () => true,
-        }),
-        this.client.get("/x/relation/stat", {
-          params: { vmid: String(mid) },
+        })
+        .catch(() => null),
+      this.client
+        .get("/x/space/navnum", {
+          params: { mid: String(mid) },
+          headers: { Referer: `https://space.bilibili.com/${mid}` },
           validateStatus: () => true,
-        }),
-        this.client
-          .get("/x/space/upstat", {
-            params: { mid: String(mid) },
-            headers: { Referer: `https://space.bilibili.com/${mid}` },
-            validateStatus: () => true,
-          })
-          .catch(() => null),
-        this.client
-          .get("/x/space/navnum", {
-            params: { mid: String(mid) },
-            headers: { Referer: `https://space.bilibili.com/${mid}` },
-            validateStatus: () => true,
-          })
-          .catch(() => null),
-        this.client
-          .get("/x/space/wbi/acc/info", {
-            params: accParams,
-            headers: { Referer: `https://space.bilibili.com/${mid}` },
-            validateStatus: () => true,
-          })
-          .catch(() => null),
-        axios
-          .get("https://space.bilibili.com/ajax/settings/getSettings", {
-            params: { mid: String(mid) },
-            headers: {
-              ...defaultHeaders(),
-              Cookie: getCookieString(),
-              Referer: `https://space.bilibili.com/${mid}`,
-            },
-            validateStatus: () => true,
-            timeout: 8000,
-          })
-          .catch(() => null),
-      ]);
+        })
+        .catch(() => null),
+      this.client
+        .get("/x/space/wbi/acc/info", {
+          params: accParams,
+          headers: { Referer: `https://space.bilibili.com/${mid}` },
+          validateStatus: () => true,
+        })
+        .catch(() => null),
+      axios
+        .get("https://space.bilibili.com/ajax/settings/getSettings", {
+          params: { mid: String(mid) },
+          headers: {
+            ...defaultHeaders(),
+            Cookie: getCookieString(),
+            Referer: `https://space.bilibili.com/${mid}`,
+          },
+          validateStatus: () => true,
+          timeout: 8000,
+        })
+        .catch(() => null),
+      this.liveClient
+        .get("/room/v1/Room/getRoomInfoOld", {
+          params: { mid: String(mid) },
+          validateStatus: () => true,
+        })
+        .catch(() => null),
+    ]);
 
     if (cardRes.data?.code !== 0) {
       throw new Error(
@@ -7469,6 +7482,15 @@ class BiliApiService {
       typeof favRaw === "number"
         ? favRaw
         : Number(favRaw?.guest ?? favRaw?.master ?? 0) || 0;
+    const livePayload =
+      liveRes && (liveRes as AxiosResponse).data?.code === 0
+        ? ((liveRes as AxiosResponse).data?.data as Record<string, unknown>)
+        : undefined;
+    const live = this.readLivingRoom(
+      livePayload,
+      payload?.live_room,
+      accData?.live_room,
+    );
 
     return {
       mid,
@@ -7500,7 +7522,31 @@ class BiliApiService {
       seasonCount,
       pugvCount,
       upowerEnabled,
+      isLive: live.isLive,
+      liveRoomId: live.roomId,
     };
+  }
+
+  /** card / acc.info 的 live_room。liveStatus 为 1 才算正在播 */
+  private readLivingRoom(...sources: unknown[]): {
+    isLive: boolean;
+    roomId?: number;
+  } {
+    for (const source of sources) {
+      const room = this.asPlainRecord(source);
+      if (!room) continue;
+      const liveStatus = Number(room.liveStatus ?? room.live_status ?? 0);
+      if (liveStatus !== 1) continue;
+      let roomId = this.pickPositiveId(room.roomid, room.room_id, room.roomId);
+      if (!roomId) {
+        const matched = String(room.url ?? "").match(
+          /live\.bilibili\.com\/(\d+)/,
+        );
+        roomId = matched ? Number(matched[1]) : 0;
+      }
+      if (roomId > 0) return { isLive: true, roomId };
+    }
+    return { isLive: false };
   }
 
   private pickSpaceTopPhoto(

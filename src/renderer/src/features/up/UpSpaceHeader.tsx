@@ -3,7 +3,9 @@ import type {
   UpRelation,
   UserRelationListType,
 } from "@shared/types";
+import { Link } from "react-router-dom";
 import { BiliImage } from "@/components/ui/bili-image";
+import { LiveOnAirMark } from "@/components/live/LiveOnAirMark";
 import {
   OfficialVerifyBadge,
   OfficialVerifyLine,
@@ -30,6 +32,21 @@ export function UpSpaceHeader({
   onError: (message: string) => void;
 }) {
   const official = officialKind(profile.officialType, profile.officialDesc);
+  const living = Boolean(profile.isLive && profile.liveRoomId);
+  const avatar = (
+    <span className="relative block">
+      <BiliImage
+        src={profile.face}
+        alt={profile.name}
+        className={cn(
+          "h-24 w-24 rounded-full border-4 border-background object-cover shadow-lg",
+          living ? "ring-2 ring-[#fb7299]" : "ring-2 ring-primary/25",
+        )}
+      />
+      {official && <OfficialVerifyBadge type={official.type} size="md" />}
+      {living ? <LiveOnAirMark /> : null}
+    </span>
+  );
 
   return (
     <div className="relative">
@@ -48,14 +65,17 @@ export function UpSpaceHeader({
 
       <div className="relative mx-auto max-w-5xl px-6">
         <div className="-mt-12 flex flex-col gap-4 sm:flex-row sm:items-end">
-          <span className="relative shrink-0">
-            <BiliImage
-              src={profile.face}
-              alt={profile.name}
-              className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-lg ring-2 ring-primary/25"
-            />
-            {official && <OfficialVerifyBadge type={official.type} size="md" />}
-          </span>
+          {living ? (
+            <Link
+              to={`/live/${profile.liveRoomId}`}
+              className="relative shrink-0"
+              aria-label="进入直播间"
+            >
+              {avatar}
+            </Link>
+          ) : (
+            <span className="relative shrink-0">{avatar}</span>
+          )}
 
           <div className="flex min-w-0 flex-1 flex-col gap-3 pb-1 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex flex-wrap items-end gap-6 text-sm">

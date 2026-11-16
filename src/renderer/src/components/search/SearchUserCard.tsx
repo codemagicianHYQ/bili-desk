@@ -40,7 +40,14 @@ export function SearchUserCard({
 
   return (
     <div className="flex items-start gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-secondary/40">
-      <Link to={`/up/${user.mid}`} className="relative shrink-0">
+      <Link
+        to={
+          user.isLive && user.roomId
+            ? `/live/${user.roomId}`
+            : `/up/${user.mid}`
+        }
+        className="relative shrink-0"
+      >
         <BiliImage
           src={user.face}
           alt={user.name}
