@@ -1329,6 +1329,39 @@ export interface ToViewAddResult {
   item?: ToViewItem;
 }
 
+export interface DynamicVoteOption {
+  idx: number;
+  text: string;
+  count: number;
+}
+
+/** 动态附加投票。列表接口只有标题和参与人数，选项在 vote_info */
+export interface DynamicVoteCard {
+  voteId: string;
+  title: string;
+  /** 如「191.8万人参与」 */
+  joinText?: string;
+  joinNum: number;
+  endTime: number;
+  choiceCount: number;
+  /** 投票活动状态，1 为进行中 */
+  status: number;
+  voted: boolean;
+  myVotes: number[];
+  buttonText?: string;
+  options: DynamicVoteOption[];
+}
+
+/** 动态附加抽奖，含充电抽奖 */
+export interface DynamicLotteryCard {
+  title: string;
+  hint?: string;
+  prize?: string;
+  buttonText: string;
+  disabled: boolean;
+  jumpUrl?: string;
+}
+
 export interface SpaceDynamicItem {
   id: string;
   type: string;
@@ -1396,6 +1429,10 @@ export interface SpaceDynamicItem {
   };
   /** 转发动态里被转的原内容 */
   orig?: SpaceDynamicItem;
+  /** 正文下方的投票卡片 */
+  vote?: DynamicVoteCard;
+  /** 正文下方的抽奖卡片 */
+  lottery?: DynamicLotteryCard;
 }
 
 export type DynamicFeedType = "all" | "video" | "article";
@@ -2356,6 +2393,10 @@ export interface BiliDeskApi {
       type?: DynamicFeedType,
     ) => Promise<SpaceDynamicPage>;
     getDynamicDetail: (id: string) => Promise<SpaceDynamicItem>;
+    doDynamicVote: (
+      voteId: string,
+      optionIdxs: number[],
+    ) => Promise<DynamicVoteCard>;
     likeDynamic: (id: string, like: boolean) => Promise<void>;
     favoriteDynamic: (id: string, favorite: boolean) => Promise<void>;
     setDynamicTop: (id: string, top: boolean) => Promise<void>;

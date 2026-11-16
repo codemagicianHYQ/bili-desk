@@ -9,6 +9,7 @@ import {
   DynamicMetaLine,
 } from "@/components/dynamic/DynamicFeedCard";
 import { DynamicCommentSection } from "@/features/dynamics/DynamicCommentSection";
+import { DynamicAttachCards } from "@/components/dynamic/DynamicAttachCards";
 import { RepostDialog } from "@/components/dynamic/RepostDialog";
 import { BiliImage } from "@/components/ui/bili-image";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -255,6 +256,8 @@ export function DynamicDetailPage() {
                   )}
                 </div>
               )}
+
+              <DynamicAttachCards item={item} voteMode="detail" />
 
               <DynamicMetaLine item={item} />
 

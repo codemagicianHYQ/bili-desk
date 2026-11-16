@@ -132,6 +132,8 @@ import type {
   ToViewItem,
   ToViewList,
   SpaceDynamicItem,
+  DynamicVoteCard,
+  DynamicLotteryCard,
   SpaceDynamicPage,
   HistoryCursor,
   HistoryFeedType,
@@ -8402,6 +8404,178 @@ class BiliApiService {
     }
 
     await this.ensureBuvid3();
+    const targetPage = Math.max(1, page);
+
+    // 粉丝 / 等级是用户指定的顺序，只去掉「开播」这类词，不再打乱
+    if (order !== "default") {
+      const { cleaned } = this.extractUserSearchKeywords(trimmed);
+      return this.searchUsersOnce(cleaned, targetPage, order, userType);
+    }
+
+    const { cleaned, tokens } = this.extractUserSearchKeywords(trimmed);
+    const extras = tokens
+      .filter((token) => token.toLowerCase() !== cleaned.toLowerCase())
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 2);
+    const queries = [...new Set([cleaned, ...extras])];
+
+    const pages = await Promise.all(
+      queries.map((query) =>
+        this.searchUsersOnce(query, targetPage, "default", userType).catch(
+          (error: unknown) => {
+            if (queries.length === 1) throw error;
+            return null;
+          },
+        ),
+      ),
+    );
+    const usable = pages.filter(
+      (item): item is SearchUsersPage => item != null,
+    );
+    if (usable.length === 0) {
+      throw new Error("搜索用户失败");
+    }
+
+    const merged = new Map<number, SearchUserItem>();
+    for (const item of usable) {
+      for (const user of item.users) {
+        if (!merged.has(user.mid)) merged.set(user.mid, user);
+      }
+    }
+
+    const users = [...merged.values()]
+      .map((user) => ({
+        user,
+        score: this.scoreSearchUser(
+          user,
+          tokens.length > 0 ? tokens : [cleaned],
+          cleaned,
+        ),
+      }))
+      .filter((item) => item.score > 0)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.user.fans - a.user.fans ||
+          a.user.mid - b.user.mid,
+      )
+      .slice(0, 20)
+      .map((item) => item.user);
+
+    const total = Math.max(...usable.map((item) => item.total), users.length);
+    const hasMore =
+      usable.some((item) => item.hasMore) || total > targetPage * 20;
+
+    return {
+      users,
+      page: targetPage,
+      hasMore: users.length > 0 && hasMore,
+      total,
+    };
+  }
+
+  /** 用户搜索接口本身按整句去对名字。热搜常带「开播」之类的词，拆开再查。 */
+  private extractUserSearchKeywords(keyword: string): {
+    cleaned: string;
+    tokens: string[];
+  } {
+    const noise = new Set([
+      "开播",
+      "开播了",
+      "直播",
+      "直播了",
+      "首播",
+      "复播",
+      "更新",
+      "更新了",
+      "投稿",
+      "视频",
+      "来了",
+      "来啦",
+      "来咯",
+      "的",
+      "了",
+      "啊",
+      "吗",
+      "呢",
+      "吧",
+    ]);
+    const suffixes = ["开播了", "直播了", "开播", "直播", "更新了", "更新"];
+    const parts = keyword
+      .trim()
+      .split(/[\s\u3000,，。！？!?:：、|/+#]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const tokens: string[] = [];
+    const seen = new Set<string>();
+    for (const part of parts) {
+      let token = part;
+      for (const suffix of suffixes) {
+        if (token.endsWith(suffix) && token.length - suffix.length >= 2) {
+          token = token.slice(0, -suffix.length);
+          break;
+        }
+      }
+      if (!token || noise.has(token) || noise.has(token.toLowerCase()))
+        continue;
+      if (token.length < 2 && !/[a-z0-9]/i.test(token)) continue;
+      const key = token.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tokens.push(token);
+    }
+
+    return {
+      cleaned: tokens.join(" ") || keyword.trim(),
+      tokens,
+    };
+  }
+
+  /** 名字命中越多越靠前；粉丝数只在吻合程度接近时拉开差距。 */
+  private scoreSearchUser(
+    user: SearchUserItem,
+    tokens: string[],
+    cleaned: string,
+  ): number {
+    const name = user.name.toLowerCase();
+    const extra = `${user.sign} ${user.officialDesc ?? ""}`.toLowerCase();
+    const phrase = cleaned.toLowerCase();
+    let score = 0;
+
+    if (phrase && name === phrase) score += 1000;
+    else if (phrase && name.includes(phrase)) score += 500;
+
+    let nameHits = 0;
+    for (const token of tokens) {
+      const text = token.toLowerCase();
+      if (!text) continue;
+      if (name.includes(text)) {
+        nameHits += 1;
+        score += 140 + Math.min(token.length, 8) * 4;
+      } else if (extra.includes(text)) {
+        score += 36;
+      }
+    }
+    if (tokens.length > 1 && nameHits === tokens.length) score += 260;
+    if (nameHits === 0 && score < 36) return 0;
+
+    score += Math.min(48, Math.log10((user.fans || 0) + 1) * 8);
+    if (user.isUp) score += 8;
+    if (user.officialDesc) score += 6;
+    return score;
+  }
+
+  private async searchUsersOnce(
+    keyword: string,
+    page = 1,
+    order: SearchUserOrder = "default",
+    userType: SearchUserTypeFilter = 0,
+  ): Promise<SearchUsersPage> {
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      return { users: [], page: 1, hasMore: false, total: 0 };
+    }
 
     let apiOrder: string | number = 0;
     let orderSort = 0;
@@ -10125,30 +10299,251 @@ class BiliApiService {
     return this.uniqueImageUrls(urls);
   }
 
+  async doDynamicVote(
+    voteId: string,
+    optionIdxs: number[],
+  ): Promise<DynamicVoteCard> {
+    const csrf = getCsrf();
+    if (!csrf) throw new Error("请先登录后再投票");
+    const id = String(voteId || "").trim();
+    const votes = optionIdxs.map((idx) => Number(idx)).filter((idx) => idx > 0);
+    if (!id || votes.length === 0) throw new Error("请选择投票选项");
+
+    const body = new URLSearchParams({
+      vote_id: id,
+      votes: JSON.stringify(votes),
+      csrf,
+    });
+    const res = await this.client.post(
+      "https://api.vc.bilibili.com/vote_svr/v1/vote_svr/do_vote",
+      body,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: "https://t.bilibili.com/",
+        },
+        validateStatus: () => true,
+      },
+    );
+    if (res.status === 412 || res.data?.code === -412) {
+      throw new Error("请求被 B 站安全策略拦截，请稍后重试");
+    }
+    if (res.data?.code !== 0) {
+      throw new Error((res.data?.message as string) || "投票失败");
+    }
+    return this.fillVoteCard({
+      voteId: id,
+      title: "",
+      joinNum: 0,
+      endTime: 0,
+      choiceCount: votes.length,
+      status: 1,
+      voted: true,
+      myVotes: votes,
+      options: [],
+    });
+  }
+
+  private async fillVoteCard(card: DynamicVoteCard): Promise<DynamicVoteCard> {
+    try {
+      // 官网页面用这条。vote_svr 那条认不出网页上投过的票，会一直返回未投票。
+      const res = await this.client.get("/x/vote/vote_info", {
+        params: { vote_id: card.voteId },
+        headers: { Referer: "https://www.bilibili.com/" },
+        validateStatus: () => true,
+      });
+      if (res.data?.code !== 0) return card;
+      const data = this.asPlainRecord(res.data?.data);
+      const info =
+        this.asPlainRecord(data?.vote_info) ?? this.asPlainRecord(data?.info);
+      if (!info) return card;
+      const options = Array.isArray(info.options)
+        ? info.options
+            .map((entry) => {
+              const opt = this.asPlainRecord(entry);
+              if (!opt) return null;
+              const idx = Number(opt.idx ?? opt.opt_idx) || 0;
+              const text = String(
+                opt.desc ?? opt.opt_desc ?? opt.title ?? "",
+              ).trim();
+              if (!idx || !text) return null;
+              return { idx, text, count: Number(opt.cnt) || 0 };
+            })
+            .filter(
+              (opt): opt is DynamicVoteCard["options"][number] => opt != null,
+            )
+        : card.options;
+      const rawVotes = data?.my_votes ?? data?.votes ?? info.my_votes;
+      const myVotes = Array.isArray(rawVotes)
+        ? rawVotes.map((idx) => Number(idx)).filter((idx) => idx > 0)
+        : card.myVotes;
+      const voted = myVotes.length > 0 || card.voted;
+      return {
+        ...card,
+        title: String(info.title ?? "").trim() || card.title,
+        joinText: undefined,
+        joinNum: Number(info.join_num ?? info.cnt) || card.joinNum,
+        endTime: Number(info.end_time ?? info.endtime) || card.endTime,
+        choiceCount: Number(info.choice_cnt) || card.choiceCount || 1,
+        status: Number(info.status) || card.status,
+        voted,
+        myVotes: voted ? myVotes : [],
+        options,
+      };
+    } catch {
+      return card;
+    }
+  }
+
+  private extractDynamicAttach(
+    moduleDynamic: Record<string, unknown> | undefined,
+  ): {
+    vote?: DynamicVoteCard;
+    lottery?: DynamicLotteryCard;
+  } {
+    const additional = this.asPlainRecord(moduleDynamic?.additional);
+    if (!additional) return {};
+    const type = String(additional.type ?? "");
+    return {
+      vote: this.extractDynamicVote(additional, type),
+      lottery: this.extractDynamicLottery(additional, type),
+    };
+  }
+
+  private extractDynamicVote(
+    additional: Record<string, unknown>,
+    type: string,
+  ): DynamicVoteCard | undefined {
+    const vote = this.asPlainRecord(additional.vote);
+    if (!vote) return undefined;
+    if (type && !type.includes("VOTE")) return undefined;
+    const voteId = String(vote.vote_id ?? "").trim();
+    if (!voteId || voteId === "0") return undefined;
+    const button = this.pickAttachButton(vote.button);
+    const voted = /已参与|已投票/.test(button.text);
+    return {
+      voteId,
+      title: String(vote.title ?? "").trim() || "投票",
+      joinText: String(vote.desc ?? "").trim() || undefined,
+      joinNum: Number(vote.join_num) || 0,
+      endTime: Number(vote.end_time) || 0,
+      choiceCount: Number(vote.choice_cnt) || 1,
+      status: Number(vote.status) || 0,
+      voted,
+      myVotes: [],
+      buttonText: button.text || undefined,
+      options: [],
+    };
+  }
+
+  private extractDynamicLottery(
+    additional: Record<string, unknown>,
+    type: string,
+  ): DynamicLotteryCard | undefined {
+    const upower = this.asPlainRecord(additional.upower_lottery);
+    if (upower && (type.includes("LOTTERY") || upower.title)) {
+      const hint = this.asPlainRecord(upower.hint);
+      const desc = this.asPlainRecord(upower.desc);
+      const button = this.pickAttachButton(upower.button);
+      const jumpUrl = this.normalizeHttpUrl(
+        this.pickDynText(upower.jump_url, desc?.jump_url, button.jumpUrl),
+      );
+      return {
+        title: String(upower.title ?? "").trim() || "抽奖",
+        hint: this.pickDynText(hint?.text) || undefined,
+        prize: this.pickDynText(desc?.text) || undefined,
+        buttonText: button.text || (button.disabled ? "已结束" : "参与"),
+        disabled: button.disabled,
+        jumpUrl,
+      };
+    }
+
+    const common = this.asPlainRecord(additional.common);
+    if (!common) return undefined;
+    const head = this.pickDynText(common.head_text);
+    const title = this.pickDynText(common.title);
+    if (!type.includes("LOTTERY") && !/抽奖/.test(`${head}${title}`)) {
+      return undefined;
+    }
+    const button = this.pickAttachButton(common.button);
+    return {
+      title: title || head || "抽奖",
+      hint: this.pickDynText(common.desc, common.desc1) || undefined,
+      prize: this.pickDynText(common.desc2) || undefined,
+      buttonText: button.text || (button.disabled ? "已结束" : "参与"),
+      disabled: button.disabled,
+      jumpUrl: this.normalizeHttpUrl(
+        this.pickDynText(common.jump_url, button.jumpUrl),
+      ),
+    };
+  }
+
+  private pickAttachButton(raw: unknown): {
+    text: string;
+    disabled: boolean;
+    jumpUrl: string;
+  } {
+    const button = this.asPlainRecord(raw);
+    if (!button) return { text: "", disabled: false, jumpUrl: "" };
+    const status = Number(button.status) || 0;
+    const check = this.asPlainRecord(button.check);
+    const uncheck = this.asPlainRecord(button.uncheck);
+    const jumpStyle = this.asPlainRecord(button.jump_style);
+    const source =
+      (status >= 1 && this.pickDynText(check?.text) ? check : undefined) ||
+      (this.pickDynText(jumpStyle?.text) ? jumpStyle : undefined) ||
+      (this.pickDynText(uncheck?.text) ? uncheck : undefined) ||
+      check;
+    return {
+      text: this.pickDynText(source?.text),
+      disabled: Number(source?.disable) === 1 || status >= 2,
+      jumpUrl: this.pickDynText(button.jump_url),
+    };
+  }
+
+  private normalizeHttpUrl(raw: string): string | undefined {
+    const text = raw.trim();
+    if (!text) return undefined;
+    if (text.startsWith("//")) return `https:${text}`;
+    if (/^https?:\/\//i.test(text)) return text.replace(/^http:/i, "https:");
+    return undefined;
+  }
+
   private async enrichDynamicDetail(
     item: SpaceDynamicItem,
   ): Promise<SpaceDynamicItem> {
-    const text = this.stripPicPlaceholders(item.text);
-    if (!item.cvId) return { ...item, text };
+    let next: SpaceDynamicItem = {
+      ...item,
+      text: this.stripPicPlaceholders(item.text),
+    };
+    if (next.vote?.voteId) {
+      next = { ...next, vote: await this.fillVoteCard(next.vote) };
+    }
+    if (next.orig?.vote?.voteId) {
+      next = {
+        ...next,
+        orig: { ...next.orig, vote: await this.fillVoteCard(next.orig.vote) },
+      };
+    }
+    if (!next.cvId) return next;
 
     try {
-      const article = await this.getArticle(item.cvId);
+      const article = await this.getArticle(next.cvId);
       const images = this.uniqueImageUrls([
-        ...(item.images ?? []),
-        item.cover,
+        ...(next.images ?? []),
+        next.cover,
         article.banner,
         ...article.images,
         ...this.extractImagesFromHtml(article.content),
       ]);
       return {
-        ...item,
-        text,
+        ...next,
         images,
-        cover: item.cover || images[0],
-        title: item.title || article.title,
+        cover: next.cover || images[0],
+        title: next.title || article.title,
       };
     } catch {
-      return { ...item, text };
+      return next;
     }
   }
 
@@ -13300,6 +13695,7 @@ class BiliApiService {
       commentType,
     });
     const collectedImages = this.collectDynamicImages(moduleDynamic, major);
+    const attached = this.extractDynamicAttach(moduleDynamic);
 
     const base = {
       id,
@@ -13322,6 +13718,8 @@ class BiliApiService {
       emotes,
       ipLocation,
       cvId,
+      vote: attached.vote,
+      lottery: attached.lottery,
     };
 
     if (type.includes("FORWARD") || Boolean(major?.forward)) {

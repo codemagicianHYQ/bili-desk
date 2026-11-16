@@ -133,6 +133,7 @@ export const IPC = {
   BILI_SPACE_OPUS: "bili:space-opus",
   BILI_FOLLOW_DYNAMICS: "bili:follow-dynamics",
   BILI_DYNAMIC_DETAIL: "bili:dynamic-detail",
+  BILI_DYNAMIC_VOTE: "bili:dynamic-vote",
   BILI_DYNAMIC_LIKE: "bili:dynamic-like",
   BILI_DYNAMIC_FAV: "bili:dynamic-fav",
   BILI_DYNAMIC_TOP: "bili:dynamic-top",

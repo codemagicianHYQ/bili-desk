@@ -638,6 +638,8 @@ const api = {
       ipcRenderer.invoke(IPC.BILI_FOLLOW_DYNAMICS, offset ?? "", type ?? "all"),
     getDynamicDetail: (id: string) =>
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_DETAIL, id),
+    doDynamicVote: (voteId: string, optionIdxs: number[]) =>
+      ipcRenderer.invoke(IPC.BILI_DYNAMIC_VOTE, voteId, optionIdxs),
     likeDynamic: (id: string, like: boolean) =>
       ipcRenderer.invoke(IPC.BILI_DYNAMIC_LIKE, id, like),
     favoriteDynamic: (id: string, favorite: boolean) =>

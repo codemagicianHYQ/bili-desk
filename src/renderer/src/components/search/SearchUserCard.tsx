@@ -3,8 +3,8 @@ import { Link } from "react-router-dom";
 import type { SearchUserItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
 import { FollowButton } from "@/components/video/FollowButton";
+import { LiveOnAirMark } from "@/components/live/LiveOnAirMark";
 import { cn, formatCount } from "@/lib/utils";
-import { Radio } from "lucide-react";
 
 interface SearchUserCardProps {
   user: SearchUserItem;
@@ -44,14 +44,14 @@ export function SearchUserCard({
         <BiliImage
           src={user.face}
           alt={user.name}
-          className="h-16 w-16 rounded-full object-cover ring-1 ring-border"
+          className={cn(
+            "h-16 w-16 rounded-full object-cover",
+            user.isLive && user.roomId
+              ? "ring-2 ring-[#fb7299]"
+              : "ring-1 ring-border",
+          )}
         />
-        {user.isLive && user.roomId ? (
-          <span className="absolute -bottom-1 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] text-white">
-            <Radio className="h-2.5 w-2.5" />
-            直播
-          </span>
-        ) : null}
+        {user.isLive && user.roomId ? <LiveOnAirMark /> : null}
       </Link>
 
       <div className="min-w-0 flex-1">

@@ -643,6 +643,9 @@ export function registerBiliIpc(): void {
   handleIpc(IPC.BILI_DYNAMIC_DETAIL, (_e, id: string) =>
     biliApi.getDynamicDetail(id),
   );
+  handleIpc(IPC.BILI_DYNAMIC_VOTE, (_e, voteId: string, optionIdxs: number[]) =>
+    biliApi.doDynamicVote(voteId, optionIdxs),
+  );
   handleIpc(IPC.BILI_DYNAMIC_LIKE, (_e, id: string, like: boolean) =>
     biliApi.likeDynamic(id, like),
   );

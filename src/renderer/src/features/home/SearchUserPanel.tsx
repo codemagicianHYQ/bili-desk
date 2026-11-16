@@ -15,7 +15,7 @@ import { Loader2 } from "lucide-react";
 const USER_PAGE_SIZE = 20;
 
 const ORDER_OPTIONS: Array<{ value: SearchUserOrder; label: string }> = [
-  { value: "default", label: "默认排序" },
+  { value: "default", label: "按关联度" },
   { value: "fans_desc", label: "粉丝数由高到低" },
   { value: "fans_asc", label: "粉丝数由低到高" },
   { value: "level_desc", label: "Lv等级由高到低" },

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { openBiliHref } from "@/lib/open-bili-href";
 import { DynamicMoreSheet } from "@/components/dynamic/DynamicMoreSheet";
+import { DynamicAttachCards } from "@/components/dynamic/DynamicAttachCards";
 import { RepostDialog } from "@/components/dynamic/RepostDialog";
 import { useAppStore } from "@/stores/app-store";
 
@@ -510,6 +511,7 @@ function DynamicCardBody({
           </p>
         )}
         <VideoDynamicBody item={item} />
+        <DynamicAttachCards item={item} voteMode="compact" />
         <DynamicMetaLine item={item} />
       </>
     );
@@ -548,6 +550,7 @@ function DynamicCardBody({
           layout={imageLayout ?? (item.kind === "draw" ? "grid" : "stack")}
         />
       )}
+      <DynamicAttachCards item={item} voteMode="compact" />
       <DynamicMetaLine item={item} />
       {item.kind === "forward" && item.orig && depth < 2 && (
         <ForwardedOrigEmbed

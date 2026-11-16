@@ -346,6 +346,46 @@
     @apply min-w-[2ch] font-medium tabular-nums tracking-tight;
   }
 
+  .bili-live-eq {
+    display: inline-flex;
+    height: 9px;
+    align-items: flex-end;
+    gap: 1.5px;
+  }
+
+  .bili-live-eq span {
+    display: block;
+    width: 2px;
+    border-radius: 1px;
+    background: #fff;
+    transform-origin: center bottom;
+    animation: bili-live-eq 0.8s ease-in-out infinite;
+  }
+
+  .bili-live-eq span:nth-child(1) {
+    height: 6px;
+  }
+
+  .bili-live-eq span:nth-child(2) {
+    height: 9px;
+    animation-delay: 0.2s;
+  }
+
+  .bili-live-eq span:nth-child(3) {
+    height: 7px;
+    animation-delay: 0.4s;
+  }
+
+  @keyframes bili-live-eq {
+    0%,
+    100% {
+      transform: scaleY(0.35);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+
   @keyframes bili-action-bounce {
     0% {
       transform: scale(1);
