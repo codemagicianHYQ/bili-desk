@@ -94,6 +94,15 @@ interface VideoPlayerProps {
   className?: string;
 }
 
+function formatArtClock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${s}`;
+  return `${m}:${s}`;
+}
+
 function formatPlayerClock(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds || 0));
   const h = Math.floor(total / 3600);
@@ -615,6 +624,8 @@ export function VideoPlayer({
     let previewEndedFlag = false;
     let sentPreviewLength = 0;
     let draggingPreview = false;
+    let keyboardSeekTarget: number | null = null;
+    let keyboardPaintFrame = 0;
     let dragSeekTimer = 0;
     let dragMove: ((ev: PointerEvent) => void) | null = null;
     let dragUp: ((ev: PointerEvent) => void) | null = null;
@@ -715,6 +726,52 @@ export function VideoPlayer({
         setPreviewEnded(media > 1 && current >= media - 0.4);
       }
     };
+    const paintKeyboardSeek = (seconds: number) => {
+      keyboardSeekTarget = seconds;
+      const apply = () => {
+        const target = keyboardSeekTarget;
+        if (target == null) return;
+        if (isPreview(art) && timelineDuration) {
+          paintPreviewTimeline(target);
+          return;
+        }
+        const duration = art.duration || 0;
+        if (duration <= 0) return;
+        const ratio = Math.min(1, Math.max(0, target / duration));
+        const width = `${ratio * 100}%`;
+        const played = container.querySelector<HTMLElement>(
+          ".art-progress-played",
+        );
+        const indicator = container.querySelector<HTMLElement>(
+          ".art-progress-indicator",
+        );
+        if (played) {
+          played.style.transition = "none";
+          played.style.width = width;
+        }
+        if (indicator) {
+          indicator.style.transition = "none";
+          indicator.style.left = width;
+        }
+        const timeNode = Array.from(
+          container.querySelectorAll<HTMLElement>(
+            ".art-controls-left .art-control",
+          ),
+        ).find((node) => /^\d+:\d+/.test(node.textContent?.trim() ?? ""));
+        if (!timeNode) return;
+        const currentText = timeNode.textContent ?? "";
+        const slash = currentText.indexOf("/");
+        const right =
+          slash >= 0
+            ? currentText.slice(slash).trim()
+            : `/ ${formatArtClock(duration)}`;
+        const nextText = `${formatArtClock(target)} ${right}`;
+        if (timeNode.textContent !== nextText) timeNode.textContent = nextText;
+      };
+      apply();
+      window.cancelAnimationFrame(keyboardPaintFrame);
+      keyboardPaintFrame = window.requestAnimationFrame(apply);
+    };
     const commitPreviewSeek = (target: number, endIfLocked: boolean) => {
       const media = art.duration || 0;
       if (target >= media - 0.3) {
@@ -762,7 +819,18 @@ export function VideoPlayer({
       }
       const t = art.currentTime || 0;
       setCurrentTime((prev) => (Math.abs(prev - t) >= 0.25 ? t : prev));
-      if (!draggingPreview) paintPreviewTimeline();
+      if (keyboardSeekTarget != null) {
+        const current = art.currentTime || 0;
+        if (Math.abs(current - keyboardSeekTarget) < 0.6) {
+          keyboardSeekTarget = null;
+          window.cancelAnimationFrame(keyboardPaintFrame);
+          if (!draggingPreview) paintPreviewTimeline();
+        } else {
+          paintKeyboardSeek(keyboardSeekTarget);
+        }
+      } else if (!draggingPreview) {
+        paintPreviewTimeline();
+      }
       const now = Date.now();
       if (now - lastSaveAtRef.current < SAVE_INTERVAL_MS) return;
       lastSaveAtRef.current = now;
@@ -774,6 +842,10 @@ export function VideoPlayer({
       paintPreviewTimeline();
     });
     art.on("setBar", (type: string, percentage: number) => {
+      if (keyboardSeekTarget != null && type === "played") {
+        paintKeyboardSeek(keyboardSeekTarget);
+        return;
+      }
       if (draggingPreview || !isPreview(art) || !timelineDuration) return;
       if (type === "hover") {
         const tip = container.querySelector<HTMLElement>(".art-progress-tip");
@@ -802,6 +874,7 @@ export function VideoPlayer({
       if (!isPreview(art) || event.button !== 0) return;
       event.preventDefault();
       event.stopImmediatePropagation();
+      keyboardSeekTarget = null;
       draggingPreview = true;
       dragRect = progressBar?.getBoundingClientRect() ?? null;
       seekPreview(event.clientX, false);
@@ -894,6 +967,25 @@ export function VideoPlayer({
       writeDanmakuPref(option);
     });
     const unbindResize = bindPlayerResize(art, container);
+    art.on("bili-keyboard-seek", (seconds: unknown) => {
+      const target = Number(seconds);
+      if (!Number.isFinite(target)) return;
+      paintKeyboardSeek(Math.max(0, target));
+    });
+    art.on("bili-keyboard-commit", (seconds: unknown) => {
+      const target = Number(seconds);
+      if (!Number.isFinite(target)) return;
+      paintKeyboardSeek(Math.max(0, target));
+      if (isPreview(art) && timelineDuration) {
+        commitPreviewSeek(target, true);
+        return;
+      }
+      const duration = art.duration || 0;
+      art.currentTime =
+        duration > 0
+          ? Math.min(duration, Math.max(0, target))
+          : Math.max(0, target);
+    });
     const unbindHotkeys = attachPlayerHotkeys(art, () => activeRef.current);
     if (playInfo.qualityNotice) {
       art.notice.show = playInfo.qualityNotice;
@@ -908,6 +1000,7 @@ export function VideoPlayer({
       );
       progressBar?.removeEventListener("mousedown", stopArtSeek, true);
       progressBar?.removeEventListener("click", stopArtSeek, true);
+      window.cancelAnimationFrame(keyboardPaintFrame);
       window.clearTimeout(dragSeekTimer);
       if (dragMove) window.removeEventListener("pointermove", dragMove);
       if (dragUp) window.removeEventListener("pointerup", dragUp);

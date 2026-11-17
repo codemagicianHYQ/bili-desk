@@ -86,6 +86,23 @@ export function attachPlayerHotkeys(
   isEnabled: () => boolean = () => true,
 ): () => void {
   const seekHint = createSeekHintController();
+  let pendingTarget: number | null = null;
+  let pendingForward: boolean | null = null;
+  let pendingAt = 0;
+  let commitTimer = 0;
+
+  const commitSeek = () => {
+    commitTimer = 0;
+    if (pendingTarget == null) return;
+    art.emit("bili-keyboard-commit", pendingTarget);
+  };
+
+  const scheduleCommit = () => {
+    if (commitTimer) window.clearTimeout(commitTimer);
+    // 长按期间只推进度条。松手或停顿后再跳转，避免每次按键都让弹幕重排
+    commitTimer = window.setTimeout(commitSeek, 220);
+  };
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (!isEnabled()) return;
     if (isShortcutCapturing()) return;
@@ -112,12 +129,30 @@ export function attachPlayerHotkeys(
 
     if (action === "seekBackward" || action === "seekForward") {
       const step = config.seekStep;
+      const forward = action === "seekForward";
+      const now = Date.now();
+      const mediaTime = art.currentTime || 0;
+      const chained =
+        pendingTarget != null &&
+        pendingForward === forward &&
+        now - pendingAt <= SEEK_CHAIN_GAP_MS;
+      const seekStillPending =
+        pendingTarget != null &&
+        Math.abs(mediaTime - pendingTarget) > 0.8 &&
+        now - pendingAt <= 2500;
+      const base = chained || seekStillPending ? pendingTarget! : mediaTime;
       const duration = art.duration || video.duration || 0;
-      art.currentTime =
-        action === "seekForward"
-          ? Math.min(duration, art.currentTime + step)
-          : Math.max(0, art.currentTime - step);
-      seekHint.show(art, step, action === "seekForward");
+      const next = forward
+        ? duration > 0
+          ? Math.min(duration, base + step)
+          : base + step
+        : Math.max(0, base - step);
+      pendingTarget = next;
+      pendingForward = forward;
+      pendingAt = now;
+      art.emit("bili-keyboard-seek", next);
+      seekHint.show(art, step, forward);
+      scheduleCommit();
       return;
     }
     if (action === "playPause") {
@@ -142,10 +177,23 @@ export function attachPlayerHotkeys(
     }
   };
 
+  const onKeyUp = (event: KeyboardEvent) => {
+    if (pendingTarget == null) return;
+    const chord = eventToChord(event);
+    if (!chord) return;
+    const keys = readShortcutConfig().keys;
+    if (chord !== keys.seekBackward && chord !== keys.seekForward) return;
+    if (commitTimer) window.clearTimeout(commitTimer);
+    commitSeek();
+  };
+
   document.addEventListener("keydown", onKeyDown, true);
+  document.addEventListener("keyup", onKeyUp, true);
   return () => {
+    if (commitTimer) window.clearTimeout(commitTimer);
     seekHint.dispose();
     document.removeEventListener("keydown", onKeyDown, true);
+    document.removeEventListener("keyup", onKeyUp, true);
   };
 }
 
