@@ -51,6 +51,7 @@ import type {
   UpRelation,
   UserInfo,
   VideoDetail,
+  VideoChargeAccess,
   VideoItem,
   VideoTag,
   VideoHonor,
@@ -109,6 +110,7 @@ import type {
   WalletBalance,
   CreatedDynamic,
   ReplyEmotePanel,
+  UpVideoSpecial,
   UpVideosPage,
   UpVideosOrder,
   SearchOrder,
@@ -1239,31 +1241,34 @@ class BiliApiService {
         const partitionId = Number(item.pid_v2) || 0;
         const partition = String(item.pid_name_v2 ?? "").trim();
         const subPartition = String(item.tnamev2 || item.tname || "").trim();
-        return {
-          ...(partitionId ? { partitionId } : {}),
-          ...(partition ? { partition } : {}),
-          ...(subPartition ? { subPartition } : {}),
-          bvid: String(item.bvid ?? ""),
-          aid: Number(item.aid) || Number(item.id) || 0,
-          title: String(item.title ?? ""),
-          cover: this.normalizeVideoCoverUrl(
-            String(item.pic ?? item.cover ?? ""),
-          ),
-          duration: Number(item.duration) || 0,
-          play: Number(stat.view) || Number(item.play) || 0,
-          danmaku: Number(stat.danmaku) || 0,
-          reply: Number(stat.reply) || 0,
-          like: Number(stat.like) || 0,
-          share: Number(stat.share) || 0,
-          rcmdReason: this.pickRcmdReason(item),
-          rank: withRank ? index + 1 : undefined,
-          owner: {
-            mid: Number(owner.mid) || 0,
-            name: String(owner.name ?? ""),
-            face: String(owner.face ?? ""),
+        return this.withChargeBadge(
+          {
+            ...(partitionId ? { partitionId } : {}),
+            ...(partition ? { partition } : {}),
+            ...(subPartition ? { subPartition } : {}),
+            bvid: String(item.bvid ?? ""),
+            aid: Number(item.aid) || Number(item.id) || 0,
+            title: String(item.title ?? ""),
+            cover: this.normalizeVideoCoverUrl(
+              String(item.pic ?? item.cover ?? ""),
+            ),
+            duration: Number(item.duration) || 0,
+            play: Number(stat.view) || Number(item.play) || 0,
+            danmaku: Number(stat.danmaku) || 0,
+            reply: Number(stat.reply) || 0,
+            like: Number(stat.like) || 0,
+            share: Number(stat.share) || 0,
+            rcmdReason: this.pickRcmdReason(item),
+            rank: withRank ? index + 1 : undefined,
+            owner: {
+              mid: Number(owner.mid) || 0,
+              name: String(owner.name ?? ""),
+              face: String(owner.face ?? ""),
+            },
+            pubdate: Number(item.pubdate) || Number(item.ctime) || 0,
           },
-          pubdate: Number(item.pubdate) || Number(item.ctime) || 0,
-        };
+          item,
+        );
       });
   }
 
@@ -2311,6 +2316,20 @@ class BiliApiService {
 
     const firstCid = Number(view.pages?.[0]?.cid) || undefined;
     const tags = await this.getVideoTags(view.bvid, view.aid, firstCid);
+    const exclusive =
+      view.is_upower_exclusive === true ||
+      Number(view.is_upower_exclusive) === 1;
+    const charge = exclusive
+      ? await this.readVideoCharge(view as Record<string, unknown>)
+      : undefined;
+    if (
+      view.bvid &&
+      (exclusive ||
+        view.is_upower_exclusive === false ||
+        Number(view.is_upower_exclusive) === 0)
+    ) {
+      this.rememberChargeBadge(String(view.bvid), exclusive ? "充电专属" : "");
+    }
 
     return {
       bvid: view.bvid,
@@ -2352,7 +2371,84 @@ class BiliApiService {
         share: view.stat?.share ?? 0,
         like: view.stat?.like ?? 0,
       },
+      chargeChecked: true,
+      ...(charge ? { charge, chargeBadge: "充电专属" } : {}),
     };
+  }
+
+  /** 充电视频文案和当前账号能不能看完整版。未开通时播放地址只有试看 */
+  private async readVideoCharge(
+    view: Record<string, unknown>,
+  ): Promise<VideoChargeAccess> {
+    const bvid = String(view.bvid ?? "");
+    const pages = Array.isArray(view.pages) ? view.pages : [];
+    const firstPage = pages[0] as { cid?: number } | undefined;
+    const cid = Number(view.cid) || Number(firstPage?.cid) || 0;
+    let unlocked = view.is_upower_play === true;
+    let title = "该视频为充电专属视频";
+    let subtitle = unlocked
+      ? "你已是充电会员，该视频可完整观看"
+      : "试看中，开通充电后可观看完整视频";
+    let buttonText: string | undefined = unlocked ? undefined : "去开通";
+    let payUrl: string | undefined;
+
+    if (bvid && cid > 0) {
+      try {
+        const params = await signParams({ bvid, cid });
+        const res = await this.client.get("/x/player/wbi/v2", {
+          params,
+          headers: { Referer: `https://www.bilibili.com/video/${bvid}` },
+          validateStatus: () => true,
+        });
+        const data = res.data?.data as Record<string, unknown> | undefined;
+        if (res.data?.code === 0 && data) {
+          if (typeof data.is_upower_play === "boolean") {
+            unlocked = data.is_upower_play;
+          }
+          const elec = data.elec_high_level as
+            | Record<string, unknown>
+            | undefined;
+          if (elec) {
+            const nextTitle = String(elec.title ?? "").trim();
+            const nextSubtitle = String(elec.sub_title ?? "").trim();
+            if (nextTitle) title = nextTitle;
+            if (!unlocked && nextSubtitle) subtitle = nextSubtitle;
+            if (!unlocked && elec.show_button !== false) {
+              const nextButton = String(elec.button_text ?? "").trim();
+              if (nextButton) buttonText = nextButton;
+              payUrl = this.safeBiliHttpUrl(String(elec.jump_url ?? ""));
+            }
+          }
+        }
+      } catch {
+        // 播放器文案失败时保留默认提示
+      }
+    }
+
+    if (unlocked) {
+      subtitle = "你已是充电会员，该视频可完整观看";
+      buttonText = undefined;
+      payUrl = undefined;
+    }
+
+    return { exclusive: true, unlocked, title, subtitle, buttonText, payUrl };
+  }
+
+  private safeBiliHttpUrl(raw: string): string | undefined {
+    const text = raw.trim();
+    if (!text) return undefined;
+    try {
+      const url = new URL(text.startsWith("//") ? `https:${text}` : text);
+      if (url.protocol !== "https:" && url.protocol !== "http:")
+        return undefined;
+      const host = url.hostname.toLowerCase();
+      if (host !== "bilibili.com" && !host.endsWith(".bilibili.com")) {
+        return undefined;
+      }
+      return url.toString();
+    } catch {
+      return undefined;
+    }
   }
 
   private parseVideoHonors(raw: unknown): VideoHonor[] | undefined {
@@ -2416,21 +2512,24 @@ class BiliApiService {
   private normalizeRelatedVideo(item: Record<string, unknown>): VideoItem {
     const owner = item.owner as Record<string, unknown> | undefined;
     const stat = item.stat as Record<string, unknown> | undefined;
-    return {
-      bvid: String(item.bvid ?? ""),
-      aid: Number(item.aid ?? item.id) || 0,
-      title: String(item.title ?? ""),
-      cover: this.normalizeVideoCoverUrl(String(item.pic ?? "")),
-      duration: Number(item.duration) || 0,
-      play: Number(stat?.view ?? item.play) || 0,
-      danmaku: Number(stat?.danmaku ?? item.video_review) || 0,
-      owner: {
-        mid: Number(owner?.mid) || 0,
-        name: String(owner?.name ?? ""),
-        face: this.normalizeVideoCoverUrl(String(owner?.face ?? "")),
+    return this.withChargeBadge(
+      {
+        bvid: String(item.bvid ?? ""),
+        aid: Number(item.aid ?? item.id) || 0,
+        title: String(item.title ?? ""),
+        cover: this.normalizeVideoCoverUrl(String(item.pic ?? "")),
+        duration: Number(item.duration) || 0,
+        play: Number(stat?.view ?? item.play) || 0,
+        danmaku: Number(stat?.danmaku ?? item.video_review) || 0,
+        owner: {
+          mid: Number(owner?.mid) || 0,
+          name: String(owner?.name ?? ""),
+          face: this.normalizeVideoCoverUrl(String(owner?.face ?? "")),
+        },
+        pubdate: Number(item.pubdate ?? item.ctime) || 0,
       },
-      pubdate: Number(item.pubdate ?? item.ctime) || 0,
-    };
+      item,
+    );
   }
 
   async getVideoOnlineTotal(
@@ -7799,19 +7898,108 @@ class BiliApiService {
     page = 1,
     order: UpVideosOrder = "pubdate",
     keyword = "",
+    specialType = "",
   ): Promise<UpVideosPage> {
     const kw = keyword.trim();
-    const key = `${mid}:${Math.max(1, page)}:${order}:${kw}`;
+    const special = specialType.trim();
+    const key = `${mid}:${Math.max(1, page)}:${order}:${kw}:${special}`;
     const pending = this.upVideosInflight.get(key);
     if (pending) return pending;
 
-    const task = this.loadUpVideos(mid, page, order, kw).finally(() => {
-      if (this.upVideosInflight.get(key) === task) {
-        this.upVideosInflight.delete(key);
-      }
-    });
+    const task = this.loadUpVideos(mid, page, order, kw, special)
+      .then((result) => {
+        if (Math.max(1, page) !== 1 || kw || special) return result;
+        const remembered = this.attachRememberedSpecials(mid, result);
+        if (remembered.specialsKnown) return remembered;
+        return this.withChargingSpecial(mid, order, remembered);
+      })
+      .then((result) => {
+        if (Math.max(1, page) !== 1 || kw || special) return result;
+        return this.rememberArcSpecials(mid, result);
+      })
+      .finally(() => {
+        if (this.upVideosInflight.get(key) === task) {
+          this.upVideosInflight.delete(key);
+        }
+      });
     this.upVideosInflight.set(key, task);
     return task;
+  }
+
+  private async withChargingSpecial(
+    mid: number,
+    order: UpVideosOrder,
+    page: UpVideosPage,
+  ): Promise<UpVideosPage> {
+    if (page.specialsKnown || (page.specials?.length ?? 0) > 0) return page;
+    try {
+      const filtered = await this.fetchSpaceArcList(
+        mid,
+        1,
+        order,
+        "",
+        "charging",
+      );
+      const count = filtered.total;
+      const sameHead =
+        page.total > 0 &&
+        count >= page.total &&
+        Boolean(filtered.videos[0]?.bvid) &&
+        filtered.videos[0]?.bvid === page.videos[0]?.bvid;
+      if (count <= 0 || sameHead) return page;
+      return {
+        ...page,
+        specials: [{ type: "charging", name: "充电专属", count }],
+        specialsKnown: true,
+      };
+    } catch {
+      return page;
+    }
+  }
+
+  /** 备用列表没有 slist 时，用这个 UP 上次确认过的筛选，避免按钮时有时无 */
+  private attachRememberedSpecials(
+    mid: number,
+    page: UpVideosPage,
+  ): UpVideosPage {
+    if (page.specialsKnown) return page;
+    const known =
+      this.upArcSpecials.get(mid) ?? this.readStoredArcSpecials(mid);
+    if (!known) return page;
+    return { ...page, specials: known, specialsKnown: true };
+  }
+
+  private readStoredArcSpecials(mid: number): UpVideoSpecial[] | null {
+    const all = appStore.get("upVideoSpecials");
+    const list = all?.[String(mid)];
+    if (!Array.isArray(list)) return null;
+    return list.filter(
+      (item) =>
+        Boolean(item?.type) && Boolean(item?.name) && Number(item?.count) > 0,
+    );
+  }
+
+  /** 确认过的筛选记到本地。下次 arc/search 被限流，备用列表也能把按钮带上 */
+  private rememberArcSpecials(mid: number, page: UpVideosPage): UpVideosPage {
+    const attached = this.attachRememberedSpecials(mid, page);
+    if (!attached.specialsKnown) return attached;
+    const specials = attached.specials ?? [];
+    this.upArcSpecials.set(mid, specials);
+    const all = appStore.get("upVideoSpecials") ?? {};
+    const prev = all[String(mid)];
+    const same =
+      Array.isArray(prev) &&
+      prev.length === specials.length &&
+      prev.every(
+        (item, index) =>
+          item.type === specials[index]?.type &&
+          item.name === specials[index]?.name &&
+          item.count === specials[index]?.count,
+      );
+    if (!same) {
+      appStore.set("upVideoSpecials", { ...all, [String(mid)]: specials });
+    }
+    return attached;
   }
 
   private async loadUpVideos(
@@ -7819,11 +8007,18 @@ class BiliApiService {
     page = 1,
     order: UpVideosOrder = "pubdate",
     keyword = "",
+    specialType = "",
   ): Promise<UpVideosPage> {
     await this.ensureBuvid3();
 
     const sort = order === "click" ? "click" : "pubdate";
     const kw = keyword.trim();
+    const special = specialType.trim();
+
+    // 充电专属等筛选不能退回全量投稿，否则筛完还是全部视频
+    if (special) {
+      return this.fetchSpaceArcList(mid, page, sort, kw, special);
+    }
 
     // 空间内关键词搜索：先走 arc/search，翻页被拒时改走系列投稿接口
     if (kw) {
@@ -8463,7 +8658,13 @@ class BiliApiService {
       .filter((token) => token.toLowerCase() !== cleaned.toLowerCase())
       .sort((a, b) => b.length - a.length)
       .slice(0, 2);
-    const queries = [...new Set([cleaned, ...extras])];
+    const queries = [
+      ...new Set([
+        cleaned,
+        ...(cleaned.toLowerCase() !== trimmed.toLowerCase() ? [trimmed] : []),
+        ...extras,
+      ]),
+    ];
 
     const pages = await Promise.all(
       queries.map((query) =>
@@ -8546,7 +8747,21 @@ class BiliApiService {
       "呢",
       "吧",
     ]);
-    const suffixes = ["开播了", "直播了", "开播", "直播", "更新了", "更新"];
+    const suffixes = [
+      "纪录片",
+      "开播了",
+      "直播了",
+      "更新了",
+      "课程",
+      "课堂",
+      "专栏",
+      "合集",
+      "视频",
+      "动态",
+      "开播",
+      "直播",
+      "更新",
+    ];
     const parts = keyword
       .trim()
       .split(/[\s\u3000,，。！？!?:：、|/+#]+/)
@@ -8591,8 +8806,16 @@ class BiliApiService {
 
     if (phrase && name === phrase) score += 1000;
     else if (phrase && name.includes(phrase)) score += 500;
+    else if (
+      name.length >= 2 &&
+      (phrase.startsWith(name) || phrase.endsWith(name))
+    ) {
+      // 「食贫道纪录片」这种整句，名字只占开头或结尾，也算命中
+      score += 460;
+    }
 
     let nameHits = 0;
+
     for (const token of tokens) {
       const text = token.toLowerCase();
       if (!text) continue;
@@ -9096,16 +9319,38 @@ class BiliApiService {
     };
   }
 
+  private readArcSpecials(payload: { data?: { list?: { slist?: unknown } } }): {
+    known: boolean;
+    specials: UpVideoSpecial[];
+  } {
+    const slist = payload?.data?.list?.slist;
+    if (!Array.isArray(slist)) return { known: false, specials: [] };
+    const specials: UpVideoSpecial[] = [];
+    for (const raw of slist) {
+      if (!raw || typeof raw !== "object") continue;
+      const item = raw as Record<string, unknown>;
+      const type = String(item.special_type ?? "").trim();
+      const name = String(item.name ?? "").trim();
+      const count = Number(item.count);
+      if (!type || !name || !Number.isFinite(count) || count <= 0) continue;
+      specials.push({ type, name, count });
+    }
+    return { known: true, specials };
+  }
+
   private async fetchSpaceArcList(
     mid: number,
     page: number,
     order: UpVideosOrder = "pubdate",
     keyword = "",
+    specialType = "",
   ): Promise<UpVideosPage> {
     const kw = keyword.trim();
+    const special = specialType.trim();
     const referer = `https://space.bilibili.com/${mid}/video?tid=0&pn=${page}&keyword=${encodeURIComponent(kw)}&order=${order}`;
     const pageSize = 30;
-    const locations = page > 1 || kw ? ["1550101", "333.1387"] : ["1550101"];
+    const locations =
+      page > 1 || kw || special ? ["1550101", "333.1387"] : ["1550101"];
     let lastError: Error | null = null;
 
     for (const webLocation of locations) {
@@ -9117,10 +9362,12 @@ class BiliApiService {
         referer,
         webLocation,
         kw,
+        special,
       );
       if (result.ok) return result.page;
       lastError = result.error;
-      if (lastError.message.includes("访问权限不足")) break;
+      // 已经 -799 再换地址，会把排序和翻页打得更频繁
+      if (result.rateLimited || !result.tryNextLocation) break;
     }
 
     throw lastError ?? new Error("投稿列表获取失败，请稍后重试");
@@ -9134,7 +9381,16 @@ class BiliApiService {
     referer: string,
     webLocation: string,
     keyword = "",
-  ): Promise<{ ok: true; page: UpVideosPage } | { ok: false; error: Error }> {
+    specialType = "",
+  ): Promise<
+    | { ok: true; page: UpVideosPage }
+    | {
+        ok: false;
+        error: Error;
+        rateLimited?: boolean;
+        tryNextLocation?: boolean;
+      }
+  > {
     const baseParams: Record<string, string | number> = {
       mid: String(mid),
       pn: page,
@@ -9149,9 +9405,11 @@ class BiliApiService {
       dm_img_str: "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
       dm_cover_img_str:
         "QU5HTEUgKEludGVsLCBJbnRlbChSKSBVSEQgR3JhcGhpY3MgRGlyZWN0M0QxMSB2c181XzAgcHNfNV8wLCBEM0QxMSlHb29nbGUgSW5jLiAoSW50ZWw",
-      dm_img_inter: '{"ds":[],"wh":[0,0,0],"of":["","",""]}',
+      dm_img_inter: '{"ds":[],"wh":[0,0,0],"of":[0,0,0]}',
     };
+    if (specialType) baseParams.special_type = specialType;
 
+    // 官方投稿页只打签名接口。明文 /x/space/arc/search 已废弃，会固定返回 -799
     const modes: Array<"wbi" | "plain"> = ["wbi", "plain"];
     let lastError: Error | null = null;
 
@@ -9184,17 +9442,19 @@ class BiliApiService {
 
         const payload = res.data;
         const code = payload?.code as number | undefined;
+        if (code === -799) {
+          lastError = lastError ?? new Error("请求过于频繁，请稍后再试");
+          break;
+        }
         if (code === -403) {
-          return {
-            ok: false,
-            error: new Error(
-              this.formatUserSpaceApiError(
-                code,
-                payload?.message,
-                "投稿列表获取失败，请稍后重试",
-              ),
+          lastError = new Error(
+            this.formatUserSpaceApiError(
+              code,
+              payload?.message,
+              "投稿列表获取失败，请稍后重试",
             ),
-          };
+          );
+          break;
         }
         if (code === 0) {
           const vlist = (payload?.data?.list?.vlist ?? []) as Record<
@@ -9206,9 +9466,13 @@ class BiliApiService {
             | undefined;
           const total = Number(pageInfo?.count ?? vlist.length) || 0;
           const ps = Number(pageInfo?.ps ?? pageSize) || pageSize;
+          const parsed = this.readArcSpecials(payload);
           if (page > 1 && vlist.length === 0 && total > (page - 1) * ps) {
-            lastError = new Error("投稿翻页返回空数据，正在尝试其它通道");
-            break;
+            return {
+              ok: false,
+              tryNextLocation: true,
+              error: new Error("投稿翻页返回空数据，正在尝试其它通道"),
+            };
           }
           return {
             ok: true,
@@ -9217,12 +9481,13 @@ class BiliApiService {
               page,
               total,
               hasMore: vlist.length >= ps || page * ps < total,
+              specials: parsed.specials,
+              specialsKnown: parsed.known,
             },
           };
         }
 
         const retryable =
-          code === -799 ||
           code === -412 ||
           res.status === 412 ||
           (mode === "wbi" &&
@@ -9230,14 +9495,10 @@ class BiliApiService {
               String(payload?.message ?? "").includes("请求错误")));
         if (retryable && attempt < 2) {
           if (mode === "wbi") invalidateWbiCache();
-          await sleep(code === -799 ? 1600 : mode === "wbi" ? 700 : 500);
+          await sleep(mode === "wbi" ? 700 : 500);
           continue;
         }
 
-        if (code === -799) {
-          lastError = new Error("请求过于频繁，请稍后再试");
-          break;
-        }
         if (code === -352) {
           lastError = new Error("投稿接口触发风控，请稍后重试或重新登录");
           break;
@@ -9469,21 +9730,26 @@ class BiliApiService {
         ? this.parseSpaceDuration(durationRaw)
         : Number(durationRaw ?? 0) || 0;
 
-    return {
-      bvid,
-      aid,
-      title: String(item.title ?? ""),
-      cover: this.normalizeVideoCoverUrl(String(item.cover ?? item.pic ?? "")),
-      duration,
-      play: Number(item.play ?? 0) || 0,
-      danmaku: Number(item.danmaku ?? item.video_review ?? 0) || 0,
-      owner: {
-        mid,
-        name: String(item.author ?? ""),
-        face: "",
+    return this.withChargeBadge(
+      {
+        bvid,
+        aid,
+        title: String(item.title ?? ""),
+        cover: this.normalizeVideoCoverUrl(
+          String(item.cover ?? item.pic ?? ""),
+        ),
+        duration,
+        play: Number(item.play ?? 0) || 0,
+        danmaku: Number(item.danmaku ?? item.video_review ?? 0) || 0,
+        owner: {
+          mid,
+          name: String(item.author ?? ""),
+          face: "",
+        },
+        pubdate: Number(item.ctime ?? item.created ?? item.pubdate ?? 0) || 0,
       },
-      pubdate: Number(item.ctime ?? item.created ?? item.pubdate ?? 0) || 0,
-    };
+      item,
+    );
   }
 
   private formatUserSpaceApiError(
@@ -9535,6 +9801,8 @@ class BiliApiService {
 
   private spaceArcGate: Promise<void> = Promise.resolve();
   private lastSpaceArcAt = 0;
+  /** 签名投稿接口返回 -403 后不再打，避免每次排序、翻页多一次请求 */
+  private upArcSpecials = new Map<number, UpVideoSpecial[]>();
   private upVideosInflight = new Map<string, Promise<UpVideosPage>>();
 
   /** 串行化空间投稿请求，避免短时间并发触发 -799 */
@@ -9806,47 +10074,200 @@ class BiliApiService {
 
   private normalizeVideo(item: Record<string, unknown>): VideoItem {
     const owner = item.owner as Record<string, unknown> | undefined;
-    return {
-      bvid: item.bvid as string,
-      aid: (item.id as number) ?? 0,
-      title: item.title as string,
-      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
-      duration: (item.duration as number) ?? 0,
-      play: (item.stat as { view?: number })?.view ?? 0,
-      danmaku: (item.stat as { danmaku?: number })?.danmaku ?? 0,
-      owner: {
-        mid: (owner?.mid as number) ?? 0,
-        name: (owner?.name as string) ?? "",
-        face: (owner?.face as string) ?? "",
+    return this.withChargeBadge(
+      {
+        bvid: item.bvid as string,
+        aid: (item.id as number) ?? 0,
+        title: item.title as string,
+        cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
+        duration: (item.duration as number) ?? 0,
+        play: (item.stat as { view?: number })?.view ?? 0,
+        danmaku: (item.stat as { danmaku?: number })?.danmaku ?? 0,
+        owner: {
+          mid: (owner?.mid as number) ?? 0,
+          name: (owner?.name as string) ?? "",
+          face: (owner?.face as string) ?? "",
+        },
+        pubdate:
+          (item.pubdate as number) ??
+          (item.pub_time as number) ??
+          (item.ctime as number) ??
+          (item.created as number) ??
+          0,
       },
-      pubdate:
-        (item.pubdate as number) ??
-        (item.pub_time as number) ??
-        (item.ctime as number) ??
-        (item.created as number) ??
-        0,
-    };
+      item,
+    );
   }
 
   private normalizeSpaceVideo(
     item: Record<string, unknown>,
     mid: number,
   ): VideoItem {
-    return {
-      bvid: item.bvid as string,
-      aid: (item.aid as number) ?? 0,
-      title: item.title as string,
-      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
-      duration: this.parseSpaceDuration(item.length),
-      play: (item.play as number) ?? 0,
-      danmaku: (item.video_review as number) ?? 0,
-      owner: {
-        mid,
-        name: (item.author as string) ?? "",
-        face: "",
+    return this.withChargeBadge(
+      {
+        bvid: item.bvid as string,
+        aid: (item.aid as number) ?? 0,
+        title: item.title as string,
+        cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
+        duration: this.parseSpaceDuration(item.length),
+        play: (item.play as number) ?? 0,
+        danmaku: (item.video_review as number) ?? 0,
+        owner: {
+          mid,
+          name: (item.author as string) ?? "",
+          face: "",
+        },
+        pubdate: (item.created as number) ?? 0,
       },
-      pubdate: (item.created as number) ?? 0,
-    };
+      item,
+    );
+  }
+
+  private readChargeBadge(item: Record<string, unknown>): string | undefined {
+    const badge = String(item.elec_arc_badge ?? "").trim();
+    if (badge) return badge;
+    if (item.is_charging_arc === true || Number(item.is_charging_arc) === 1) {
+      return "充电专属";
+    }
+    if (
+      item.is_upower_exclusive === true ||
+      Number(item.is_upower_exclusive) === 1
+    ) {
+      return "充电专属";
+    }
+    if (item.is_charge_video === true || Number(item.is_charge_video) === 1) {
+      return "充电专属";
+    }
+    const corner = String(item.corner ?? "").trim();
+    if (/充电|专属/.test(corner)) return corner;
+    return undefined;
+  }
+
+  /** 列表里明确写了「不是充电」才记负缓存。搜索的 is_charge_video=0 不可信 */
+  private chargeKnownOff(item: Record<string, unknown>): boolean {
+    if (
+      "is_charging_arc" in item &&
+      item.is_charging_arc != null &&
+      item.is_charging_arc !== true &&
+      Number(item.is_charging_arc) !== 1
+    ) {
+      return true;
+    }
+    return item.is_upower_exclusive === false;
+  }
+
+  private withChargeBadge<T extends VideoItem>(
+    video: T,
+    item: Record<string, unknown>,
+  ): T {
+    const chargeBadge = this.readChargeBadge(item);
+    const bvid = video.bvid?.trim();
+    if (bvid && chargeBadge) this.rememberChargeBadge(bvid, chargeBadge);
+    else if (bvid && this.chargeKnownOff(item)) this.rememberChargeBadge(bvid, "");
+    return chargeBadge ? { ...video, chargeBadge } : video;
+  }
+
+  private readChargeBadgeCache(): Record<string, { v: string; at: number }> {
+    return appStore.get("chargeVideoBadges") ?? {};
+  }
+
+  private rememberChargeBadge(bvid: string, badge: string) {
+    this.rememberChargeBadges({ [bvid]: badge });
+  }
+
+  private rememberChargeBadges(entries: Record<string, string>) {
+    const ids = Object.keys(entries).map((id) => id.trim()).filter(Boolean);
+    if (ids.length === 0) return;
+    const cache = { ...this.readChargeBadgeCache() };
+    const now = Date.now();
+    let changed = false;
+    for (const id of ids) {
+      const badge = entries[id] ?? "";
+      if (cache[id]?.v === badge) continue;
+      cache[id] = { v: badge, at: now };
+      changed = true;
+    }
+    if (!changed) return;
+    const keys = Object.keys(cache);
+    if (keys.length > 4000) {
+      keys.sort((a, b) => (cache[a]?.at ?? 0) - (cache[b]?.at ?? 0));
+      for (const key of keys.slice(0, keys.length - 3200)) delete cache[key];
+    }
+    appStore.set("chargeVideoBadges", cache);
+  }
+
+  /** 列表接口经常不带充电标记，用稿件详情补。失败的不写入缓存 */
+  async lookupChargeBadges(bvids: string[]): Promise<Record<string, string>> {
+    const unique = [
+      ...new Set(
+        bvids
+          .map((id) => (typeof id === "string" ? id.trim() : ""))
+          .filter(Boolean),
+      ),
+    ].slice(0, 24);
+    const cache = this.readChargeBadgeCache();
+    const now = Date.now();
+    const freshMs = 7 * 24 * 60 * 60 * 1000;
+    const result: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const id of unique) {
+      const hit = cache[id];
+      if (hit && now - hit.at < freshMs) result[id] = hit.v;
+      else missing.push(id);
+    }
+    if (missing.length === 0) return result;
+
+    const fetched = await this.mapLimit(missing, 4, (id) =>
+      this.fetchChargeBadge(id),
+    );
+    const writes: Record<string, string> = {};
+    missing.forEach((id, index) => {
+      const value = fetched[index];
+      if (value == null) return;
+      result[id] = value;
+      writes[id] = value;
+    });
+    this.rememberChargeBadges(writes);
+    return result;
+  }
+
+  private async fetchChargeBadge(bvid: string): Promise<string | null> {
+    try {
+      const res = await this.client.get("/x/web-interface/view", {
+        params: { bvid },
+        headers: { Referer: `https://www.bilibili.com/video/${bvid}/` },
+        timeout: 8000,
+        validateStatus: () => true,
+      });
+      const data = res.data?.data as Record<string, unknown> | undefined;
+      if (res.data?.code !== 0 || !data) return null;
+      return data.is_upower_exclusive === true ||
+        Number(data.is_upower_exclusive) === 1
+        ? "充电专属"
+        : "";
+    } catch {
+      return null;
+    }
+  }
+
+  private async mapLimit<T, R>(
+    items: T[],
+    limit: number,
+    fn: (item: T) => Promise<R>,
+  ): Promise<R[]> {
+    const out: R[] = new Array(items.length);
+    let cursor = 0;
+    const workers = Array.from(
+      { length: Math.min(limit, items.length) },
+      async () => {
+        while (cursor < items.length) {
+          const index = cursor++;
+          out[index] = await fn(items[index]);
+        }
+      },
+    );
+    await Promise.all(workers);
+    return out;
   }
 
   private parseSpaceDuration(length: unknown): number {
@@ -12310,6 +12731,40 @@ class BiliApiService {
     };
   }
 
+  async getUpCourses(mid: number, page = 1): Promise<CheeseCoursePage> {
+    const pageSize = 30;
+    const pn = Math.max(1, page);
+    const res = await this.client.get("/pugv/app/web/season/page", {
+      params: { mid, pn, ps: pageSize },
+      headers: { Referer: `https://space.bilibili.com/${mid}` },
+      validateStatus: () => true,
+    });
+    if (res.data?.code !== 0) {
+      throw new Error(formatBiliApiError(res.data, "课堂列表获取失败"));
+    }
+    const data = (res.data?.data ?? {}) as Record<string, unknown>;
+    const rawItems = (
+      Array.isArray(data.items)
+        ? data.items
+        : Array.isArray(data.list)
+          ? data.list
+          : []
+    ) as unknown[];
+    const list = rawItems
+      .map((item) => this.normalizeCheeseCourseItem(item))
+      .filter((item): item is CheeseCourseItem => item != null);
+    const pageInfo = (data.page ?? {}) as { total?: number };
+    const reported = Number(pageInfo.total ?? data.total);
+    const total =
+      Number.isFinite(reported) && reported > 0 ? reported : list.length;
+    return {
+      list,
+      page: pn,
+      total,
+      hasMore: pn * pageSize < total,
+    };
+  }
+
   async getCheeseFollowList(page = 1, mid?: number): Promise<CheeseCoursePage> {
     await this.ensureBuvid3();
     const pageSize = 20;
@@ -12866,26 +13321,29 @@ class BiliApiService {
     mid: number,
   ): VideoItem {
     const stat = item.stat as Record<string, unknown> | undefined;
-    return {
-      bvid: item.bvid as string,
-      aid: Number(item.aid) || 0,
-      title: (item.title as string) ?? "",
-      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
-      duration: (item.duration as number) ?? 0,
-      play: (stat?.view as number) ?? 0,
-      danmaku: (stat?.danmaku as number) ?? 0,
-      owner: {
-        mid,
-        name: "",
-        face: "",
+    return this.withChargeBadge(
+      {
+        bvid: item.bvid as string,
+        aid: Number(item.aid) || 0,
+        title: (item.title as string) ?? "",
+        cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
+        duration: (item.duration as number) ?? 0,
+        play: (stat?.view as number) ?? 0,
+        danmaku: (stat?.danmaku as number) ?? 0,
+        owner: {
+          mid,
+          name: "",
+          face: "",
+        },
+        pubdate:
+          (item.pubdate as number) ??
+          (item.ptime as number) ??
+          (item.ctime as number) ??
+          (item.created as number) ??
+          0,
       },
-      pubdate:
-        (item.pubdate as number) ??
-        (item.ptime as number) ??
-        (item.ctime as number) ??
-        (item.created as number) ??
-        0,
-    };
+      item,
+    );
   }
 
   private parseCollectionList(
@@ -14322,24 +14780,27 @@ class BiliApiService {
     const owner = item.owner as Record<string, unknown> | undefined;
     const stat = item.stat as Record<string, unknown> | undefined;
 
-    return {
-      bvid: item.bvid as string,
-      aid: (item.aid as number) ?? 0,
-      title: (item.title as string) ?? "",
-      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
-      duration: (item.duration as number) ?? 0,
-      play: (stat?.view as number) ?? 0,
-      danmaku: (stat?.danmaku as number) ?? 0,
-      owner: {
-        mid: (owner?.mid as number) ?? 0,
-        name: (owner?.name as string) ?? "",
-        face: ((owner?.face as string) ?? "").replace(/^http:/, "https:"),
+    return this.withChargeBadge(
+      {
+        bvid: item.bvid as string,
+        aid: (item.aid as number) ?? 0,
+        title: (item.title as string) ?? "",
+        cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
+        duration: (item.duration as number) ?? 0,
+        play: (stat?.view as number) ?? 0,
+        danmaku: (stat?.danmaku as number) ?? 0,
+        owner: {
+          mid: (owner?.mid as number) ?? 0,
+          name: (owner?.name as string) ?? "",
+          face: ((owner?.face as string) ?? "").replace(/^http:/, "https:"),
+        },
+        pubdate: (item.pubdate as number) ?? (item.ctime as number) ?? 0,
+        progress: (item.progress as number) ?? 0,
+        addAt: (item.add_at as number) ?? 0,
+        cid: (item.cid as number) ?? 0,
       },
-      pubdate: (item.pubdate as number) ?? (item.ctime as number) ?? 0,
-      progress: (item.progress as number) ?? 0,
-      addAt: (item.add_at as number) ?? 0,
-      cid: (item.cid as number) ?? 0,
-    };
+      item,
+    );
   }
 
   private isSearchVideoResult(item: Record<string, unknown>): boolean {
@@ -14410,25 +14871,28 @@ class BiliApiService {
       .replace(/<em class="keyword">/g, "")
       .replace(/<\/em>/g, "");
 
-    return {
-      bvid: item.bvid as string,
-      aid: (item.aid as number) ?? 0,
-      title,
-      cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
-      duration,
-      play: (item.play as number) ?? 0,
-      danmaku: (item.video_review as number) ?? 0,
-      owner: {
-        mid: (item.mid as number) ?? 0,
-        name: (item.author as string) ?? "",
-        face: ((item.upic as string) ?? "").replace(/^http:/, "https:"),
+    return this.withChargeBadge(
+      {
+        bvid: item.bvid as string,
+        aid: (item.aid as number) ?? 0,
+        title,
+        cover: this.normalizeVideoCoverUrl((item.pic as string) ?? ""),
+        duration,
+        play: (item.play as number) ?? 0,
+        danmaku: (item.video_review as number) ?? 0,
+        owner: {
+          mid: (item.mid as number) ?? 0,
+          name: (item.author as string) ?? "",
+          face: ((item.upic as string) ?? "").replace(/^http:/, "https:"),
+        },
+        pubdate:
+          (item.pubdate as number) ??
+          (item.pub_time as number) ??
+          (item.ctime as number) ??
+          0,
       },
-      pubdate:
-        (item.pubdate as number) ??
-        (item.pub_time as number) ??
-        (item.ctime as number) ??
-        0,
-    };
+      item,
+    );
   }
 }
 

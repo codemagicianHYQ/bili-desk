@@ -6,6 +6,7 @@ import type {
   SpaceDynamicItem,
   UpProfile,
   UpRelation,
+  UpVideoSpecial,
   UpVideosOrder,
   VideoDetail,
   VideoItem,
@@ -43,6 +44,8 @@ export interface UpVideosPageCache {
   page: number;
   total: number;
   hasMore: boolean;
+  specials?: UpVideoSpecial[];
+  specialsKnown?: boolean;
 }
 
 export interface UpSpaceCache {
@@ -121,6 +124,11 @@ export function commentsCacheKey(aid: number, sort: number): string {
   return `main:${aid}:${sort}`;
 }
 
-export function upVideosCacheKey(order: UpVideosOrder, page: number): string {
-  return `${order}:${page}`;
+export function upVideosCacheKey(
+  order: UpVideosOrder,
+  page: number,
+  specialType = "",
+): string {
+  const special = specialType.trim();
+  return special ? `${order}:${page}:s:${special}` : `${order}:${page}`;
 }

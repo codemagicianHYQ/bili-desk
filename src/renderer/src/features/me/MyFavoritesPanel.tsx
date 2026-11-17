@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import type { FavMediaItem, OpusFavItem } from "@shared/types";
 import { OpusAppLink } from "@/components/opus/OpusAppLink";
 import { BiliImage } from "@/components/ui/bili-image";
+import { ChargeMarkedCover } from "@/components/video/charge-badge";
 import { Button } from "@/components/ui/button";
 import {
   cn,
@@ -153,11 +154,17 @@ export function MyFavoritesPanel() {
                   )}
                 >
                   {item.cover ? (
-                    <BiliImage
-                      src={item.cover}
-                      alt=""
-                      className="h-20 w-36 shrink-0 rounded-lg object-cover"
-                    />
+                    <ChargeMarkedCover
+                      bvid={item.bvid}
+                      className="h-20 w-36 shrink-0"
+                      badgeClassName="right-1 top-1 px-1 py-px text-[10px]"
+                    >
+                      <BiliImage
+                        src={item.cover}
+                        alt=""
+                        className="h-full w-full rounded-lg object-cover"
+                      />
+                    </ChargeMarkedCover>
                   ) : (
                     <div className="flex h-20 w-36 shrink-0 items-center justify-center rounded-lg bg-muted">
                       <Video className="h-5 w-5 text-muted-foreground" />

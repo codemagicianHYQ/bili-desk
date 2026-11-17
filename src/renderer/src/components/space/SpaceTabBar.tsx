@@ -4,7 +4,14 @@ import { cn } from "@/lib/utils";
 export interface SpaceTab<T extends string> {
   id: T;
   label: string;
+  /** 页签旁的数量，超过 999 显示 999+ */
+  count?: number;
   icon?: ComponentType<{ className?: string }>;
+}
+
+function formatTabCount(count: number): string {
+  if (count > 999) return "999+";
+  return String(count);
 }
 
 export function SpaceTabBar<T extends string>({
@@ -40,9 +47,14 @@ export function SpaceTabBar<T extends string>({
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1">
               {Icon ? <Icon className="h-4 w-4" /> : null}
               {item.label}
+              {item.count != null && item.count > 0 ? (
+                <span className="text-xs tabular-nums">
+                  {formatTabCount(item.count)}
+                </span>
+              ) : null}
             </span>
             <span
               aria-hidden

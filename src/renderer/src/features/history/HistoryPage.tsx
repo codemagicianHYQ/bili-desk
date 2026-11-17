@@ -17,6 +17,10 @@ import type {
   HistoryItem,
 } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
+import {
+  ChargeCoverBadge,
+  useCoverChargeBadge,
+} from "@/components/video/charge-badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PaginationBar } from "@/components/ui/pagination-bar";
@@ -318,6 +322,12 @@ function HistoryCard({
   const appPath = resolveHistoryAppPath(item);
   const external = resolveExternalUrl(item);
   const cover = item.cover || item.covers?.[0] || "";
+  const knownCharge =
+    item.badge && /充电|专属/.test(item.badge) ? item.badge : undefined;
+  const chargeBadge = useCoverChargeBadge(
+    isVideo ? item.bvid : undefined,
+    knownCharge,
+  );
   const progressText = coverProgressLabel(item);
   const percent =
     item.progress < 0
@@ -359,8 +369,14 @@ function HistoryCard({
           {item.badge}
         </span>
       )}
+      <ChargeCoverBadge label={chargeBadge} className="right-1.5 top-1.5" />
       {item.favorited && (
-        <span className="absolute right-1.5 top-1.5 rounded bg-primary/90 px-1.5 py-0.5 text-[10px] text-primary-foreground">
+        <span
+          className={cn(
+            "absolute right-1.5 rounded bg-primary/90 px-1.5 py-0.5 text-[10px] text-primary-foreground",
+            chargeBadge ? "top-8" : "top-1.5",
+          )}
+        >
           已收藏
         </span>
       )}

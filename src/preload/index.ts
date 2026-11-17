@@ -529,6 +529,7 @@ const api = {
       page?: number,
       order?: UpVideosOrder,
       keyword?: string,
+      specialType?: string,
     ) =>
       ipcRenderer.invoke(
         IPC.BILI_UP_VIDEOS,
@@ -536,7 +537,10 @@ const api = {
         page ?? 1,
         order ?? "pubdate",
         keyword ?? "",
+        specialType ?? "",
       ),
+    getUpCourses: (mid: number, page?: number) =>
+      ipcRenderer.invoke(IPC.BILI_UP_COURSES, mid, page ?? 1),
     searchVideos: (
       keyword: string,
       page?: number,
@@ -552,6 +556,8 @@ const api = {
         apiStartPage ?? 1,
         pageSize ?? 30,
       ),
+    lookupChargeBadges: (bvids: string[]) =>
+      ipcRenderer.invoke(IPC.BILI_CHARGE_BADGES, bvids),
     searchUsers: (
       keyword: string,
       page?: number,

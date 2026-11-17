@@ -1,11 +1,69 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, ListVideo, Volume2 } from "lucide-react";
-import type { VideoPagePart, VideoUgcSeason } from "@shared/types";
+import type {
+  VideoPagePart,
+  VideoSeasonEpisode,
+  VideoUgcSeason,
+} from "@shared/types";
 import { Button } from "@/components/ui/button";
+import { useCoverChargeBadge } from "@/components/video/charge-badge";
 import { extractIpcErrorMessage } from "@/lib/ipc-error";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+
+function PlaylistSeasonRow({
+  episode,
+  index,
+  active,
+  activeRef,
+  onOpen,
+}: {
+  episode: VideoSeasonEpisode;
+  index: number;
+  active: boolean;
+  activeRef: RefObject<HTMLButtonElement | null>;
+  onOpen: () => void;
+}) {
+  const chargeBadge = useCoverChargeBadge(episode.bvid);
+  return (
+    <button
+      ref={active ? activeRef : undefined}
+      type="button"
+      className={cn(
+        "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+        active
+          ? "bg-primary/15 text-primary"
+          : "text-foreground hover:bg-secondary/80",
+      )}
+      onClick={() => {
+        if (active) return;
+        onOpen();
+      }}
+    >
+      <span className="flex w-5 shrink-0 justify-center">
+        {active ? (
+          <Volume2 className="h-3.5 w-3.5 animate-pulse" />
+        ) : (
+          <span className="text-xs text-muted-foreground">{index + 1}</span>
+        )}
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        ({index + 1}){episode.title}
+      </span>
+      {chargeBadge ? (
+        <span className="shrink-0 rounded bg-[#00aeec] px-1 py-px text-[10px] font-medium leading-none text-white">
+          {chargeBadge}
+        </span>
+      ) : null}
+      {episode.duration > 0 && (
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+          {formatDuration(episode.duration)}
+        </span>
+      )}
+    </button>
+  );
+}
 
 interface VideoPlaylistPanelProps {
   bvid: string;
@@ -206,44 +264,16 @@ export function VideoPlaylistPanel({
               data-playlist-scroll
               className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1 pt-1"
             >
-              {ugcSeason.episodes.map((ep, index) => {
-                const active = ep.bvid === bvid;
-                return (
-                  <button
-                    key={ep.bvid}
-                    ref={active ? activeRef : undefined}
-                    type="button"
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                      active
-                        ? "bg-primary/15 text-primary"
-                        : "text-foreground hover:bg-secondary/80",
-                    )}
-                    onClick={() => {
-                      if (active) return;
-                      navigate(`/video/${ep.bvid}`);
-                    }}
-                  >
-                    <span className="flex w-5 shrink-0 justify-center">
-                      {active ? (
-                        <Volume2 className="h-3.5 w-3.5 animate-pulse" />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          {index + 1}
-                        </span>
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">
-                      ({index + 1}){ep.title}
-                    </span>
-                    {ep.duration > 0 && (
-                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                        {formatDuration(ep.duration)}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+              {ugcSeason.episodes.map((ep, index) => (
+                <PlaylistSeasonRow
+                  key={ep.bvid}
+                  episode={ep}
+                  index={index}
+                  active={ep.bvid === bvid}
+                  activeRef={activeRef}
+                  onOpen={() => navigate(`/video/${ep.bvid}`)}
+                />
+              ))}
             </div>
           )}
         </div>

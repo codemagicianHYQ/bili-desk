@@ -488,8 +488,18 @@ export function registerBiliIpc(): void {
   );
   handleIpc(
     IPC.BILI_UP_VIDEOS,
-    (_e, mid: number, page?: number, order?: UpVideosOrder, keyword?: string) =>
-      biliApi.getUpVideos(mid, page, order, keyword ?? ""),
+    (
+      _e,
+      mid: number,
+      page?: number,
+      order?: UpVideosOrder,
+      keyword?: string,
+      specialType?: string,
+    ) =>
+      biliApi.getUpVideos(mid, page, order, keyword ?? "", specialType ?? ""),
+  );
+  handleIpc(IPC.BILI_UP_COURSES, (_e, mid: number, page?: number) =>
+    biliApi.getUpCourses(mid, page ?? 1),
   );
   handleIpc(
     IPC.BILI_SEARCH,
@@ -501,6 +511,9 @@ export function registerBiliIpc(): void {
       apiStartPage?: number,
       pageSize?: number,
     ) => biliApi.searchVideos(keyword, page, order, apiStartPage, pageSize),
+  );
+  handleIpc(IPC.BILI_CHARGE_BADGES, (_e, bvids: string[]) =>
+    biliApi.lookupChargeBadges(Array.isArray(bvids) ? bvids : []),
   );
   handleIpc(
     IPC.BILI_SEARCH_USERS,

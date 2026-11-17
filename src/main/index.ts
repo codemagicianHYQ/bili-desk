@@ -11,6 +11,12 @@ import { biliApi } from "./services/bili-api";
 
 const LOGIN_KEEPALIVE_MS = 6 * 60 * 60 * 1000;
 
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error?.code === "EPIPE") return;
+  });
+}
+
 registerMediaScheme();
 
 // 降低 Electron 被 Cloudflare Turnstile 识别为自动化的概率（AICU 验证窗）

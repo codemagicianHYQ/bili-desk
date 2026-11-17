@@ -2,6 +2,10 @@ import { Link } from "react-router-dom";
 import { MessageCircle, Play } from "lucide-react";
 import type { PopularVideoItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
+import {
+  ChargeCoverBadge,
+  useCoverChargeBadge,
+} from "@/components/video/charge-badge";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
 
@@ -18,6 +22,7 @@ function rankTone(rank?: number): string {
 }
 
 export function PopularVideoCard({ video, showRank }: PopularVideoCardProps) {
+  const chargeBadge = useCoverChargeBadge(video.bvid, video.chargeBadge);
   return (
     <Link
       to={`/video/${video.bvid}`}
@@ -43,10 +48,16 @@ export function PopularVideoCard({ video, showRank }: PopularVideoCardProps) {
             className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
           />
         </div>
+        <ChargeCoverBadge label={chargeBadge} className="right-1.5 top-1.5" />
         <span className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[11px] text-white">
           {formatDuration(video.duration)}
         </span>
-        <WatchLaterButton aid={video.aid} bvid={video.bvid} video={video} />
+        <WatchLaterButton
+          aid={video.aid}
+          bvid={video.bvid}
+          video={video}
+          className={chargeBadge ? "top-9" : undefined}
+        />
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col py-0.5">

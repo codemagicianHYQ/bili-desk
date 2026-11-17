@@ -408,14 +408,14 @@ export function CommentThread({
           >
             {item.member.name}
           </Link>
+          {isOwner && (
+            <span className="rounded bg-[#fb7299] px-1 py-px text-[10px] font-medium leading-4 text-white">
+              UP
+            </span>
+          )}
           {item.pinned && (
             <span className="rounded bg-[#fb7299]/15 px-1 py-px text-[10px] font-medium leading-4 text-[#fb7299]">
               {item.pinKind === "admin" ? "管理员置顶" : "置顶"}
-            </span>
-          )}
-          {isOwner && (
-            <span className="rounded bg-[#00AEEC]/15 px-1 py-px text-[10px] font-medium leading-4 text-[#00AEEC]">
-              楼主
             </span>
           )}
           {isOwn && !isOwner && (

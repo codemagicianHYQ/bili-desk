@@ -28,6 +28,10 @@ import { FavFolderGroupedNav } from "@/components/favorites/FavFolderGroupedNav"
 import { FavMoveDialog } from "@/components/favorites/FavMoveDialog";
 import { Badge } from "@/components/ui/badge";
 import { BiliImage } from "@/components/ui/bili-image";
+import {
+  ChargeCoverBadge,
+  useCoverChargeBadge,
+} from "@/components/video/charge-badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Link } from "react-router-dom";
@@ -108,14 +112,21 @@ function FavVideoCard({
   onRemove: () => void;
 }) {
   const coverSize = roomy ? "h-24 w-[10.5rem]" : "h-16 w-28";
+  const chargeBadge = useCoverChargeBadge(item.bvid);
   const body = (
     <>
       {item.cover ? (
-        <BiliImage
-          src={item.cover}
-          alt=""
-          className={cn(coverSize, "shrink-0 rounded-lg object-cover")}
-        />
+        <div className={cn(coverSize, "relative shrink-0")}>
+          <BiliImage
+            src={item.cover}
+            alt=""
+            className="h-full w-full rounded-lg object-cover"
+          />
+          <ChargeCoverBadge
+            label={chargeBadge}
+            className="right-1 top-1 px-1 py-px text-[10px]"
+          />
+        </div>
       ) : (
         <div
           className={cn(
@@ -762,8 +773,11 @@ export function FavoritesPage() {
       await reloadTaxonomy();
       void enrichCoversOnce();
     } catch (err) {
-      const message =
-        formatDisplayedError(err, undefined, "分类失败，请确认已登录");
+      const message = formatDisplayedError(
+        err,
+        undefined,
+        "分类失败，请确认已登录",
+      );
       setClassifyMessage(
         message.startsWith("[412]")
           ? "请求被 B 站安全策略拦截，请等 3～5 分钟再点，会接着上次继续"

@@ -5,6 +5,7 @@ import type {
   OpusFavItem,
   UpProfile,
   UpRelation,
+  UpVideoSpecial,
   UpVideosOrder,
   UserCollectionItem,
   UserRelationListType,
@@ -17,6 +18,7 @@ import { VideoCard } from "@/components/video/VideoCard";
 import { PageBackHeader } from "@/components/layout/PageBackHeader";
 import { UpRelationListPanel } from "@/features/up/UpRelationListPanel";
 import { UpSpaceChargePanel } from "@/features/up/UpSpaceChargePanel";
+import { UpSpaceCoursePanel } from "@/features/up/UpSpaceCoursePanel";
 import { UpSpaceCollectionsPanel } from "@/features/up/UpSpaceCollectionsPanel";
 import { UpSpaceDynamicsPanel } from "@/features/up/UpSpaceDynamicsPanel";
 import { SpaceTabBar } from "@/components/space/SpaceTabBar";
@@ -54,6 +56,7 @@ type SpaceTab =
   | "opus"
   | "videos"
   | "collections"
+  | "cheese"
   | "charge";
 
 function parseMid(value: string | undefined): number {
@@ -78,6 +81,9 @@ export function UpSpacePage() {
   const [order, setOrder] = useState<UpVideosOrder>("pubdate");
   const [videoKeyword, setVideoKeyword] = useState("");
   const [videoKeywordInput, setVideoKeywordInput] = useState("");
+  const [videoSpecial, setVideoSpecial] = useState("");
+  const [videoSpecials, setVideoSpecials] = useState<UpVideoSpecial[]>([]);
+  const [allVideoTotal, setAllVideoTotal] = useState(0);
   const [profileError, setProfileError] = useState("");
   const [videosError, setVideosError] = useState("");
   const [videosLoading, setVideosLoading] = useState(true);
@@ -119,19 +125,30 @@ export function UpSpacePage() {
       nextPage: number,
       nextOrder: UpVideosOrder,
       keyword = "",
+      specialType = "",
     ) => {
       const kw = keyword.trim();
+      const special = specialType.trim();
       // 搜索结果不走空间缓存，避免和全量投稿互相覆盖
       if (!kw) {
         const cachedSpace = upSpaceCache.get(String(targetMid));
         const cachedPage =
-          cachedSpace?.videos[upVideosCacheKey(nextOrder, nextPage)];
-        if (cachedPage) {
+          cachedSpace?.videos[upVideosCacheKey(nextOrder, nextPage, special)];
+        if (
+          cachedPage &&
+          (special ||
+            cachedPage.specialsKnown ||
+            (cachedPage.specials?.length ?? 0) > 0)
+        ) {
           loadSeqRef.current += 1;
           setVideos(cachedPage.videos);
           setPage(cachedPage.page);
           setTotal(cachedPage.total);
           setHasMore(cachedPage.hasMore);
+          if (!special && Array.isArray(cachedPage.specials)) {
+            setVideoSpecials(cachedPage.specials);
+            setAllVideoTotal(cachedPage.total);
+          }
           setVideosError("");
           setVideosLoading(false);
           scrollRef.current?.scrollTo({ top: 0 });
@@ -149,36 +166,63 @@ export function UpSpacePage() {
           nextPage,
           nextOrder,
           kw,
+          special,
         );
         if (seq !== loadSeqRef.current) return;
 
         const list = result.videos ?? [];
-        if (list.length > 0 || (kw && (result.total ?? 0) === 0)) {
-          const nextTotal = Math.max(
-            result.total ?? 0,
-            kw ? 0 : (upSpaceCache.get(String(targetMid))?.profile.videos ?? 0),
-          );
+        const emptyOk =
+          (Boolean(kw) && (result.total ?? 0) === 0) ||
+          (Boolean(special) && (result.total ?? 0) === 0);
+        if (list.length > 0 || emptyOk) {
+          const profileTotal =
+            upSpaceCache.get(String(targetMid))?.profile.videos ?? 0;
+          const nextTotal =
+            special || kw
+              ? (result.total ?? list.length)
+              : Math.max(result.total ?? 0, profileTotal);
           const nextHasMore = Boolean(result.hasMore);
           setVideos(list);
           setPage(result.page ?? nextPage);
-          setTotal(result.total ?? (kw ? list.length : 0));
+          setTotal(nextTotal);
           setHasMore(nextHasMore);
+          if (!special && Array.isArray(result.specials)) {
+            setVideoSpecials(result.specials);
+            if (list.length > 0) setAllVideoTotal(nextTotal);
+          }
           setVideosError("");
           scrollRef.current?.scrollTo({ top: 0 });
           if (!kw) {
             const current = upSpaceCache.get(String(targetMid));
             if (current) {
+              const cacheKey = upVideosCacheKey(nextOrder, nextPage, special);
+              const prev = current.videos[cacheKey];
+              const nextSpecials = special
+                ? prev?.specials
+                : (result.specials ?? prev?.specials);
+              const nextKnown = special
+                ? Boolean(prev?.specialsKnown)
+                : Boolean(
+                    result.specialsKnown ||
+                    prev?.specialsKnown ||
+                    (nextSpecials?.length ?? 0) > 0,
+                  );
+              const videos = { ...current.videos };
+              if (!special && !nextKnown) {
+                delete videos[cacheKey];
+              } else {
+                videos[cacheKey] = {
+                  videos: list,
+                  page: result.page ?? nextPage,
+                  total: nextTotal,
+                  hasMore: nextHasMore,
+                  specials: nextSpecials,
+                  specialsKnown: nextKnown,
+                };
+              }
               upSpaceCache.set(String(targetMid), {
                 ...current,
-                videos: {
-                  ...current.videos,
-                  [upVideosCacheKey(nextOrder, nextPage)]: {
-                    videos: list,
-                    page: result.page ?? nextPage,
-                    total: nextTotal,
-                    hasMore: nextHasMore,
-                  },
-                },
+                videos,
               });
             }
           }
@@ -187,7 +231,7 @@ export function UpSpacePage() {
           setVideosError(
             kw ? "没有搜到相关投稿" : "本页投稿暂时无法获取，请点击重新加载",
           );
-          if (kw) {
+          if (kw || special) {
             setVideos([]);
             setTotal(0);
             setHasMore(false);
@@ -197,6 +241,11 @@ export function UpSpacePage() {
         if (seq !== loadSeqRef.current) return;
         // 翻页失败时保留当前页内容，避免整页被清空
         setVideosError(formatUserSpaceError(e));
+        if (special && nextPage === 1) {
+          setVideos([]);
+          setTotal(0);
+          setHasMore(false);
+        }
       } finally {
         if (seq === loadSeqRef.current) setVideosLoading(false);
       }
@@ -215,6 +264,9 @@ export function UpSpacePage() {
     setOrder("pubdate");
     setVideoKeyword("");
     setVideoKeywordInput("");
+    setVideoSpecial("");
+    setVideoSpecials([]);
+    setAllVideoTotal(0);
     setTab("home");
     setOpusPreview([]);
     setCollectionPreview([]);
@@ -225,13 +277,18 @@ export function UpSpacePage() {
 
     const cached = upSpaceCache.get(String(mid));
     const firstPage = cached?.videos[upVideosCacheKey("pubdate", 1)];
-    if (cached && firstPage) {
+    const specialsReady =
+      Boolean(firstPage?.specialsKnown) ||
+      (firstPage?.specials?.length ?? 0) > 0;
+    if (cached && firstPage && specialsReady) {
       setProfile(cached.profile);
       setRelation(cached.relation);
       setVideos(firstPage.videos);
       setPage(firstPage.page);
       setTotal(firstPage.total);
       setHasMore(firstPage.hasMore);
+      setVideoSpecials(firstPage.specials ?? []);
+      setAllVideoTotal(firstPage.total);
       setVideosLoading(false);
       setVideosError(
         firstPage.videos.length === 0 && (cached.profile.videos || 0) > 0
@@ -327,6 +384,9 @@ export function UpSpacePage() {
             nextHasMore = Boolean(result.hasMore);
             setTotal(nextTotal);
             setHasMore(nextHasMore);
+            setAllVideoTotal(nextTotal);
+            if (Array.isArray(result.specials))
+              setVideoSpecials(result.specials);
             setVideosError("");
           } else if ((upProfile.videos || 0) > 0) {
             setTotal(0);
@@ -341,17 +401,23 @@ export function UpSpacePage() {
           const relation =
             (await relationPromise.catch(() => cached?.relation ?? null)) ??
             null;
+          const known =
+            Boolean(result.specialsKnown) || (result.specials?.length ?? 0) > 0;
           upSpaceCache.set(String(mid), {
             profile: upProfile,
             relation,
-            videos: {
-              [upVideosCacheKey("pubdate", 1)]: {
-                videos: list,
-                page: result.page ?? 1,
-                total: nextTotal,
-                hasMore: nextHasMore,
-              },
-            },
+            videos: known
+              ? {
+                  [upVideosCacheKey("pubdate", 1)]: {
+                    videos: list,
+                    page: result.page ?? 1,
+                    total: nextTotal,
+                    hasMore: nextHasMore,
+                    specials: result.specials,
+                    specialsKnown: true,
+                  },
+                }
+              : {},
           });
         } catch (videoErr) {
           if (cancelled) return;
@@ -436,28 +502,41 @@ export function UpSpacePage() {
   const handleOrderChange = (nextOrder: UpVideosOrder) => {
     if (!mid || nextOrder === order || videosLoading) return;
     setOrder(nextOrder);
-    void loadVideos(mid, 1, nextOrder, videoKeyword);
+    void loadVideos(mid, 1, nextOrder, videoKeyword, videoSpecial);
   };
 
   const submitVideoSearch = () => {
     if (!mid || videosLoading) return;
     const next = videoKeywordInput.trim();
     setVideoKeyword(next);
-    void loadVideos(mid, 1, order, next);
+    void loadVideos(mid, 1, order, next, videoSpecial);
   };
 
   const clearVideoSearch = () => {
     if (!mid || videosLoading) return;
     setVideoKeywordInput("");
     setVideoKeyword("");
-    void loadVideos(mid, 1, order, "");
+    void loadVideos(mid, 1, order, "", videoSpecial);
+  };
+
+  const selectVideoSpecial = (next: string) => {
+    if (!mid || videosLoading || next === videoSpecial) return;
+    setVideoSpecial(next);
+    setVideos([]);
+    void loadVideos(mid, 1, order, videoKeyword, next);
   };
 
   const goToPage = (nextPage: number) => {
     if (!mid || videosLoading || nextPage < 1 || nextPage === page) return;
     if (nextPage > totalPages && !hasMore) return;
-    void loadVideos(mid, nextPage, order, videoKeyword);
+    void loadVideos(mid, nextPage, order, videoKeyword, videoSpecial);
   };
+
+  useEffect(() => {
+    if (!mid || tab === "videos" || !videoSpecial) return;
+    setVideoSpecial("");
+    void loadVideos(mid, 1, order, videoKeyword, "");
+  }, [loadVideos, mid, order, tab, videoKeyword, videoSpecial]);
 
   const openRelationList = useCallback((type: UserRelationListType) => {
     setRelationPanel(type);
@@ -468,16 +547,29 @@ export function UpSpacePage() {
   }, []);
 
   const spaceTabs = useMemo(() => {
-    const items: Array<{ id: SpaceTab; label: string }> = [
+    const items: Array<{ id: SpaceTab; label: string; count?: number }> = [
       { id: "home", label: "主页" },
     ];
     if (showDynamics) items.push({ id: "dynamics", label: "动态" });
-    if (showOpus) items.push({ id: "opus", label: "图文" });
-    items.push({ id: "videos", label: "投稿" });
-    if (showCollections) items.push({ id: "collections", label: "合集" });
+    if (showOpus)
+      items.push({ id: "opus", label: "图文", count: profile?.opusCount });
+    items.push({ id: "videos", label: "投稿", count: profile?.videos });
+    if (showCollections)
+      items.push({
+        id: "collections",
+        label: "合集",
+        count: profile?.seasonCount,
+      });
+    if ((profile?.pugvCount ?? 0) > 0) {
+      items.push({
+        id: "cheese",
+        label: "课堂",
+        count: profile?.pugvCount,
+      });
+    }
     if (showCharge) items.push({ id: "charge", label: "充电" });
     return items;
-  }, [showCharge, showCollections, showDynamics, showOpus]);
+  }, [profile, showCharge, showCollections, showDynamics, showOpus]);
 
   useEffect(() => {
     if (!spaceTabs.some((item) => item.id === tab)) setTab("home");
@@ -564,6 +656,40 @@ export function UpSpacePage() {
         </div>
       </div>
 
+      {videoSpecials.length > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={videosLoading}
+            onClick={() => selectVideoSpecial("")}
+            className={cn(
+              "rounded-full px-3 py-1 text-xs transition-colors disabled:opacity-60",
+              videoSpecial === ""
+                ? "bg-[#00aeec] text-white"
+                : "bg-secondary text-foreground hover:bg-secondary/80",
+            )}
+          >
+            全部类型 {allVideoTotal || profile.videos || ""}
+          </button>
+          {videoSpecials.map((item) => (
+            <button
+              key={item.type}
+              type="button"
+              disabled={videosLoading}
+              onClick={() => selectVideoSpecial(item.type)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs transition-colors disabled:opacity-60",
+                videoSpecial === item.type
+                  ? "bg-[#00aeec] text-white"
+                  : "bg-secondary text-foreground hover:bg-secondary/80",
+              )}
+            >
+              {item.name} {item.count}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {videosLoading && videos.length === 0 ? (
         <p className="text-sm text-muted-foreground">加载投稿中...</p>
       ) : videosError && videos.length === 0 ? (
@@ -573,7 +699,9 @@ export function UpSpacePage() {
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => void loadVideos(mid, page, order, videoKeyword)}
+            onClick={() =>
+              void loadVideos(mid, page, order, videoKeyword, videoSpecial)
+            }
           >
             重新加载
           </Button>
@@ -590,7 +718,7 @@ export function UpSpacePage() {
             <VideoCard key={video.bvid} video={video} />
           ))}
         </div>
-      ) : (profile.videos ?? 0) > 0 && !videoKeyword ? (
+      ) : (profile.videos ?? 0) > 0 && !videoKeyword && !videoSpecial ? (
         <div className="space-y-2">
           <p className="text-sm text-red-400">
             投稿列表暂时无法获取，请点击重新加载
@@ -599,14 +727,20 @@ export function UpSpacePage() {
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => void loadVideos(mid, 1, order, videoKeyword)}
+            onClick={() =>
+              void loadVideos(mid, 1, order, videoKeyword, videoSpecial)
+            }
           >
             重新加载
           </Button>
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          {videoKeyword ? "没有搜到相关投稿" : "暂无投稿"}
+          {videoKeyword
+            ? "没有搜到相关投稿"
+            : videoSpecial
+              ? `没有${videoSpecials.find((item) => item.type === videoSpecial)?.name ?? "这类"}视频`
+              : "暂无投稿"}
         </p>
       )}
 
@@ -706,6 +840,7 @@ export function UpSpacePage() {
           {tab === "opus" && <UpSpaceOpusPanel mid={mid} />}
           {tab === "videos" && videosSection}
           {tab === "collections" && <UpSpaceCollectionsPanel mid={mid} />}
+          {tab === "cheese" && <UpSpaceCoursePanel mid={mid} />}
           {tab === "charge" && (
             <UpSpaceChargePanel mid={mid} enabled={profile.upowerEnabled} />
           )}

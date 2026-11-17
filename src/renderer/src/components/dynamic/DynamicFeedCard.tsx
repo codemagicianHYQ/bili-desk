@@ -3,6 +3,10 @@ import { formatDisplayedError } from "@/lib/ipc-error";
 import { Link, useNavigate } from "react-router-dom";
 import type { SpaceDynamicItem } from "@shared/types";
 import { BiliImage } from "@/components/ui/bili-image";
+import {
+  ChargeCoverBadge,
+  useCoverChargeBadge,
+} from "@/components/video/charge-badge";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { BiliEmoteText } from "@/components/comment/BiliEmoteText";
 import { cn, formatCount, formatDuration } from "@/lib/utils";
@@ -124,6 +128,11 @@ function DynamicActionBar({
 }
 
 function VideoDynamicBody({ item }: { item: SpaceDynamicItem }) {
+  const knownCharge =
+    item.exclusiveTag && /充电|专属/.test(item.exclusiveTag)
+      ? item.exclusiveTag
+      : undefined;
+  const chargeBadge = useCoverChargeBadge(item.bvid, knownCharge);
   const content = (
     <div className="flex gap-3 rounded-lg bg-secondary/50 p-3 transition-colors hover:bg-secondary/80">
       <div className="relative shrink-0 overflow-hidden rounded-md">
@@ -136,6 +145,10 @@ function VideoDynamicBody({ item }: { item: SpaceDynamicItem }) {
         ) : (
           <div className="h-[86px] w-[136px] bg-secondary" />
         )}
+        <ChargeCoverBadge
+          label={chargeBadge}
+          className="right-1 top-1 px-1 py-px text-[10px]"
+        />
         {item.duration != null && item.duration > 0 && (
           <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 text-[11px] text-white">
             {formatDuration(item.duration)}

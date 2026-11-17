@@ -4,6 +4,10 @@ import type { RecommendDislikeReason, VideoItem } from "@shared/types";
 import { cn, formatCount, formatDuration, formatPubdate } from "@/lib/utils";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Badge } from "@/components/ui/badge";
+import {
+  ChargeCoverBadge,
+  useCoverChargeBadge,
+} from "@/components/video/charge-badge";
 import { WatchLaterButton } from "@/components/video/WatchLaterButton";
 import { RecommendDislikeMenu } from "@/components/video/RecommendDislikeMenu";
 
@@ -40,6 +44,7 @@ export function VideoCard({
   onDislike,
 }: VideoCardProps) {
   const showProgress = progressPercent > 0;
+  const chargeBadge = useCoverChargeBadge(video.bvid, video.chargeBadge);
   const content = (
     <>
       <div className="relative aspect-video bg-muted">
@@ -60,6 +65,7 @@ export function VideoCard({
               {progressLabel}
             </span>
           )}
+          <ChargeCoverBadge label={chargeBadge} />
           <span className="absolute bottom-2 right-2 z-[1] rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
             {formatDuration(video.duration)}
           </span>
@@ -73,7 +79,12 @@ export function VideoCard({
           )}
         </div>
         {!hideWatchLater && (
-          <WatchLaterButton aid={video.aid} bvid={video.bvid} video={video} />
+          <WatchLaterButton
+            aid={video.aid}
+            bvid={video.bvid}
+            video={video}
+            className={chargeBadge ? "top-9" : undefined}
+          />
         )}
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">

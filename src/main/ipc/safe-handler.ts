@@ -9,7 +9,11 @@ export function handleIpc(
       return await handler(event, ...args);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[IPC ${channel}] failed: ${message}`);
+      try {
+        console.error(`[IPC ${channel}] failed: ${message}`);
+      } catch {
+        // 开发终端管道断开时，写日志会抛 EPIPE，不能盖住原来的接口错误
+      }
       throw error;
     }
   });

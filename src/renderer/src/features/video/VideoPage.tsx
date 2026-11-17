@@ -6,7 +6,12 @@ import type {
   VideoSubtitleTrack,
 } from "@shared/types";
 import { Button } from "@/components/ui/button";
-import { cn, formatCount, formatPubdateTime } from "@/lib/utils";
+import {
+  cn,
+  formatCount,
+  formatDuration,
+  formatPubdateTime,
+} from "@/lib/utils";
 import { BiliImage } from "@/components/ui/bili-image";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { UpOwnerCard } from "@/components/video/UpOwnerCard";
@@ -36,6 +41,7 @@ import {
   MessageSquare,
   Play,
   Repeat2,
+  Zap,
 } from "lucide-react";
 
 type BelowTab = "comments" | "related";
@@ -70,6 +76,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
   const [onlineLabel, setOnlineLabel] = useState("");
   const [belowTab, setBelowTab] = useState<BelowTab>("comments");
   const [bvidCopied, setBvidCopied] = useState(false);
+  const [previewEnded, setPreviewEnded] = useState(false);
+  const [previewSeconds, setPreviewSeconds] = useState(0);
   const [subtitles, setSubtitles] = useState<VideoSubtitleTrack[]>([]);
   const playRequestIdRef = useRef(0);
   const streamModeRef = useRef<"mp4" | "dash">("mp4");
@@ -91,6 +99,8 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
     setResumeCancelled(false);
     setBelowTab("comments");
     setBvidCopied(false);
+    setPreviewEnded(false);
+    setPreviewSeconds(0);
   }, [bvid, resumeCid, resumeTimeRaw]);
 
   const initialTime = useMemo(() => {
@@ -189,7 +199,7 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
 
     const cached = videoDetailCache.get(bvid);
     // 旧缓存无 ugcSeason 字段时强制重拉，避免合集列表缺失
-    if (cached && "ugcSeason" in cached) {
+    if (cached && "ugcSeason" in cached && cached.chargeChecked) {
       setVideo(cached);
       setError("");
       const preferredCid =
@@ -432,6 +442,13 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                     onError={handlePlayerError}
                     onWatchFromStart={handleWatchFromStart}
                     seekAt={seekAt}
+                    timelineDuration={
+                      video.charge && !video.charge.unlocked
+                        ? video.duration
+                        : undefined
+                    }
+                    onPreviewBoundary={setPreviewEnded}
+                    onPreviewLength={setPreviewSeconds}
                   />
                 ) : (
                   <div className="relative h-full w-full overflow-hidden bg-black">
@@ -449,6 +466,29 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
                       )}
                     </div>
                   </div>
+                )}
+                {video.charge && (
+                  <ChargeAccessNotice
+                    title={video.charge.title}
+                    subtitle={
+                      previewEnded && !video.charge.unlocked
+                        ? previewSeconds > 0
+                          ? `试看 ${formatDuration(previewSeconds)} 已结束，完整版 ${formatDuration(video.duration)}`
+                          : `试看已结束，完整版 ${formatDuration(video.duration)}`
+                        : previewSeconds > 0
+                          ? `可试看 ${formatDuration(previewSeconds)} · ${video.charge.subtitle}`
+                          : video.charge.subtitle
+                    }
+                    buttonText={
+                      video.charge.unlocked
+                        ? undefined
+                        : video.charge.buttonText
+                    }
+                    payUrl={
+                      video.charge.unlocked ? undefined : video.charge.payUrl
+                    }
+                    ended={previewEnded && !video.charge.unlocked}
+                  />
                 )}
               </div>
 
@@ -749,6 +789,57 @@ export function VideoPage({ bvid, active = true }: VideoPageProps) {
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+function ChargeAccessNotice({
+  title,
+  subtitle,
+  buttonText,
+  payUrl,
+  ended,
+}: {
+  title: string;
+  subtitle: string;
+  buttonText?: string;
+  payUrl?: string;
+  ended: boolean;
+}) {
+  const openPay = () => {
+    if (!payUrl) return;
+    void window.biliDesk.app.openExternal(payUrl);
+  };
+  const card = (
+    <div className="pointer-events-auto flex max-w-xl items-center gap-3 rounded-lg bg-black/75 px-3 py-2 text-white shadow-lg">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{title}</p>
+        <p className="mt-0.5 flex items-center gap-1 text-xs text-white/80">
+          <Zap className="h-3.5 w-3.5 shrink-0 text-[#00aeec]" />
+          <span className="truncate">{subtitle}</span>
+        </p>
+      </div>
+      {buttonText && payUrl && (
+        <button
+          type="button"
+          className="shrink-0 rounded-md bg-[#fb7299] px-3 py-1.5 text-sm font-medium text-white"
+          onClick={openPay}
+        >
+          {buttonText}
+        </button>
+      )}
+    </div>
+  );
+  if (ended) {
+    return (
+      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 px-6">
+        {card}
+      </div>
+    );
+  }
+  return (
+    <div className="pointer-events-none absolute bottom-14 left-3 z-20">
+      {card}
     </div>
   );
 }

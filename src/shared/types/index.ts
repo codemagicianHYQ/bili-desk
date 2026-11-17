@@ -18,6 +18,20 @@ export interface VideoItem {
   pubdate: number;
   /** 首页推荐流独有，「不感兴趣」反馈要带回 */
   trackId?: string;
+  /** 封面角标，例如「充电专属」 */
+  chargeBadge?: string;
+}
+
+/** 充电视频的观看资格和播放器提示，文案来自播放器接口 */
+export interface VideoChargeAccess {
+  exclusive: boolean;
+  /** 当前账号已开通对应档位，可以看完整版 */
+  unlocked: boolean;
+  title: string;
+  subtitle: string;
+  buttonText?: string;
+  /** 开通页，只保留 bilibili 域名 */
+  payUrl?: string;
 }
 
 /** 首页推荐「不感兴趣」原因：1 内容不感兴趣，4 不想看这个 UP */
@@ -173,6 +187,10 @@ export interface VideoDetail extends VideoItem {
     share: number;
     like: number;
   };
+  /** 本次详情已核对充电资格。旧缓存没有这个字段时要重拉 */
+  chargeChecked?: boolean;
+  /** 充电视频才有。未充电是试看，已充电可以看完整版 */
+  charge?: VideoChargeAccess;
 }
 
 export interface VideoHonor {
@@ -957,11 +975,23 @@ export interface UpRelation {
   special?: boolean;
 }
 
+/** 投稿筛选：全部类型之外的特殊分类，例如充电专属 */
+export interface UpVideoSpecial {
+  /** arc/search 的 list.slist.special_type，筛选时原样回传 */
+  type: string;
+  name: string;
+  count: number;
+}
+
 export interface UpVideosPage {
   videos: VideoItem[];
   page: number;
   hasMore: boolean;
   total: number;
+  /** 未带 special_type 的投稿列表才会带回，例如充电专属 */
+  specials?: UpVideoSpecial[];
+  /** 本次列表来自 arc/search，slist 已确认。没有这个标记时不要当「这个 UP 没有充电专属」缓存 */
+  specialsKnown?: boolean;
 }
 
 /** UP 主投稿排序：最新发布 / 最多播放 */
@@ -2327,7 +2357,10 @@ export interface BiliDeskApi {
       page?: number,
       order?: UpVideosOrder,
       keyword?: string,
+      specialType?: string,
     ) => Promise<UpVideosPage>;
+    /** UP 公开课堂，navnum.pugv > 0 时才有 */
+    getUpCourses: (mid: number, page?: number) => Promise<CheeseCoursePage>;
     searchVideos: (
       keyword: string,
       page?: number,
@@ -2335,6 +2368,8 @@ export interface BiliDeskApi {
       apiStartPage?: number,
       pageSize?: number,
     ) => Promise<SearchVideosPage>;
+    /** bvid → 充电角标文案，空串表示已确认不是充电专属 */
+    lookupChargeBadges: (bvids: string[]) => Promise<Record<string, string>>;
     searchUsers: (
       keyword: string,
       page?: number,

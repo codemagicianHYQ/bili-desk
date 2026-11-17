@@ -8,6 +8,7 @@ import type {
   Theme,
   ToViewItem,
   UpActivityRecord,
+  UpVideoSpecial,
   UserInfo,
 } from "@shared/types";
 
@@ -61,6 +62,10 @@ interface StoreSchema {
   >;
   /** 关注分类用的 UP 近期稿件标题缓存，key 为 mid */
   upTitleCache: Record<string, { titles: string[]; at: number }>;
+  /** 投稿筛选（充电专属等）。arc/search 被限流时备用列表没有这项，用上次确认的结果 */
+  upVideoSpecials: Record<string, UpVideoSpecial[]>;
+  /** 稿件是否充电专属。空串表示已经确认不是 */
+  chargeVideoBadges: Record<string, { v: string; at: number }>;
   /** 每位 UP 的分类结果；浅层整理直接沿用，深度整理重新判断 */
   upClassifyCache: Record<string, UpClassifyCacheEntry>;
   /** 进行中的深度整理；中断后再跑会跳过这次已经判断过的 UP */
@@ -125,6 +130,8 @@ const defaults: StoreSchema = {
   collectionGroups: {},
   collectionSamples: {},
   upTitleCache: {},
+  upVideoSpecials: {},
+  chargeVideoBadges: {},
   upClassifyCache: {},
   upClassifyDeepRun: null,
   upPortraits: { updatedAt: 0, titledCount: 0, items: [] },

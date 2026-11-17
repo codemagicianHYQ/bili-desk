@@ -20,6 +20,10 @@ import type {
 } from "@shared/types";
 import { RANKING_PARTITIONS } from "@shared/types";
 import { PopularVideoCard } from "@/components/video/PopularVideoCard";
+import {
+  ChargeCoverBadge,
+  useCoverChargeBadge,
+} from "@/components/video/charge-badge";
 import { BiliImage } from "@/components/ui/bili-image";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination-bar";
@@ -100,6 +104,7 @@ function rankTone(rank: number): string {
 }
 
 function MusicRankCard({ item }: { item: MusicRankItem }) {
+  const chargeBadge = useCoverChargeBadge(item.bvid);
   const inner = (
     <div className="group flex gap-3 rounded-xl p-2 transition-colors hover:bg-secondary/60">
       <div
@@ -119,6 +124,7 @@ function MusicRankCard({ item }: { item: MusicRankItem }) {
             className="h-full w-full object-cover"
           />
         </div>
+        <ChargeCoverBadge label={chargeBadge} className="right-1.5 top-1.5" />
         {item.duration > 0 ? (
           <span className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[11px] text-white">
             {formatDuration(item.duration)}

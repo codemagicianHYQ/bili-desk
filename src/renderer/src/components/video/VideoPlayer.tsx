@@ -85,7 +85,22 @@ interface VideoPlayerProps {
   onWatchFromStart?: () => void;
   /** 章节跳转：time 为秒，nonce 用来重复点同一章节 */
   seekAt?: { time: number; nonce: number } | null;
+  /** 稿件完整时长。试看文件更短时，进度条按这个时长显示 */
+  timelineDuration?: number;
+  /** 试看播到片段结尾，或拖进未解锁的后半段 */
+  onPreviewBoundary?: (ended: boolean) => void;
+  /** 试看文件的秒数，用来标出可看区间 */
+  onPreviewLength?: (seconds: number) => void;
   className?: string;
+}
+
+function formatPlayerClock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${s}`;
+  return `${String(m).padStart(2, "0")}:${s}`;
 }
 
 function resolvePlayerType(format: VideoPlayInfo["format"]): string {
@@ -136,6 +151,9 @@ export function VideoPlayer({
   onError,
   onWatchFromStart,
   seekAt = null,
+  timelineDuration,
+  onPreviewBoundary,
+  onPreviewLength,
   className,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -147,6 +165,8 @@ export function VideoPlayer({
   const onQualityChangeRef = useRef(onQualityChange);
   const onErrorRef = useRef(onError);
   const onWatchFromStartRef = useRef(onWatchFromStart);
+  const onPreviewBoundaryRef = useRef(onPreviewBoundary);
+  const onPreviewLengthRef = useRef(onPreviewLength);
   const incognitoMode = useAppStore((state) => state.incognitoMode);
   const userLoggedIn = useAppStore((state) => Boolean(state.user?.isLogin));
   const incognitoRef = useRef(incognitoMode);
@@ -159,6 +179,8 @@ export function VideoPlayer({
   onQualityChangeRef.current = onQualityChange;
   onErrorRef.current = onError;
   onWatchFromStartRef.current = onWatchFromStart;
+  onPreviewBoundaryRef.current = onPreviewBoundary;
+  onPreviewLengthRef.current = onPreviewLength;
   incognitoRef.current = incognitoMode;
   loggedInRef.current = userLoggedIn;
 
@@ -191,10 +213,23 @@ export function VideoPlayer({
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let startedReported = false;
 
+    const archiveDuration = (art: Artplayer) => {
+      const media = art.duration || 0;
+      if (timelineDuration && media > 1 && timelineDuration > media + 8) {
+        return timelineDuration;
+      }
+      return media;
+    };
+    const isPreview = (art: Artplayer) => {
+      const media = art.duration || 0;
+      return Boolean(
+        timelineDuration && media > 1 && timelineDuration > media + 8,
+      );
+    };
     const saveCurrentProgress = () => {
       const art = artRef.current;
       if (!art || !art.duration) return;
-      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
+      savePlaybackProgress(bvid, cid, art.currentTime, archiveDuration(art));
     };
 
     const accumulateRealtime = () => {
@@ -214,7 +249,7 @@ export function VideoPlayer({
 
       accumulateRealtime();
       const current = Math.max(0, Math.floor(art.currentTime || 0));
-      const duration = Math.max(0, Math.floor(art.duration || 0));
+      const duration = Math.max(0, Math.floor(archiveDuration(art)));
       const finished =
         options?.finished ||
         (duration > 0 && current >= Math.max(1, duration - 2));
@@ -271,7 +306,7 @@ export function VideoPlayer({
       if (target >= 5) {
         art.currentTime = target;
         hasSeekedRef.current = true;
-        savePlaybackProgress(bvid, cid, target, art.duration);
+        savePlaybackProgress(bvid, cid, target, archiveDuration(art));
         const tipKey = `${bvid}:${cid}`;
         if (tipShownKeyRef.current !== tipKey) {
           tipShownKeyRef.current = tipKey;
@@ -517,8 +552,11 @@ export function VideoPlayer({
               });
               return true;
             } catch (error) {
-              const message =
-                formatDisplayedError(error, undefined, "发送弹幕失败");
+              const message = formatDisplayedError(
+                error,
+                undefined,
+                "发送弹幕失败",
+              );
               onErrorRef.current?.(message);
               return false;
             }
@@ -551,6 +589,13 @@ export function VideoPlayer({
     let playbackFinished = false;
     const finishPlayback = () => {
       if (playbackFinished) return;
+      if (isPreview(art)) {
+        savePlaybackProgress(bvid, cid, art.currentTime, archiveDuration(art));
+        reportHeartbeat(0);
+        stopHeartbeat();
+        onPreviewBoundaryRef.current?.(true);
+        return;
+      }
       playbackFinished = true;
       window.clearTimeout(nearEndWaitTimer);
       accumulateRealtime();
@@ -567,17 +612,216 @@ export function VideoPlayer({
       seekTimer = window.setTimeout(() => trySeekToProgress(art), 500);
     });
 
+    let previewEndedFlag = false;
+    let sentPreviewLength = 0;
+    let draggingPreview = false;
+    let dragSeekTimer = 0;
+    let dragMove: ((ev: PointerEvent) => void) | null = null;
+    let dragUp: ((ev: PointerEvent) => void) | null = null;
+    let dragRect: DOMRect | null = null;
+    const progressBar = container.querySelector<HTMLElement>(
+      ".art-control-progress",
+    );
+    const setPreviewEnded = (ended: boolean) => {
+      if (previewEndedFlag === ended) return;
+      previewEndedFlag = ended;
+      onPreviewBoundaryRef.current?.(ended);
+    };
+    const previewNodes: {
+      time?: HTMLElement;
+      range?: HTMLElement;
+      cap?: HTMLElement;
+      loaded?: HTMLElement;
+      played?: HTMLElement;
+      indicator?: HTMLElement;
+      ready: boolean;
+    } = { ready: false };
+    const ensurePreviewNodes = () => {
+      if (previewNodes.ready) return;
+      const inner = container.querySelector<HTMLElement>(
+        ".art-control-progress-inner",
+      );
+      if (!inner) return;
+      inner.style.position = "relative";
+      let range = inner.querySelector<HTMLElement>(".bili-preview-range");
+      if (!range) {
+        range = document.createElement("div");
+        range.className = "bili-preview-range";
+        range.style.cssText =
+          "position:absolute;left:0;top:0;height:100%;background:#f5a623;pointer-events:none;z-index:1;";
+        inner.prepend(range);
+      }
+      let cap = inner.querySelector<HTMLElement>(".bili-preview-cap");
+      if (!cap) {
+        cap = document.createElement("div");
+        cap.className = "bili-preview-cap";
+        cap.style.cssText =
+          "position:absolute;top:-4px;width:3px;height:calc(100% + 8px);background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.65);pointer-events:none;z-index:4;";
+        inner.appendChild(cap);
+      }
+      const loaded = container.querySelector<HTMLElement>(
+        ".art-progress-loaded",
+      );
+      if (loaded) loaded.style.background = "transparent";
+      previewNodes.time = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          ".art-controls-left .art-control",
+        ),
+      ).find((node) => /^\d+:\d+/.test(node.textContent?.trim() ?? ""));
+      previewNodes.range = range;
+      previewNodes.cap = cap;
+      previewNodes.loaded = loaded ?? undefined;
+      previewNodes.played =
+        container.querySelector<HTMLElement>(".art-progress-played") ??
+        undefined;
+      previewNodes.indicator =
+        container.querySelector<HTMLElement>(".art-progress-indicator") ??
+        undefined;
+      if (previewNodes.played) previewNodes.played.style.zIndex = "2";
+      if (previewNodes.indicator) previewNodes.indicator.style.zIndex = "5";
+      previewNodes.ready = true;
+    };
+    const paintPreviewTimeline = (displaySeconds?: number) => {
+      if (!isPreview(art) || !timelineDuration) return;
+      if (draggingPreview && displaySeconds == null) return;
+      ensurePreviewNodes();
+      const media = art.duration || 0;
+      const full = timelineDuration;
+      const current = Math.min(
+        displaySeconds ?? art.currentTime ?? 0,
+        media || full,
+      );
+      const previewRatio = Math.min(0.995, Math.max(0.01, media / full));
+      const playedRatio = Math.min(previewRatio, Math.max(0, current / full));
+      const playedWidth = `${playedRatio * 100}%`;
+      const rangeWidth = `${previewRatio * 100}%`;
+      if (previewNodes.range) previewNodes.range.style.width = rangeWidth;
+      if (previewNodes.cap) {
+        previewNodes.cap.style.left = `calc(${previewRatio * 100}% - 1px)`;
+      }
+      if (previewNodes.loaded) previewNodes.loaded.style.width = rangeWidth;
+      if (previewNodes.played) previewNodes.played.style.width = playedWidth;
+      if (previewNodes.indicator)
+        previewNodes.indicator.style.left = playedWidth;
+      const timeText = `${formatPlayerClock(current)} / ${formatPlayerClock(full)}`;
+      if (previewNodes.time && previewNodes.time.textContent !== timeText) {
+        previewNodes.time.textContent = timeText;
+      }
+      if (media > 1 && sentPreviewLength !== Math.floor(media)) {
+        sentPreviewLength = Math.floor(media);
+        onPreviewLengthRef.current?.(sentPreviewLength);
+      }
+      if (displaySeconds == null) {
+        setPreviewEnded(media > 1 && current >= media - 0.4);
+      }
+    };
+    const commitPreviewSeek = (target: number, endIfLocked: boolean) => {
+      const media = art.duration || 0;
+      if (target >= media - 0.3) {
+        art.currentTime = Math.max(0, media - 0.05);
+        if (endIfLocked) art.pause();
+        setPreviewEnded(true);
+      } else {
+        art.currentTime = target;
+        setPreviewEnded(false);
+      }
+    };
+    const seekPreview = (clientX: number, endIfLocked: boolean) => {
+      if (!isPreview(art) || !timelineDuration) return;
+      const bar = progressBar;
+      if (!bar) return;
+      const rect = dragRect ?? bar.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const ratio = Math.min(
+        1,
+        Math.max(0, (clientX - rect.left) / rect.width),
+      );
+      const target = ratio * timelineDuration;
+      const media = art.duration || 0;
+      const shown = Math.min(target, Math.max(0, media - 0.05));
+      paintPreviewTimeline(shown);
+      if (!endIfLocked) {
+        // 拖动过程只改进度条。每次改 currentTime 都会让弹幕重排
+        window.clearTimeout(dragSeekTimer);
+        dragSeekTimer = window.setTimeout(() => {
+          if (!draggingPreview) return;
+          commitPreviewSeek(target, false);
+        }, 220);
+        return;
+      }
+      window.clearTimeout(dragSeekTimer);
+      dragSeekTimer = 0;
+      draggingPreview = false;
+      commitPreviewSeek(target, true);
+      paintPreviewTimeline();
+    };
+
     art.on("video:timeupdate", () => {
       if (art.currentTime > 0.2) {
         window.clearTimeout(stallTimer);
       }
       const t = art.currentTime || 0;
       setCurrentTime((prev) => (Math.abs(prev - t) >= 0.25 ? t : prev));
+      if (!draggingPreview) paintPreviewTimeline();
       const now = Date.now();
       if (now - lastSaveAtRef.current < SAVE_INTERVAL_MS) return;
       lastSaveAtRef.current = now;
-      savePlaybackProgress(bvid, cid, art.currentTime, art.duration);
+      savePlaybackProgress(bvid, cid, art.currentTime, archiveDuration(art));
     });
+    art.on("video:loadedmetadata", () => {
+      if (!isPreview(art)) return;
+      onPreviewLengthRef.current?.(Math.max(1, Math.floor(art.duration || 0)));
+      paintPreviewTimeline();
+    });
+    art.on("setBar", (type: string, percentage: number) => {
+      if (draggingPreview || !isPreview(art) || !timelineDuration) return;
+      if (type === "hover") {
+        const tip = container.querySelector<HTMLElement>(".art-progress-tip");
+        const media = art.duration || 0;
+        const hoverSeconds = Math.min(
+          timelineDuration,
+          percentage * timelineDuration,
+        );
+        if (tip) {
+          tip.textContent =
+            hoverSeconds > media + 0.5
+              ? `${formatPlayerClock(hoverSeconds)} · 试看至 ${formatPlayerClock(media)}`
+              : formatPlayerClock(hoverSeconds);
+        }
+        return;
+      }
+      if (type !== "played") return;
+      paintPreviewTimeline();
+    });
+    const stopArtSeek = (event: Event) => {
+      if (!isPreview(art)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const onProgressPointerDown = (event: PointerEvent) => {
+      if (!isPreview(art) || event.button !== 0) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      draggingPreview = true;
+      dragRect = progressBar?.getBoundingClientRect() ?? null;
+      seekPreview(event.clientX, false);
+      if (dragMove) window.removeEventListener("pointermove", dragMove);
+      if (dragUp) window.removeEventListener("pointerup", dragUp);
+      dragMove = (ev: PointerEvent) => seekPreview(ev.clientX, false);
+      dragUp = (ev: PointerEvent) => {
+        seekPreview(ev.clientX, true);
+        dragRect = null;
+        if (dragMove) window.removeEventListener("pointermove", dragMove);
+        if (dragUp) window.removeEventListener("pointerup", dragUp);
+        dragMove = null;
+        dragUp = null;
+      };
+      window.addEventListener("pointermove", dragMove);
+      window.addEventListener("pointerup", dragUp);
+    };
+    progressBar?.addEventListener("pointerdown", onProgressPointerDown, true);
+    progressBar?.addEventListener("mousedown", stopArtSeek, true);
+    progressBar?.addEventListener("click", stopArtSeek, true);
 
     art.on("play", () => {
       lastTickAt = Date.now();
@@ -657,6 +901,16 @@ export function VideoPlayer({
 
     return () => {
       disposed = true;
+      progressBar?.removeEventListener(
+        "pointerdown",
+        onProgressPointerDown,
+        true,
+      );
+      progressBar?.removeEventListener("mousedown", stopArtSeek, true);
+      progressBar?.removeEventListener("click", stopArtSeek, true);
+      window.clearTimeout(dragSeekTimer);
+      if (dragMove) window.removeEventListener("pointermove", dragMove);
+      if (dragUp) window.removeEventListener("pointerup", dragUp);
       unbindHotkeys();
       unbindResize();
       window.clearTimeout(stallTimer);
@@ -698,6 +952,7 @@ export function VideoPlayer({
     cid,
     initialTime,
     reloadKey,
+    timelineDuration,
   ]);
 
   useEffect(() => {
