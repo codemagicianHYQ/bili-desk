@@ -8280,50 +8280,28 @@ class BiliApiService {
 
     await this.ensureBuvid3();
 
-    const targetSize = Math.max(1, pageSize);
-    const videos: VideoItem[] = [];
+    const targetSize = Math.min(42, Math.max(1, pageSize));
+    const apiPage = Math.max(1, apiStartPage);
+    const batch = await this.fetchSearchApiPage(
+      trimmed,
+      apiPage,
+      order,
+      targetSize,
+    );
     const seen = new Set<string>();
-    let apiPage = Math.max(1, apiStartPage);
-    let total = 0;
-    let apiHasMore = true;
-    let scans = 0;
-    // 相关性过滤后可能空页；限制扫描次数，避免一次搜索打上百次接口卡住转圈
-    const maxScans = Math.min(6, Math.max(2, Math.ceil(targetSize / 10) + 2));
-    let emptyFilteredStreak = 0;
-
-    while (videos.length < targetSize && apiHasMore && scans < maxScans) {
-      const batch = await this.fetchSearchApiPage(trimmed, apiPage, order);
-      scans += 1;
-      if (apiPage === apiStartPage && total === 0) {
-        total = batch.total;
-      }
-      apiHasMore = batch.hasMore;
-
-      if (batch.videos.length === 0) {
-        emptyFilteredStreak += 1;
-        // 连续空页基本说明关键词匹配极少，及时停止
-        if (!apiHasMore || emptyFilteredStreak >= 2) break;
-        apiPage += 1;
-        continue;
-      }
-
-      emptyFilteredStreak = 0;
-      for (const video of batch.videos) {
-        if (seen.has(video.bvid)) continue;
-        seen.add(video.bvid);
-        videos.push(video);
-        if (videos.length >= targetSize) break;
-      }
-
-      apiPage += 1;
+    const videos: VideoItem[] = [];
+    for (const video of batch.videos) {
+      if (seen.has(video.bvid)) continue;
+      seen.add(video.bvid);
+      videos.push(video);
     }
 
     return {
       videos,
       page,
-      hasMore: apiHasMore && videos.length >= targetSize,
-      total,
-      nextApiPage: apiPage,
+      hasMore: batch.hasMore,
+      total: batch.total,
+      nextApiPage: apiPage + 1,
     };
   }
 
@@ -9274,8 +9252,9 @@ class BiliApiService {
     keyword: string,
     page: number,
     order: SearchOrder,
+    pageSize = 30,
   ): Promise<SearchVideosPage> {
-    const apiPageSize = 20;
+    const apiPageSize = Math.min(42, Math.max(1, pageSize));
     const params = await signParams({
       search_type: "video",
       keyword,
@@ -9304,9 +9283,7 @@ class BiliApiService {
     const data = res.data?.data as Record<string, unknown> | undefined;
     const rawResults =
       (data?.result as Record<string, unknown>[] | undefined) ?? [];
-    const results = rawResults
-      .filter((item) => this.isSearchVideoResult(item))
-      .filter((item) => this.isSearchResultRelevant(item, keyword));
+    const results = rawResults.filter((item) => this.isSearchVideoResult(item));
     const total = (data?.numResults as number) ?? rawResults.length;
     const videos = results.map((item) => this.normalizeSearchVideo(item));
     const fetchedCount = rawResults.length;
@@ -10163,7 +10140,8 @@ class BiliApiService {
     const chargeBadge = this.readChargeBadge(item);
     const bvid = video.bvid?.trim();
     if (bvid && chargeBadge) this.rememberChargeBadge(bvid, chargeBadge);
-    else if (bvid && this.chargeKnownOff(item)) this.rememberChargeBadge(bvid, "");
+    else if (bvid && this.chargeKnownOff(item))
+      this.rememberChargeBadge(bvid, "");
     return chargeBadge ? { ...video, chargeBadge } : video;
   }
 
@@ -10176,7 +10154,9 @@ class BiliApiService {
   }
 
   private rememberChargeBadges(entries: Record<string, string>) {
-    const ids = Object.keys(entries).map((id) => id.trim()).filter(Boolean);
+    const ids = Object.keys(entries)
+      .map((id) => id.trim())
+      .filter(Boolean);
     if (ids.length === 0) return;
     const cache = { ...this.readChargeBadgeCache() };
     const now = Date.now();
@@ -14812,49 +14792,6 @@ class BiliApiService {
     if (item.is_live === 1 || item.is_live === true) return false;
 
     return true;
-  }
-
-  private isSearchResultRelevant(
-    item: Record<string, unknown>,
-    keyword: string,
-  ): boolean {
-    const titleRaw = String(item.title ?? "");
-    const tagRaw = String(item.tag ?? "");
-    if (
-      titleRaw.includes('<em class="keyword">') ||
-      tagRaw.includes('<em class="keyword">')
-    ) {
-      return true;
-    }
-
-    const terms = keyword
-      .trim()
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((term) => term.length > 0);
-    if (terms.length === 0) return true;
-
-    const stripHtml = (value: unknown) =>
-      String(value ?? "")
-        .replace(/<[^>]+>/g, "")
-        .toLowerCase();
-
-    const bvid = stripHtml(item.bvid);
-    const haystack = [
-      item.title,
-      item.author,
-      item.tag,
-      item.description,
-      item.arcurl,
-    ]
-      .map(stripHtml)
-      .join(" ");
-
-    return terms.every(
-      (term) =>
-        haystack.includes(term) ||
-        (term.startsWith("bv") && bvid.includes(term)),
-    );
   }
 
   private normalizeSearchVideo(item: Record<string, unknown>): VideoItem {

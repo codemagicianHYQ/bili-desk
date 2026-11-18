@@ -59,8 +59,8 @@ const SEARCH_CATEGORY_TABS: Array<{
 
 function formatCountBadge(n: number): string {
   if (!n || n <= 0) return "0";
-  if (n > 99) return "99+";
-  return String(n);
+  if (n > 9999) return "9999+";
+  return n.toLocaleString();
 }
 
 function formatSearchError(err: unknown): string {
