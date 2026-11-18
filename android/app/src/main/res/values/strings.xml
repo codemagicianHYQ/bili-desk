@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BiliLoft</string>
+    <string name="title_activity_main">BiliLoft</string>
+    <string name="package_name">com.bilidesk.app</string>
+    <string name="custom_url_scheme">com.bilidesk.app</string>
+</resources>

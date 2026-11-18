@@ -1,0 +1,2180 @@
+import type { AiProviderId } from "../ai-providers";
+export type { AiProviderId };
+export interface VideoItem {
+    bvid: string;
+    aid: number;
+    title: string;
+    cover: string;
+    duration: number;
+    play: number;
+    danmaku: number;
+    owner: {
+        mid: number;
+        name: string;
+        face: string;
+    };
+    pubdate: number;
+    /** 首页推荐流独有，「不感兴趣」反馈要带回 */
+    trackId?: string;
+    /** 封面角标，例如「充电专属」 */
+    chargeBadge?: string;
+}
+/** 充电视频的观看资格和播放器提示，文案来自播放器接口 */
+export interface VideoChargeAccess {
+    exclusive: boolean;
+    /** 当前账号已开通对应档位，可以看完整版 */
+    unlocked: boolean;
+    title: string;
+    subtitle: string;
+    buttonText?: string;
+    /** 开通页，只保留 bilibili 域名 */
+    payUrl?: string;
+}
+/** 首页推荐「不感兴趣」原因：1 内容不感兴趣，4 不想看这个 UP */
+export type RecommendDislikeReason = 1 | 4;
+export interface RecommendDislikePayload {
+    aid: number;
+    upMid: number;
+    reasonId: RecommendDislikeReason;
+    trackId?: string;
+}
+export interface UgcTripleResult {
+    like: boolean;
+    coin: boolean;
+    fav: boolean;
+    multiply: number;
+}
+export interface VideoAiOutlinePoint {
+    timestamp: number;
+    content: string;
+}
+export interface VideoAiOutlineSection {
+    title: string;
+    timestamp: number;
+    points: VideoAiOutlinePoint[];
+}
+export interface VideoAiSummary {
+    summary: string;
+    outline: VideoAiOutlineSection[];
+}
+export interface MentionSuggestItem {
+    mid: number;
+    name: string;
+    face: string;
+    fans: number;
+    /** 关注的人 / 其他 */
+    followed: boolean;
+}
+/** 进度条预览图：B 站雪碧图，每张 column × row 帧 */
+export interface VideoSnapshot {
+    images: string[];
+    column: number;
+    row: number;
+    frameWidth: number;
+    frameHeight: number;
+    frameCount: number;
+}
+/** 同步到账号的网页弹幕设置（/x/v2/dm/web/config） */
+export interface DanmakuCloudConfig {
+    visible: boolean;
+    blockScroll: boolean;
+    blockTop: boolean;
+    blockBottom: boolean;
+    opacity: number;
+    /** 弹幕区域百分比：25 / 50 / 75 / 100 */
+    area: number;
+    /** 0.4 ~ 1.6 */
+    speedPlus: number;
+    /** 0.4 ~ 1.6 */
+    fontScale: number;
+    speedSync: boolean;
+}
+export interface VipCenterInfo {
+    /** 0 无，1 月度，2 年度 */
+    vipType: number;
+    active: boolean;
+    /** 毫秒时间戳 */
+    dueDate: number;
+}
+export interface VipPrivilegeItem {
+    type: number;
+    name: string;
+    received: boolean;
+    /** 秒级时间戳，0 表示无 */
+    expireTime: number;
+}
+/** 每日经验任务完成情况 */
+export interface ExpRewardStatus {
+    login: boolean;
+    watch: boolean;
+    share: boolean;
+    /** 今日投币已得经验 0 ~ 50 */
+    coinExp: number;
+}
+export interface MemberLogItem {
+    time: string;
+    delta: number;
+    reason: string;
+}
+export interface FansMedalItem {
+    medalId: number;
+    name: string;
+    level: number;
+    intimacy: number;
+    nextIntimacy: number;
+    todayFeed: number;
+    dayLimit: number;
+    wearing: boolean;
+    upMid: number;
+    upName: string;
+    upFace: string;
+    roomId: number;
+    living: boolean;
+}
+export interface FansMedalPage {
+    list: FansMedalItem[];
+    page: number;
+    hasMore: boolean;
+}
+export type VideoTagKind = "normal" | "topic" | "channel" | "bgm";
+/** 稿件标签（官网简介下方胶囊） */
+export interface VideoTag {
+    id: number;
+    name: string;
+    kind: VideoTagKind;
+    jumpUrl?: string;
+    cover?: string;
+}
+export interface VideoDetail extends VideoItem {
+    desc: string;
+    pages: VideoPagePart[];
+    tags: VideoTag[];
+    /** 所属合集；无则 undefined */
+    ugcSeason?: VideoUgcSeason;
+    /** 1=自制 2=转载；官网「未经作者授权禁止转载」类提示 */
+    copyright?: 1 | 2;
+    /** 荣誉条：入站必刷 / 每周必看 / 热门等 */
+    honors?: VideoHonor[];
+    /** 联合创作 staff */
+    staff?: VideoStaffMember[];
+    stat: {
+        view: number;
+        danmaku: number;
+        reply: number;
+        favorite: number;
+        coin: number;
+        share: number;
+        like: number;
+    };
+    /** 本次详情已核对充电资格。旧缓存没有这个字段时要重拉 */
+    chargeChecked?: boolean;
+    /** 充电视频才有。未充电是试看，已充电可以看完整版 */
+    charge?: VideoChargeAccess;
+}
+export interface VideoHonor {
+    type: number;
+    desc: string;
+}
+export interface VideoStaffMember {
+    mid: number;
+    name: string;
+    face: string;
+    title: string;
+}
+export interface VideoSubtitleTrack {
+    id: number;
+    lan: string;
+    lanDoc: string;
+    /** 已转成 WebVTT 文本，可直接给 Artplayer */
+    vtt: string;
+}
+export interface VideoOnlineTotal {
+    /** 展示文案，如「1234」或「1.2万+」 */
+    total: string;
+    /** 原始人数，解析失败为 0 */
+    count: number;
+}
+/** 播放器弹幕（对齐 artplayer-plugin-danmuku） */
+export interface DanmakuItem {
+    /** 弹幕 id，点赞和举报要用 */
+    id?: string;
+    /** 弹幕 XML 里的发送者 CRC32，用来对上屏蔽用户 */
+    midHash?: string;
+    text: string;
+    time: number;
+    color?: string;
+    border?: boolean;
+    /** 0=滚动 1=顶部 2=底部 */
+    mode?: 0 | 1 | 2;
+}
+/** 视频互动弹幕：评分 / 投票（来自 /x/v2/dm/web/view） */
+export type CommandDanmakuKind = "grade" | "vote" | "attention" | "other";
+export interface CommandDanmakuVoteOption {
+    idx: number;
+    desc: string;
+    count: number;
+    /** 该选项是否允许自定义补充，对应 extra.options[].has_self_def */
+    hasSelfDef?: boolean;
+}
+export interface CommandDanmakuItem {
+    id: string;
+    command: string;
+    kind: CommandDanmakuKind;
+    /** 出现时间（毫秒） */
+    progress: number;
+    /** 展示时长（毫秒） */
+    duration: number;
+    content: string;
+    /** 评分题干 / 投票问题 */
+    title: string;
+    /** 参与人数 */
+    count: number;
+    gradeId?: number;
+    /** 用户已打分 0=未打；官网为 2/4/…/10 */
+    midScore?: number;
+    avgScore?: number;
+    voteId?: number;
+    /** extra.vote_type，没有时按官网传 0 */
+    voteType?: number;
+    /** 用户已选选项，0=未投 */
+    myVote?: number;
+    options?: CommandDanmakuVoteOption[];
+    skinFontColor?: string;
+}
+export interface PostCommandGradePayload {
+    aid: number;
+    cid: number;
+    progress: number;
+    gradeId: number;
+    /** 1–5 颗心，内部乘 2 成偶数分 */
+    hearts: number;
+}
+export interface PostCommandVotePayload {
+    aid: number;
+    cid: number;
+    /** 当前播放进度，毫秒 */
+    progress: number;
+    voteId: number;
+    /** 选项 idx，请求里对应 option_id */
+    idx: number;
+    voteType?: number;
+    /** 互动弹幕 id，请求里对应 cmd_id_str */
+    cmdId?: string;
+    /** 0/1，对应该选项的 has_self_def */
+    hasSelfDef?: number;
+}
+export interface BinaryImageFile {
+    name: string;
+    mime: string;
+    data: Uint8Array;
+}
+export interface CreatedDynamic {
+    id: string;
+}
+export interface DynamicMention {
+    mid: number;
+    name: string;
+}
+export interface DynamicPublishOptions {
+    /** 仅自己可见 */
+    privatePub?: boolean;
+    closeComment?: boolean;
+    /** 定时发布，秒级时间戳 */
+    timerPubTime?: number;
+    mentions?: DynamicMention[];
+    topic?: {
+        id: number;
+        name: string;
+    };
+    vote?: {
+        title: string;
+        options: string[];
+        durationHours: number;
+        choiceCount: number;
+    };
+    lottery?: {
+        prize: string;
+        durationHours: number;
+        needFollow: boolean;
+    };
+    reserve?: {
+        title: string;
+        startTs: number;
+    };
+    /** 编辑时保留原来的图片地址 */
+    keepImages?: string[];
+}
+export interface TopicHead {
+    id: number;
+    name: string;
+    desc: string;
+    favorited: boolean;
+}
+export interface TopicSuggest {
+    id: number;
+    name: string;
+}
+export interface HotSearchItem {
+    keyword: string;
+    showName: string;
+    icon?: string;
+}
+export type DanmakuFilterKind = "text" | "regex" | "user";
+export interface DanmakuFilter {
+    id: number;
+    text: string;
+    kind: DanmakuFilterKind;
+}
+export interface VideoChapter {
+    from: number;
+    to: number;
+    content: string;
+    cover?: string;
+}
+export interface ChatShareCard {
+    kind: "video" | "article" | "dynamic" | "live";
+    title: string;
+    cover?: string;
+    bvid?: string;
+    aid?: number;
+    cvid?: number;
+    dynId?: string;
+    roomId?: number;
+    views?: number;
+}
+export interface SendDanmakuPayload {
+    cid: number;
+    bvid: string;
+    /** 进度，毫秒 */
+    progress: number;
+    message: string;
+    /** 1=滚动 4=底 5=顶 */
+    mode?: number;
+    color?: number;
+    fontsize?: number;
+}
+/** 用户对本稿的互动状态 */
+export interface VideoRelation {
+    liked: boolean;
+    coined: boolean;
+    /** 已投币数量 0/1/2 */
+    coin: number;
+    favorited: boolean;
+    disliked: boolean;
+}
+export interface AddCoinPayload {
+    aid: number;
+    bvid: string;
+    /** 1 或 2 */
+    multiply: 1 | 2;
+    /** 投币同时点赞 */
+    selectLike?: boolean;
+}
+/** 同步观看历史 / 播放心跳 */
+export interface WatchHeartbeatPayload {
+    aid: number;
+    bvid: string;
+    cid: number;
+    /** 当前进度（秒）；播完可传 -1 */
+    playedTime: number;
+    /** 0 播放中 / 1 开始 / 2 暂停 / 3 继续 */
+    playType: 0 | 1 | 2 | 3;
+    /** 本轮会话开始时间戳（秒） */
+    startTs: number;
+    /** 本轮真实播放时长（秒） */
+    realtime?: number;
+    quality?: number;
+}
+export interface CommentMember {
+    mid: number;
+    name: string;
+    face: string;
+    level?: number;
+    /** 硬核会员：官网 LV6 旁带闪电 */
+    isSeniorMember?: boolean;
+    sex?: string;
+}
+export interface CommentPicture {
+    src: string;
+    width: number;
+    height: number;
+}
+export interface CommentItem {
+    rpid: number;
+    /** 评论 rpid 原始字符串，删除/点踩等接口优先用这个 */
+    rpidStr?: string;
+    oid: number;
+    mid: number;
+    root: number;
+    parent: number;
+    content: string;
+    /** 评论里 @ 到的用户，用来把 `@昵称` 链到空间 */
+    mentions?: CommentMember[];
+    /** 评论里出现的表情：`[doge]` → 图片 URL */
+    emotes?: Record<string, string>;
+    /** 评论附图 */
+    pictures?: CommentPicture[];
+    /** IP 属地，如「江苏」 */
+    location?: string;
+    like: number;
+    action: number;
+    ctime: number;
+    rcount: number;
+    member: CommentMember;
+    replies: CommentItem[];
+    /** UP / 管理置顶，出现在评论区最上方 */
+    pinned?: boolean;
+    pinKind?: "upper" | "admin" | "vote";
+}
+export interface CommentPage {
+    comments: CommentItem[];
+    page: number;
+    pageSize: number;
+    count: number;
+    acount: number;
+    hasMore: boolean;
+    /** wbi/main 翻页游标，下一页要原样回传 */
+    nextOffset?: string;
+}
+/** 评论表情面板（官网按 pack 分组） */
+export interface ReplyEmoteItem {
+    text: string;
+    url: string;
+    /** 4 = 颜文字 */
+    type: number;
+    /** 1 小黄脸 / 2 大贴纸 */
+    size: 1 | 2;
+}
+export interface ReplyEmotePackage {
+    id: number;
+    name: string;
+    icon: string;
+    /** 4 = 颜文字 */
+    type: number;
+    emotes: ReplyEmoteItem[];
+}
+export interface ReplyEmotePanel {
+    packages: ReplyEmotePackage[];
+    map: Record<string, string>;
+}
+export interface VideoPagePart {
+    cid: number;
+    page: number;
+    part: string;
+    duration: number;
+}
+/** 稿件所属 UGC 合集中的一集（不同 BV） */
+export interface VideoSeasonEpisode {
+    aid: number;
+    bvid: string;
+    cid: number;
+    title: string;
+    cover: string;
+    /** 秒 */
+    duration: number;
+}
+/** /x/web-interface/view 的 ugc_season */
+export interface VideoUgcSeason {
+    id: number;
+    title: string;
+    cover: string;
+    epCount: number;
+    episodes: VideoSeasonEpisode[];
+    /** 合集作者 mid */
+    mid?: number;
+    /** 合集总播放 */
+    view?: number;
+    /** 简介 */
+    intro?: string;
+}
+export interface BiliDashTrackInfo {
+    url: string;
+    backupUrls?: string[];
+    referer: string;
+    mimeType: string;
+    codecs: string;
+    initRange: string;
+    indexRange: string;
+}
+export interface BiliDashPlayInfo {
+    duration: number;
+    video: BiliDashTrackInfo;
+    audio: BiliDashTrackInfo;
+}
+export interface VideoPlayQuality {
+    qn: number;
+    label: string;
+    needVip?: boolean;
+    needLogin?: boolean;
+    superscript?: string;
+}
+export interface SeasonEpisode {
+    epId: number;
+    aid: number;
+    cid: number;
+    bvid: string;
+    title: string;
+    cover: string;
+    duration: number;
+    badge: string;
+}
+export interface SeasonDetail {
+    kind: "bangumi" | "cheese";
+    seasonId: number;
+    title: string;
+    cover: string;
+    evaluate: string;
+    score: number;
+    followed: boolean;
+    episodes: SeasonEpisode[];
+}
+export interface ChannelVideoPage {
+    id: number;
+    name: string;
+    videos: VideoItem[];
+    page: number;
+    hasMore: boolean;
+}
+export interface AudioSong {
+    sid: number;
+    title: string;
+    cover: string;
+    author: string;
+    intro: string;
+    url: string;
+}
+export interface ArchiveNote {
+    id: number;
+    title: string;
+    summary: string;
+}
+export interface WalletBalance {
+    bcoin: string;
+}
+export interface VideoPlayInfo {
+    url: string;
+    format: "mp4" | "flv" | "dash";
+    quality: number;
+    qualityLabel: string;
+    qualities: VideoPlayQuality[];
+    /** DASH 音视频轨：由主进程 IPC 拉分片，不走 dash.js 跨域 */
+    dash?: BiliDashPlayInfo;
+    /** 当前登录账号是否为有效大会员 */
+    isVip?: boolean;
+    /** 高画质试看是否仍可用（普通会员每月 5 次） */
+    trialAble?: boolean;
+    /** 高画质试看剩余次数；null 表示接口未返回 */
+    trialRemaining?: number | null;
+    /** 请求了大会员画质但服务端未授权 */
+    qualityDenied?: boolean;
+    /** 播放器内提示：试看剩余 / 请开通大会员 */
+    qualityNotice?: string;
+}
+export interface WindowState {
+    /** 窗口铺满显示器（右上角按钮应显示「还原」） */
+    maximized: boolean;
+    /** 播放器全屏 */
+    fullscreen: boolean;
+}
+export interface UserInfo {
+    mid: number;
+    name: string;
+    face: string;
+    isLogin: boolean;
+    isVip?: boolean;
+}
+export interface QrLoginResult {
+    url: string;
+    qrcodeKey: string;
+}
+export interface AuthPollResult {
+    status: "waiting" | "scanned" | "confirmed" | "expired" | "failed";
+    user?: UserInfo;
+    message?: string;
+}
+export interface FavFolder {
+    id: number;
+    fid: number;
+    title: string;
+    mediaCount: number;
+    cover: string;
+    intro?: string;
+    /** 0 公开，1 私密 */
+    privacy?: 0 | 1;
+    isDefault?: boolean;
+}
+export interface CreateFavFolderPayload {
+    title: string;
+    intro?: string;
+    /** 0 公开，1 私密 */
+    privacy?: 0 | 1;
+}
+export interface EditFavFolderPayload {
+    mediaId: number;
+    title: string;
+    intro?: string;
+    /** 0 公开，1 私密 */
+    privacy?: 0 | 1;
+}
+export interface SuggestFavFolderPayload {
+    aid?: number;
+    title: string;
+    intro?: string;
+    ownerName?: string;
+    folderTitles: string[];
+}
+export interface SuggestFavFolderResult {
+    title: string;
+}
+export interface VideoFavFolder extends FavFolder {
+    collected: boolean;
+    isDefault?: boolean;
+}
+export interface FavResource {
+    id: number;
+    bvid: string;
+    title: string;
+    cover: string;
+    intro?: string;
+    upper: {
+        mid: number;
+        name: string;
+    };
+    duration: number;
+}
+export interface FavResourcesPage {
+    resources: FavResource[];
+    page: number;
+    hasMore: boolean;
+}
+export interface FollowingUp {
+    mid: number;
+    uname: string;
+    face: string;
+    sign: string;
+    official: {
+        role: number;
+        title: string;
+    };
+    /** 是否特别关注 */
+    special?: boolean;
+    /** 是否互相关注 */
+    mutual?: boolean;
+    /** 当前登录用户是否已关注该用户 */
+    isFollowing?: boolean;
+    /** 我关注对方的时间（秒），仅全量关注列表接口返回 */
+    followTime?: number;
+}
+/** 官方关注列表只有两种服务端顺序：最近关注、最常访问 */
+export type FollowingOrder = "recent" | "attention";
+/** UP 列表展示排序；最早关注 / 名称在本地排 */
+export type FollowingSort = "recent" | "attention" | "earliest" | "name";
+export interface FollowTag {
+    tagId: number;
+    name: string;
+    count: number;
+}
+/** B 站系统分组：特别关注 */
+export declare const BILI_SPECIAL_FOLLOW_TAG_ID = -10;
+/** 把本地分类结果填进现有 B 站分组：不再新建分组 */
+export interface FollowTagSyncGroupPlan {
+    groupId: number;
+    tagName: string;
+    /** fill：往现有官方分组加人 */
+    action: "fill";
+    tagId: number | null;
+    oldName?: string;
+    total: number;
+    addCount: number;
+    removeCount: number;
+}
+export interface FollowTagSyncPlan {
+    planId: string;
+    groups: FollowTagSyncGroupPlan[];
+    /** 旧版会删分组；现在固定为空 */
+    deleteTags: Array<{
+        tagId: number;
+        name: string;
+        count: number;
+    }>;
+    /** 本地分组里已经取关的 UP，不会处理 */
+    skippedUnfollowed: number;
+    writeRequests: number;
+    estimatedSeconds: number;
+    warnings: string[];
+}
+export interface FollowTagSyncStatus {
+    state: "idle" | "running" | "done" | "failed" | "cancelled";
+    done: number;
+    total: number;
+    message: string;
+    errors: string[];
+}
+export interface BlacklistUser extends FollowingUp {
+    /** 拉黑时间，秒级时间戳 */
+    blockedAt?: number;
+}
+export interface BlacklistPage {
+    users: BlacklistUser[];
+    page: number;
+    total: number;
+    hasMore: boolean;
+}
+export interface FollowingsPage {
+    followings: FollowingUp[];
+    page: number;
+    hasMore: boolean;
+}
+/** 指定用户的关注 / 粉丝列表分页 */
+export interface UserRelationListPage {
+    users: FollowingUp[];
+    page: number;
+    total: number;
+    hasMore: boolean;
+    /** 对方隐私设置导致不可见（业务结果，不是异常） */
+    privacyBlocked?: boolean;
+    message?: string;
+}
+export type UserRelationListType = "followings" | "followers";
+export interface UpProfile {
+    mid: number;
+    name: string;
+    face: string;
+    sign: string;
+    fans: number;
+    following: number;
+    videos: number;
+    /** 用户等级 0-6 */
+    level?: number;
+    /** 认证说明，如「加拿大歌手」 */
+    officialDesc?: string;
+    /** 0 个人认证（黄标），1 机构认证（蓝标） */
+    officialType?: 0 | 1;
+    /** 获赞数 */
+    likes?: number;
+    /** 稿件总播放 */
+    archiveViews?: number;
+    /** 公开收藏夹数量 */
+    favourites?: number;
+    /** 空间头图（官网主页背景） */
+    topPhoto?: string;
+    /** IP 属地，如「广东」 */
+    ipLocation?: string;
+    /** 专栏数 */
+    articleCount?: number;
+    /** 图文 / opus 数 */
+    opusCount?: number;
+    /** 合集 + 系列数 */
+    seasonCount?: number;
+    /** 课堂 / 充电相关 pugv 数 */
+    pugvCount?: number;
+    /** 该 UP 是否开通充电 */
+    upowerEnabled?: boolean;
+    /** 账号封禁：acc/info.silence === 1 */
+    silenced?: boolean;
+    /** 正在直播 */
+    isLive?: boolean;
+    /** 直播间号，直播中时点头像进这个房间 */
+    liveRoomId?: number;
+}
+/** 失效视频来源 */
+export type InvalidVideoSource = "favorite" | "toview" | "toview-local";
+export interface InvalidVideoRecord {
+    id: string;
+    source: InvalidVideoSource;
+    aid: number;
+    bvid: string;
+    /** 尽量保留的原标题；官方已盖成「已失效视频」时可能来自本地缓存 */
+    title: string;
+    titlePlaceholder: boolean;
+    cover: string;
+    upperMid: number;
+    upperName: string;
+    folderId?: number;
+    folderTitle?: string;
+    reason: string;
+    attr?: number;
+    detectedAt: number;
+}
+export interface AbnormalFollowingRecord {
+    mid: number;
+    name: string;
+    face: string;
+    sign: string;
+    reason: "silenced" | "deleted" | "unavailable";
+    reasonText: string;
+    detectedAt: number;
+}
+export type IntegrityScanScope = "favorites" | "toview" | "following";
+export interface IntegrityScanProgress {
+    phase: "favorites" | "toview" | "following" | "done";
+    message: string;
+    current: number;
+    total: number;
+}
+export interface IntegrityScanResult {
+    invalidVideos: InvalidVideoRecord[];
+    abnormalFollowings: AbnormalFollowingRecord[];
+    scannedAt: number;
+    stats: {
+        invalidFavorites: number;
+        invalidToView: number;
+        abnormalFollowings: number;
+    };
+    /** 扫描中被跳过的夹 / 接口提示（如 412 风控） */
+    warnings?: string[];
+}
+export interface UserAccountStatus {
+    mid: number;
+    name: string;
+    face: string;
+    silence: boolean;
+    deleted: boolean;
+    unavailable: boolean;
+}
+/** UP 活跃度：稿件 / 动态最新时间 */
+export interface UpActivityRecord {
+    mid: number;
+    name: string;
+    face: string;
+    sign: string;
+    latestVideoAt: number;
+    latestVideoTitle: string;
+    latestVideoBvid: string;
+    latestDynamicAt: number;
+    latestDynamicText: string;
+    latestDynamicId: string;
+    scannedAt: number;
+    error?: string;
+}
+export type UpActivitySource = "video" | "dynamic";
+/**
+ * 时间窗（互斥区间，无重叠）：
+ * - age0_3：0＜距今天数≤3
+ * - age3_7：3＜距今天数≤7
+ * - …依此类推
+ * - age365_plus：超过一年未更新
+ * - never：暂无稿件/动态
+ */
+export type UpActivityTimeFilter = "age0_3" | "age3_7" | "age7_30" | "age30_90" | "age90_180" | "age180_365" | "age365_plus" | "never";
+export interface UpActivityScanProgress {
+    message: string;
+    current: number;
+    total: number;
+    phase: "followings" | "activity" | "done";
+}
+export interface UpActivityArchive {
+    items: UpActivityRecord[];
+    scannedAt: number;
+    warnings?: string[];
+}
+export interface UpRelation {
+    isFollowing: boolean;
+    attribute: number;
+    /** 是否特别关注（系统分组 tagid=-10） */
+    special?: boolean;
+}
+/** 投稿筛选：全部类型之外的特殊分类，例如充电专属 */
+export interface UpVideoSpecial {
+    /** arc/search 的 list.slist.special_type，筛选时原样回传 */
+    type: string;
+    name: string;
+    count: number;
+}
+export interface UpVideosPage {
+    videos: VideoItem[];
+    page: number;
+    hasMore: boolean;
+    total: number;
+    /** 未带 special_type 的投稿列表才会带回，例如充电专属 */
+    specials?: UpVideoSpecial[];
+    /** 本次列表来自 arc/search，slist 已确认。没有这个标记时不要当「这个 UP 没有充电专属」缓存 */
+    specialsKnown?: boolean;
+}
+/** UP 主投稿排序：最新发布 / 最多播放 */
+export type UpVideosOrder = "pubdate" | "click";
+export interface RecommendPage {
+    videos: VideoItem[];
+    freshIdx: number;
+    hasMore: boolean;
+}
+/** 热门 / 每周必看 / 入站必刷 / 排行榜 共用卡片 */
+export interface PopularVideoItem extends VideoItem {
+    reply: number;
+    like: number;
+    share: number;
+    /** 例如「6万点赞」「1万分享」 */
+    rcmdReason?: string;
+    rank?: number;
+    /** B 站新版主分区，例如 1008 游戏 */
+    partitionId?: number;
+    partition?: string;
+    /** 子分区，例如「单机游戏」 */
+    subPartition?: string;
+}
+export interface PopularFeedPage {
+    videos: PopularVideoItem[];
+    page: number;
+    hasMore: boolean;
+}
+export interface WeeklySeriesMeta {
+    number: number;
+    name: string;
+    subject: string;
+    status: number;
+}
+export interface WeeklySeriesDetail {
+    number: number;
+    name: string;
+    subject: string;
+    reminder?: string;
+    videos: PopularVideoItem[];
+}
+export interface PreciousVideosPage {
+    title: string;
+    explain: string;
+    videos: PopularVideoItem[];
+}
+export interface RankingPartition {
+    rid: number;
+    label: string;
+}
+export declare const RANKING_PARTITIONS: RankingPartition[];
+export interface MusicRankPeriod {
+    listId: number;
+    period: number;
+    publishTime: number;
+}
+export interface MusicRankItem {
+    rank: number;
+    musicId: string;
+    title: string;
+    singer: string;
+    cover: string;
+    heat: number;
+    bvid: string;
+    aid: number;
+    upName: string;
+    play: number;
+    duration: number;
+    reason: string;
+}
+/** 直播间卡片（推荐 / 关注中） */
+export interface LiveRoomItem {
+    roomId: number;
+    title: string;
+    cover: string;
+    online: number;
+    onlineText?: string;
+    areaName: string;
+    parentAreaName?: string;
+    uid: number;
+    uname: string;
+    face: string;
+    /** 1 直播中 / 0 未开播 / 2 轮播 */
+    liveStatus: number;
+    keyframe?: string;
+}
+export interface LiveRecommendPage {
+    rooms: LiveRoomItem[];
+    page: number;
+    hasMore: boolean;
+}
+export interface FollowingLivePage {
+    rooms: LiveRoomItem[];
+    count: number;
+}
+export interface LiveRoomDetail {
+    roomId: number;
+    shortId?: number;
+    title: string;
+    cover: string;
+    online: number;
+    /** 看过人数（官网「xxx人看过」） */
+    watched?: number;
+    watchedText?: string;
+    /** 房间观众（官网右上角实时人数，不是人气） */
+    viewers?: number;
+    areaName: string;
+    parentAreaName?: string;
+    liveStatus: number;
+    liveStartTime?: number;
+    description?: string;
+    uid: number;
+    uname: string;
+    face: string;
+}
+export interface LiveDanmuHost {
+    host: string;
+    wssPort: number;
+}
+export interface LiveDanmuInfo {
+    token: string;
+    uid: number;
+    buvid?: string;
+    hosts: LiveDanmuHost[];
+}
+export type LiveChatKind = "danmu" | "enter";
+export interface LiveChatMessage {
+    id: string;
+    kind: LiveChatKind;
+    uid: number;
+    uname: string;
+    text: string;
+    color?: string;
+    time: number;
+    /** `[喝彩]` → 图片，直播表情和评论区不是同一套 */
+    emotes?: Record<string, string>;
+    stickerUrl?: string;
+}
+export interface LivePlayInfo {
+    url: string;
+    format: "flv" | "hls";
+    quality: number;
+    qualityLabel: string;
+    qualities: Array<{
+        qn: number;
+        label: string;
+    }>;
+}
+export type SearchOrder = "totalrank" | "click" | "pubdate" | "dm" | "stow";
+export type SearchCategory = "all" | "video" | "bangumi" | "media" | "live" | "article" | "user";
+/** 用户搜索排序：默认 / 粉丝高低 / 等级高低 */
+export type SearchUserOrder = "default" | "fans_desc" | "fans_asc" | "level_desc" | "level_asc";
+/** 用户分类：全部 / UP主 / 普通 / 认证 */
+export type SearchUserTypeFilter = 0 | 1 | 2 | 3;
+export interface SearchVideosPage {
+    videos: VideoItem[];
+    page: number;
+    hasMore: boolean;
+    total: number;
+    nextApiPage?: number;
+}
+export interface SearchUserItem {
+    mid: number;
+    name: string;
+    face: string;
+    sign: string;
+    fans: number;
+    videos: number;
+    level: number;
+    isUp: boolean;
+    isLive: boolean;
+    roomId?: number;
+    officialDesc?: string;
+    isFollowing: boolean;
+}
+export interface SearchUsersPage {
+    users: SearchUserItem[];
+    page: number;
+    hasMore: boolean;
+    total: number;
+}
+export type SearchArticleOrder = "totalrank" | "click" | "pubdate" | "attention" | "scores";
+export interface SearchArticleItem {
+    id: number;
+    title: string;
+    desc: string;
+    cover: string;
+    covers: string[];
+    mid: number;
+    author: string;
+    view: number;
+    like: number;
+    reply: number;
+    pubTime: number;
+    categoryName?: string;
+    url: string;
+}
+export interface ArticleDetail {
+    id: number;
+    title: string;
+    summary: string;
+    content: string;
+    banner: string;
+    images: string[];
+    mid: number;
+    author: string;
+    authorFace: string;
+    view: number;
+    like: number;
+    reply: number;
+    coin: number;
+    favorite: number;
+    share: number;
+    words: number;
+    pubTime: number;
+    liked: boolean;
+    coined?: boolean;
+    favorited?: boolean;
+    /** 已迁到图文动态时的 dyn/opus id */
+    dynId?: string;
+    categoryName?: string;
+}
+export interface SearchArticlesPage {
+    articles: SearchArticleItem[];
+    page: number;
+    hasMore: boolean;
+    total: number;
+}
+/** 番剧 / 影视搜索条目（search_type=media_bangumi | media_ft） */
+export type SearchMediaKind = "bangumi" | "media";
+export interface SearchMediaItem {
+    seasonId: number;
+    mediaId: number;
+    title: string;
+    cover: string;
+    styles: string;
+    areas: string;
+    desc: string;
+    /** 如「更新至第 12 话」 */
+    indexShow: string;
+    score: number;
+    pubtime: number;
+    url: string;
+    kind: SearchMediaKind;
+}
+export interface SearchMediaPage {
+    items: SearchMediaItem[];
+    page: number;
+    hasMore: boolean;
+    total: number;
+}
+export type SearchLiveOrder = "online" | "live_time";
+export interface SearchLiveItem {
+    roomId: number;
+    title: string;
+    cover: string;
+    online: number;
+    uname: string;
+    face: string;
+    areaName: string;
+    liveTime?: number;
+}
+export interface SearchLivePage {
+    rooms: SearchLiveItem[];
+    page: number;
+    hasMore: boolean;
+    total: number;
+}
+export interface SearchSuggestItem {
+    /** 纯文本建议词 */
+    value: string;
+    /** 带高亮标记的展示（可选，前端也可自行高亮） */
+    name?: string;
+}
+export interface SearchTypeCounts {
+    video: number;
+    bangumi: number;
+    media: number;
+    live: number;
+    article: number;
+    user: number;
+}
+export interface ToViewItem extends VideoItem {
+    progress: number;
+    addAt: number;
+    cid: number;
+}
+export interface ToViewList {
+    videos: ToViewItem[];
+    count: number;
+}
+export type ToViewSource = "official" | "local";
+export interface ToViewAddResult {
+    source: ToViewSource;
+    item?: ToViewItem;
+}
+export interface DynamicVoteOption {
+    idx: number;
+    text: string;
+    count: number;
+}
+/** 动态附加投票。列表接口只有标题和参与人数，选项在 vote_info */
+export interface DynamicVoteCard {
+    voteId: string;
+    title: string;
+    /** 如「191.8万人参与」 */
+    joinText?: string;
+    joinNum: number;
+    endTime: number;
+    choiceCount: number;
+    /** 投票活动状态，1 为进行中 */
+    status: number;
+    voted: boolean;
+    myVotes: number[];
+    buttonText?: string;
+    options: DynamicVoteOption[];
+}
+/** 动态附加抽奖，含充电抽奖 */
+export interface DynamicLotteryCard {
+    title: string;
+    hint?: string;
+    prize?: string;
+    buttonText: string;
+    disabled: boolean;
+    jumpUrl?: string;
+}
+export interface SpaceDynamicItem {
+    id: string;
+    type: string;
+    kind: "video" | "opus" | "text" | "draw" | "live" | "forward" | "article" | "upower";
+    text: string;
+    /** 正文里真实存在的 @用户，有 mid 才可点进主页 */
+    mentions?: CommentMember[];
+    /** 正文里的表情：`[打call]` → 图片 URL */
+    emotes?: Record<string, string>;
+    pubTime: number;
+    pubTimeLabel?: string;
+    pubAction?: string;
+    authorMid?: number;
+    authorName?: string;
+    authorFace?: string;
+    cover?: string;
+    /** 图文多图 */
+    images?: string[];
+    /** 发布 IP 属地，如「辽宁」 */
+    ipLocation?: string;
+    /** 专栏 cv 号，投稿文章动态会有 */
+    cvId?: number;
+    bvid?: string;
+    title?: string;
+    duration?: number;
+    /** 评论区 oid（可能是动态 id / avid / 相簿 id 等大整数，必须用字符串） */
+    commentId?: string;
+    /** 评论区 type：1 视频 / 11 相簿 / 12 专栏 / 17 动态文字等 */
+    commentType?: number;
+    /** 当前用户是否已点赞该动态 */
+    liked?: boolean;
+    /** 当前用户是否已收藏该图文 */
+    favorited?: boolean;
+    /** 空间动态是否置顶 */
+    pinned?: boolean;
+    /** 动态卡片装扮 id，用于「使用此卡片背景」 */
+    cardItemId?: number;
+    /** 装扮名称 */
+    cardName?: string;
+    /** 直播间号 / 跳转 */
+    liveRoomId?: number;
+    liveUrl?: string;
+    liveState?: number;
+    /** 时间旁的粉标，如「充电专属」 */
+    exclusiveTag?: string;
+    /** 充电卡按钮文案，如「88元充电」 */
+    chargeButton?: string;
+    /** 充电落地页 / H5 */
+    chargeUrl?: string;
+    stats?: {
+        view?: number;
+        like?: number;
+        reply?: number;
+        danmaku?: number;
+        forward?: number;
+        favorite?: number;
+    };
+    /** 转发动态里被转的原内容 */
+    orig?: SpaceDynamicItem;
+    /** 正文下方的投票卡片 */
+    vote?: DynamicVoteCard;
+    /** 正文下方的抽奖卡片 */
+    lottery?: DynamicLotteryCard;
+}
+export type DynamicFeedType = "all" | "video" | "article";
+export interface SpaceDynamicPage {
+    items: SpaceDynamicItem[];
+    offset: string;
+    hasMore: boolean;
+    updateBaseline?: string;
+    updateNum?: number;
+}
+/** 历史记录分类（对应接口 type） */
+export type HistoryFeedType = "all" | "archive" | "live" | "article";
+/** 时长筛选，语义对齐全站搜索 duration */
+export type HistoryDurationFilter = 0 | 1 | 2 | 3 | 4;
+/** 设备筛选（映射 history.dt） */
+export type HistoryDeviceFilter = "all" | "pc" | "phone" | "pad" | "tv";
+export interface HistoryCursor {
+    max: number;
+    viewAt: number;
+    business: string;
+}
+export interface HistoryFilters {
+    keyword?: string;
+    /** 搜索接口页码 pn；无关键词时忽略 */
+    page?: number;
+    duration?: HistoryDurationFilter;
+    device?: HistoryDeviceFilter;
+    /** 观看时间下限（秒） */
+    fromTime?: number;
+    /** 观看时间上限（秒） */
+    toTime?: number;
+}
+export interface HistoryItem {
+    id: string;
+    kid: number;
+    title: string;
+    cover: string;
+    covers?: string[];
+    authorName: string;
+    authorFace: string;
+    authorMid: number;
+    viewAt: number;
+    progress: number;
+    duration: number;
+    showTitle?: string;
+    badge?: string;
+    tagName?: string;
+    liveStatus?: number;
+    business: string;
+    bvid?: string;
+    oid: number;
+    cid?: number;
+    uri?: string;
+    /** 观看设备代码：1/3/5/7 手机，2 PC，4/6 平板，33 TV */
+    dt?: number;
+    favorited?: boolean;
+}
+export interface HistoryPage {
+    items: HistoryItem[];
+    cursor: HistoryCursor;
+    hasMore: boolean;
+}
+export type MessageSessionFilter = "all" | "followed" | "unfollowed" | "group" | "intercepted";
+export type MessageFeedKind = "reply" | "at" | "like";
+export interface MessageUnread {
+    reply: number;
+    at: number;
+    like: number;
+    sys: number;
+    chat: number;
+    group: number;
+    dustbin: number;
+    /** 新增粉丝未读 */
+    fans: number;
+}
+export interface NewFan {
+    mid: number;
+    name: string;
+    face: string;
+    sign: string;
+    /** 关注我的时间（秒） */
+    time: number;
+    /** 已互相关注 */
+    mutual: boolean;
+    officialTitle: string;
+}
+export interface NewFansPage {
+    items: NewFan[];
+    page: number;
+    total: number;
+    hasMore: boolean;
+}
+export interface MessageSession {
+    talkerId: string;
+    sessionType: number;
+    name: string;
+    face: string;
+    unread: number;
+    pinned: boolean;
+    muted: boolean;
+    followed: boolean;
+    /** 对方在我的特别关注分组里 */
+    special: boolean;
+    live: boolean;
+    systemType: number;
+    preview: string;
+    time: number;
+    sessionTs: number;
+    maxSeqno: string;
+}
+export interface MessageSessionPage {
+    items: MessageSession[];
+    hasMore: boolean;
+    endTs: number;
+}
+export interface ChatEmote {
+    text: string;
+    url: string;
+}
+export interface ChatMessage {
+    seqno: string;
+    msgKey: string;
+    senderUid: number;
+    msgType: number;
+    status: number;
+    time: number;
+    text: string;
+    imageUrl: string;
+    title: string;
+    jumpUrl: string;
+    cover: string;
+    source: number;
+    mine: boolean;
+    views: number;
+    pubDate: string;
+}
+export interface ChatPage {
+    messages: ChatMessage[];
+    emotes: ChatEmote[];
+    hasMore: boolean;
+    minSeqno: string;
+    maxSeqno: string;
+}
+export interface MessageFeedUser {
+    mid: number;
+    name: string;
+    face: string;
+}
+export interface MessageFeedItem {
+    id: string;
+    time: number;
+    users: MessageFeedUser[];
+    counts: number;
+    business: string;
+    title: string;
+    content: string;
+    quote: string;
+    cover: string;
+    uri: string;
+    subjectId: number;
+    businessId: number;
+    rootId: number;
+    sourceId: number;
+}
+export interface MessageFeedPage {
+    items: MessageFeedItem[];
+    cursorId: number;
+    cursorTime: number;
+    isEnd: boolean;
+}
+export interface SystemNotice {
+    id: string;
+    cursor: string;
+    title: string;
+    content: string;
+    timeText: string;
+    time: number;
+    cover: string;
+    uri: string;
+    sourceName: string;
+}
+export interface SystemNoticePage {
+    items: SystemNotice[];
+    cursor: string;
+    isEnd: boolean;
+}
+export interface MessageSettings {
+    msgNotify: boolean;
+    showUnfollowed: boolean;
+    foldUnfollowed: boolean;
+    foldGroup: boolean;
+    blockWords: string[];
+}
+/** 我的评论 / 弹幕足迹 */
+export type FootprintKind = "comment" | "danmaku";
+export interface FootprintItem {
+    /** comment:rpid / danmaku:id / local:… */
+    id: string;
+    kind: FootprintKind;
+    text: string;
+    /** Unix 秒 */
+    time: number;
+    /** 视频 aid / 专栏 cv / 动态 id 等 */
+    oid: number;
+    /** 评论区 type：1 视频、12 专栏、11/17 动态… */
+    type?: number;
+    rpid?: string;
+    /** 弹幕在视频内进度（毫秒） */
+    progressMs?: number;
+    bvid?: string;
+    /** aicu 旧索引 / local 本应用里新发 / bili 从 B 站评论区对上的 */
+    source: "aicu" | "local" | "bili";
+}
+export interface FootprintListQuery {
+    kind: FootprintKind;
+    keyword?: string;
+    /** Unix 秒，含 */
+    fromTs?: number;
+    /** Unix 秒，含 */
+    toTs?: number;
+    offset?: number;
+    limit?: number;
+}
+export interface FootprintListResult {
+    items: FootprintItem[];
+    total: number;
+    syncedAt: number | null;
+    hasMore: boolean;
+    replyDone: boolean;
+    danmakuDone: boolean;
+}
+export interface FootprintSyncProgress {
+    running: boolean;
+    phase: "idle" | "challenge" | "comment" | "danmaku" | "verify" | "recent" | "done" | "error";
+    fetched: number;
+    totalHint: number;
+    /** 当前同步页码（评论/弹幕各自计数） */
+    page?: number;
+    message: string;
+}
+export type FootprintSyncKinds = FootprintKind | "all";
+export interface UserCollectionItem {
+    id: number;
+    kind: "season" | "series";
+    title: string;
+    cover: string;
+    description: string;
+    total: number;
+    /** 订阅/收藏他人的合集时，创建者 mid */
+    ownerMid?: number;
+    source?: "created" | "subscribed";
+}
+export interface FavMediaItem {
+    id: number;
+    type: number;
+    title: string;
+    cover: string;
+    intro: string;
+    link: string;
+    bvid: string;
+    upper: {
+        mid: number;
+        name: string;
+    };
+    duration: number;
+    playCount: number;
+    favTime: number;
+}
+export interface FavMediasPage {
+    items: FavMediaItem[];
+    page: number;
+    hasMore: boolean;
+}
+export interface OpusFavItem {
+    id: string;
+    title: string;
+    cover: string;
+    summary: string;
+    url: string;
+    author: string;
+}
+export interface OpusFavPage {
+    items: OpusFavItem[];
+    page: number;
+    hasMore: boolean;
+}
+export interface SpaceOpusPage {
+    items: OpusFavItem[];
+    offset: string;
+    hasMore: boolean;
+}
+export interface CheeseCourseItem {
+    seasonId: number;
+    title: string;
+    cover: string;
+    subtitle: string;
+    epCount: number;
+    playCount: number;
+    status: string;
+    url: string;
+    /** cheese 课堂；upower 充电专属，不属于课堂 */
+    kind: "cheese" | "upower";
+    /** UP mid，充电专属用来拼空间合集链接、核对是否仍在包月 */
+    mid?: number;
+    /** 已过期（充电未续费）；充电 tab 放进「已过期」 */
+    expired?: boolean;
+}
+export interface CheeseCoursePage {
+    list: CheeseCourseItem[];
+    page: number;
+    hasMore: boolean;
+    total: number;
+}
+/** 我的充电：包月充电过的 UP，专属合集挂在对应 UP 下 */
+export interface ChargeUpItem {
+    mid: number;
+    name: string;
+    face: string;
+    expireTime: number;
+    privilegeName: string;
+    url: string;
+    expired: boolean;
+    exclusives: CheeseCourseItem[];
+}
+export interface ChargeRecordResult {
+    active: ChargeUpItem[];
+    expired: ChargeUpItem[];
+}
+export interface UserCollectionsPage {
+    seasons: UserCollectionItem[];
+    series: UserCollectionItem[];
+    page: number;
+    hasMore: boolean;
+}
+export type CollectionListKind = "subscribed" | "created";
+export interface CollectionGroup {
+    l1: string;
+    l2: string;
+    /** manual 为手动移动，重新整理时不覆盖 */
+    source: "rule" | "ai" | "manual";
+}
+/** new：只整理还没分类的；all：除手动外全部重来 */
+export type CollectionClassifyMode = "new" | "all";
+/** key 为 `${kind}:${id}`，见 collectionGroupKey */
+export type CollectionGroupMap = Record<string, CollectionGroup>;
+export interface CollectionClassifyResult {
+    items: UserCollectionItem[];
+    groups: CollectionGroupMap;
+    message: string;
+}
+export interface CollectionClassifyProgress {
+    done: number;
+    total: number;
+    message: string;
+}
+export interface BangumiFollowItem {
+    seasonId: number;
+    title: string;
+    cover: string;
+    evaluate: string;
+    progress: string;
+    url: string;
+}
+export interface BangumiFollowPage {
+    list: BangumiFollowItem[];
+    page: number;
+    hasMore: boolean;
+    total: number;
+}
+export interface CategoryL1 {
+    id: number;
+    name: string;
+    icon: string;
+    sortOrder: number;
+}
+export interface CategoryL2 {
+    id: number;
+    categoryL1Id: number;
+    name: string;
+    sortOrder: number;
+}
+export interface CategoryL3 {
+    id: number;
+    categoryL2Id: number;
+    name: string;
+    sortOrder: number;
+}
+export interface CategoryTreeL3Node {
+    id: number;
+    name: string;
+    sortOrder: number;
+    count?: number;
+}
+export interface CategoryTreeL2Node {
+    id: number;
+    name: string;
+    sortOrder: number;
+    count?: number;
+    children: CategoryTreeL3Node[];
+}
+export interface CategoryTreeNode {
+    id: number;
+    name: string;
+    icon: string;
+    sortOrder: number;
+    count?: number;
+    children: CategoryTreeL2Node[];
+}
+export interface FavoriteItemAssignment {
+    id: number;
+    mediaId: number;
+    avid: number;
+    bvid: string;
+    title: string;
+    cover?: string;
+    upperName?: string;
+    duration?: number;
+    categoryL1Id: number | null;
+    categoryL2Id: number | null;
+    categoryL3Id: number | null;
+}
+export type LocalCategoryLevel = "all" | "l1" | "l2" | "l3" | "uncategorized";
+export interface LocalCategorySelection {
+    level: LocalCategoryLevel;
+    id: number | null;
+}
+export interface UpGroup {
+    id: number;
+    name: string;
+    color: string;
+    isAiGenerated: boolean;
+    sortOrder: number;
+    parentId: number | null;
+    memberCount: number;
+}
+export interface UpGroupTreeL2Node {
+    id: number;
+    name: string;
+    color: string;
+    sortOrder: number;
+    count: number;
+}
+export interface UpGroupTreeNode {
+    id: number;
+    name: string;
+    color: string;
+    sortOrder: number;
+    count: number;
+    children: UpGroupTreeL2Node[];
+}
+/** 本地分组里每位 UP 的一级 / 二级路径，给关注搜索联想用 */
+export interface UpAssignmentPath {
+    mid: number;
+    l1: string;
+    l2: string;
+    l1Id: number;
+    l2Id: number;
+    source: string;
+    confidence: number;
+}
+export type UpGroupSelectionLevel = "all" | "l1" | "l2" | "uncategorized";
+export interface UpGroupSelection {
+    level: UpGroupSelectionLevel;
+    id: number | null;
+}
+export interface AiConfig {
+    /** 平台预设；旧数据可能没有，按 baseUrl 推断 */
+    provider?: AiProviderId;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+}
+/** shallow 只判断新关注 / 没判断过的 UP；deep 按当前规则全部重判 */
+export type UpClassifyMode = "shallow" | "deep";
+export interface UpClassifyInfo {
+    /** 有缓存分类的 UP 数 */
+    cached: number;
+    /** 其中用旧规则判断的 */
+    stale: number;
+    /** 上次深度整理没跑完（规则没变时可以接着跑） */
+    deepPending: boolean;
+    /** 正在跑的分类任务 */
+    runningTaskId: number | null;
+}
+export interface UpPortraitTag {
+    l1: string;
+    l2: string;
+    score: number;
+}
+export interface UpPortraitDomain {
+    id: string;
+    parentId: string | null;
+    name: string;
+    level: 1 | 2;
+    count: number;
+    color: string;
+}
+export interface UpPortraitLink {
+    source: string;
+    target: string;
+    weight: number;
+    /** parent：二级挂在一级下；cross：同一位 UP 跨了两个领域；l1：一级之间有交集 */
+    kind: "parent" | "cross" | "l1";
+}
+export interface UpPortraitMember {
+    mid: number;
+    uname: string;
+    face: string;
+    /** 主领域节点 id */
+    domainId: string;
+    /** 其余领域节点 id */
+    also: string[];
+    tags: string[];
+    headline: string;
+}
+/** 关注 UP 画像库投影成的领域图。点是领域，人数决定点的大小。 */
+export interface UpPortraitGraph {
+    updatedAt: number;
+    upCount: number;
+    taggedCount: number;
+    /** 用过近期投稿标题的人数；其余只按昵称、签名和已有分组贴标签 */
+    titledCount: number;
+    domains: UpPortraitDomain[];
+    links: UpPortraitLink[];
+    members: UpPortraitMember[];
+}
+export interface UpPortraitProgress {
+    running: boolean;
+    phase: "followings" | "tagging" | "done" | "error";
+    done: number;
+    /** 关注列表阶段还不知道总数时为 0 */
+    total: number;
+    message: string;
+}
+/** 收藏全量本地分类的断点：进收藏页时据此自动接着跑 */
+export interface FavClassifyResumeInfo {
+    /** 当前进程里还在跑的任务 */
+    runningTaskId: number | null;
+    /** 上次没跑完（退出 / 被风控打断）留下的进度 */
+    pending: boolean;
+    doneFolders: number;
+    classified: number;
+}
+export interface ClassificationTask {
+    id: number;
+    type: string;
+    status: "pending" | "running" | "done" | "failed";
+    progress: number;
+    message: string;
+}
+export type Theme = "light" | "dark";
+export interface BiliDeskApi {
+    auth: {
+        getQrCode: () => Promise<QrLoginResult>;
+        pollLogin: (qrcodeKey: string) => Promise<AuthPollResult>;
+        logout: () => Promise<void>;
+        getStatus: () => Promise<UserInfo>;
+    };
+    bili: {
+        getRecommend: (options?: {
+            freshIdx?: number;
+            freshIdx1h?: number;
+            ps?: number;
+        }) => Promise<RecommendPage>;
+        getPopularVideos: (page?: number) => Promise<PopularFeedPage>;
+        /** 综合热门全量（官方固定约 500 条），按热门顺序带 rank */
+        getAllPopularVideos: () => Promise<PopularVideoItem[]>;
+        getWeeklySeriesList: () => Promise<WeeklySeriesMeta[]>;
+        getWeeklySeries: (number: number) => Promise<WeeklySeriesDetail>;
+        getPreciousVideos: () => Promise<PreciousVideosPage>;
+        getRankingVideos: (rid?: number) => Promise<PopularVideoItem[]>;
+        getMusicRankPeriods: () => Promise<MusicRankPeriod[]>;
+        getMusicRankList: (listId: number) => Promise<MusicRankItem[]>;
+        getLiveRecommend: (page?: number) => Promise<LiveRecommendPage>;
+        getFollowingLives: () => Promise<FollowingLivePage>;
+        getLiveRoom: (roomId: number) => Promise<LiveRoomDetail>;
+        getLivePlayUrl: (roomId: number, qn?: number) => Promise<LivePlayInfo>;
+        getLiveDanmuInfo: (roomId: number) => Promise<LiveDanmuInfo>;
+        getLiveDanmuHistory: (roomId: number) => Promise<LiveChatMessage[]>;
+        getLiveEmotes: (roomId: number) => Promise<Record<string, string>>;
+        sendLiveDanmu: (roomId: number, message: string) => Promise<void>;
+        getLiveRoomViewers: (roomId: number, uid?: number) => Promise<number>;
+        getVideo: (bvid: string) => Promise<VideoDetail>;
+        getRelatedVideos: (bvid: string) => Promise<VideoItem[]>;
+        getVideoOnlineTotal: (aid: number, cid: number, bvid?: string) => Promise<VideoOnlineTotal>;
+        getVideoSubtitles: (bvid: string, cid: number) => Promise<VideoSubtitleTrack[]>;
+        getPlayUrl: (bvid: string, cid: number, qn?: number, options?: {
+            preferMp4?: boolean;
+        }) => Promise<VideoPlayInfo>;
+        fetchMediaRange: (url: string, range: string | undefined, referer: string) => Promise<Uint8Array>;
+        getVideoRelation: (bvid: string, aid: number) => Promise<VideoRelation>;
+        tripleVideo: (aid: number, bvid: string) => Promise<UgcTripleResult>;
+        getVideoAiSummary: (bvid: string, cid: number, upMid: number) => Promise<VideoAiSummary | null>;
+        dislikeRecommend: (payload: RecommendDislikePayload) => Promise<void>;
+        getMentionSuggest: (keyword: string) => Promise<MentionSuggestItem[]>;
+        getDanmakuHistoryDates: (cid: number, month: string) => Promise<string[]>;
+        getDanmakuHistory: (cid: number, date: string) => Promise<DanmakuItem[]>;
+        syncDanmakuConfig: (config: DanmakuCloudConfig) => Promise<void>;
+        getVideoSnapshot: (bvid: string, cid: number) => Promise<VideoSnapshot | null>;
+        getVipCenter: () => Promise<VipCenterInfo>;
+        claimVipExperience: () => Promise<string>;
+        getVipPrivileges: () => Promise<VipPrivilegeItem[]>;
+        receiveVipPrivilege: (type: number) => Promise<void>;
+        getExpReward: () => Promise<ExpRewardStatus>;
+        getCoinLog: () => Promise<MemberLogItem[]>;
+        getExpLog: () => Promise<MemberLogItem[]>;
+        getFansMedals: (page?: number) => Promise<FansMedalPage>;
+        wearFansMedal: (medalId: number | null) => Promise<void>;
+        likeVideo: (aid: number, like: boolean) => Promise<void>;
+        dislikeVideo: (aid: number, dislike: boolean) => Promise<void>;
+        addCoin: (payload: AddCoinPayload) => Promise<void>;
+        shareVideo: (aid: number, bvid: string) => Promise<boolean>;
+        reportWatchHeartbeat: (payload: WatchHeartbeatPayload) => Promise<void>;
+        getDanmakuList: (cid: number) => Promise<DanmakuItem[]>;
+        sendDanmaku: (payload: SendDanmakuPayload) => Promise<void>;
+        getCommandDanmakuList: (aid: number, cid: number) => Promise<CommandDanmakuItem[]>;
+        postCommandGrade: (payload: PostCommandGradePayload) => Promise<{
+            midScore: number;
+        }>;
+        postCommandVote: (payload: PostCommandVotePayload) => Promise<{
+            myVote: number;
+        }>;
+        getDanmakuFilters: () => Promise<DanmakuFilter[]>;
+        addDanmakuFilter: (text: string, kind?: DanmakuFilterKind) => Promise<void>;
+        recallDanmaku: (cid: number, dmid: string) => Promise<string>;
+        removeDanmakuFilter: (id: number) => Promise<void>;
+        likeDanmaku: (cid: number, dmid: string, like: boolean) => Promise<void>;
+        reportDanmaku: (cid: number, dmid: string, reason?: number) => Promise<void>;
+        getVideoChapters: (bvid: string, cid: number) => Promise<VideoChapter[]>;
+        getVideoHeatmap: (bvid: string, cid: number) => Promise<number[]>;
+        getArchiveNotes: (aid: number) => Promise<ArchiveNote[]>;
+        addArchiveNote: (aid: number, title: string, text: string) => Promise<void>;
+        downloadVideo: (bvid: string, cid: number, qn?: number) => Promise<boolean>;
+        getSeason: (kind: "bangumi" | "cheese", id: number, by?: "season" | "ep") => Promise<SeasonDetail>;
+        getSeasonPlayUrl: (kind: "bangumi" | "cheese", epId: number, cid: number, qn?: number) => Promise<VideoPlayInfo>;
+        setSeasonFollow: (kind: "bangumi" | "cheese", seasonId: number, follow: boolean) => Promise<void>;
+        getChannelVideos: (channelId: number, page?: number) => Promise<ChannelVideoPage>;
+        getAudioSong: (sid: number) => Promise<AudioSong>;
+        updateMyProfile: (input: {
+            name?: string;
+            sign?: string;
+        }) => Promise<void>;
+        updateMyFace: (file: BinaryImageFile) => Promise<string>;
+        getWallet: () => Promise<WalletBalance>;
+        /** 与收藏夹本地分类同一套标题打分，返回 key → 分类路径；分不出的不返回 */
+        classifyTitles: (items: Array<{
+            key: string;
+            title: string;
+            upper?: string;
+        }>) => Promise<Record<string, {
+            l1: string;
+            l2?: string;
+            l3?: string;
+        }>>;
+        getComments: (aid: number, page?: number, sort?: 0 | 1 | 2, offset?: string, seekRpid?: number) => Promise<CommentPage>;
+        getCommentReplies: (aid: number, root: number, page?: number) => Promise<CommentPage>;
+        addComment: (aid: number, message: string, root?: number, parent?: number, images?: BinaryImageFile[]) => Promise<CommentItem | null>;
+        likeComment: (aid: number, rpid: number, like: boolean) => Promise<void>;
+        hateComment: (oid: string, type: number, rpid: number | string, hate: boolean) => Promise<void>;
+        pinComment: (oid: string, type: number, rpid: number, pin: boolean) => Promise<void>;
+        deleteComment: (oid: string, type: number, rpid: number | string) => Promise<void>;
+        reportComment: (oid: string, type: number, rpid: number | string, reason: number) => Promise<void>;
+        translateComment: (oid: string, type: number, rpid: number | string) => Promise<string>;
+        getReplyEmotes: () => Promise<ReplyEmotePanel>;
+        getFavFolders: () => Promise<FavFolder[]>;
+        createFavFolder: (payload: CreateFavFolderPayload) => Promise<FavFolder>;
+        getFavFolderInfo: (mediaId: number) => Promise<FavFolder>;
+        editFavFolder: (payload: EditFavFolderPayload) => Promise<FavFolder>;
+        deleteFavFolder: (mediaId: number) => Promise<void>;
+        sortFavFolders: (mediaIds: number[]) => Promise<void>;
+        getVideoFavFolders: (aid: number) => Promise<VideoFavFolder[]>;
+        suggestFavFolder: (payload: SuggestFavFolderPayload) => Promise<SuggestFavFolderResult | null>;
+        setVideoFavFolders: (aid: number, addMediaIds: number[], delMediaIds: number[]) => Promise<void>;
+        getFavResources: (mediaId: number, page?: number, riskRetry?: "short" | "long", expectedCount?: number) => Promise<FavResourcesPage>;
+        removeFavResources: (mediaId: number, aids: number[]) => Promise<void>;
+        moveFavResources: (srcMediaId: number, tarMediaId: number, aids: number[]) => Promise<void>;
+        cleanFavResources: (mediaId: number) => Promise<CleanFavResourcesResult>;
+        getFollowings: (page?: number, order?: FollowingOrder) => Promise<FollowingUp[]>;
+        getFollowTags: () => Promise<FollowTag[]>;
+        createFollowTag: (name: string) => Promise<FollowTag>;
+        renameFollowTag: (tagId: number, name: string) => Promise<void>;
+        deleteFollowTag: (tagId: number) => Promise<void>;
+        previewFollowTagSync: (followedMids: number[]) => Promise<FollowTagSyncPlan>;
+        startFollowTagSync: (planId: string) => Promise<void>;
+        getFollowTagSyncStatus: () => Promise<FollowTagSyncStatus>;
+        cancelFollowTagSync: () => Promise<void>;
+        getFollowingsInTag: (tagId: number, page?: number, order?: FollowingOrder) => Promise<FollowingsPage>;
+        getUserRelationList: (mid: number, type: UserRelationListType, page?: number) => Promise<UserRelationListPage>;
+        getUserFollowTags: (mid: number) => Promise<number[]>;
+        setUserFollowTags: (mid: number, tagIds: number[]) => Promise<void>;
+        getUpProfile: (mid: number) => Promise<UpProfile>;
+        getUpRelation: (mid: number) => Promise<UpRelation>;
+        modifyFollow: (mid: number, follow: boolean) => Promise<void>;
+        modifySpecialFollow: (mid: number, special: boolean) => Promise<void>;
+        getBlacklist: (page?: number) => Promise<BlacklistPage>;
+        modifyBlock: (mid: number, block: boolean) => Promise<void>;
+        getUpVideos: (mid: number, page?: number, order?: UpVideosOrder, keyword?: string, specialType?: string) => Promise<UpVideosPage>;
+        /** UP 公开课堂，navnum.pugv > 0 时才有 */
+        getUpCourses: (mid: number, page?: number) => Promise<CheeseCoursePage>;
+        searchVideos: (keyword: string, page?: number, order?: SearchOrder, apiStartPage?: number, pageSize?: number) => Promise<SearchVideosPage>;
+        /** bvid → 充电角标文案，空串表示已确认不是充电专属 */
+        lookupChargeBadges: (bvids: string[]) => Promise<Record<string, string>>;
+        searchUsers: (keyword: string, page?: number, order?: SearchUserOrder, userType?: SearchUserTypeFilter) => Promise<SearchUsersPage>;
+        searchArticles: (keyword: string, page?: number, order?: SearchArticleOrder) => Promise<SearchArticlesPage>;
+        searchMedia: (keyword: string, kind: SearchMediaKind, page?: number) => Promise<SearchMediaPage>;
+        searchLiveRooms: (keyword: string, page?: number, order?: SearchLiveOrder) => Promise<SearchLivePage>;
+        getSearchSuggest: (term: string) => Promise<SearchSuggestItem[]>;
+        getSearchTypeCounts: (keyword: string) => Promise<SearchTypeCounts>;
+        getToViewList: () => Promise<ToViewList>;
+        addToView: (aid: number, bvid: string, video?: VideoItem, forceLocal?: boolean) => Promise<ToViewAddResult>;
+        removeFromToView: (aid: number) => Promise<void>;
+        clearToView: () => Promise<void>;
+        getLocalToViewList: () => Promise<ToViewList>;
+        removeFromLocalToView: (bvid: string) => Promise<void>;
+        removeManyFromLocalToView: (bvids: string[]) => Promise<void>;
+        scanIntegrity: (scope?: IntegrityScanScope) => Promise<IntegrityScanResult>;
+        getIntegrityArchive: () => Promise<IntegrityScanResult>;
+        dismissInvalidVideo: (id: string) => Promise<IntegrityScanResult>;
+        dismissAbnormalFollowing: (mid: number) => Promise<IntegrityScanResult>;
+        clearIntegrityArchive: (scope?: IntegrityScanScope) => Promise<IntegrityScanResult>;
+        onIntegrityProgress: (callback: (progress: IntegrityScanProgress) => void) => () => void;
+        scanUpActivity: () => Promise<UpActivityArchive>;
+        getUpActivityArchive: () => Promise<UpActivityArchive>;
+        clearUpActivityArchive: () => Promise<UpActivityArchive>;
+        removeUpActivityRecords: (mids: number[]) => Promise<UpActivityArchive>;
+        onUpActivityProgress: (callback: (progress: UpActivityScanProgress) => void) => () => void;
+        getSpaceDynamics: (mid: number, offset?: string) => Promise<SpaceDynamicPage>;
+        getSpaceOpus: (mid: number, offset?: string) => Promise<SpaceOpusPage>;
+        getFollowDynamics: (offset?: string, type?: DynamicFeedType) => Promise<SpaceDynamicPage>;
+        getDynamicDetail: (id: string) => Promise<SpaceDynamicItem>;
+        doDynamicVote: (voteId: string, optionIdxs: number[]) => Promise<DynamicVoteCard>;
+        likeDynamic: (id: string, like: boolean) => Promise<void>;
+        favoriteDynamic: (id: string, favorite: boolean) => Promise<void>;
+        setDynamicTop: (id: string, top: boolean) => Promise<void>;
+        removeDynamic: (id: string) => Promise<void>;
+        reportDynamic: (id: string, accusedUid: number, reasonType: number) => Promise<void>;
+        equipDynamicCard: (itemId: number) => Promise<void>;
+        createDynamic: (text: string, images?: BinaryImageFile[], options?: DynamicPublishOptions) => Promise<CreatedDynamic>;
+        editDynamic: (id: string, text: string, images?: BinaryImageFile[], options?: DynamicPublishOptions) => Promise<void>;
+        setDynamicPrivate: (id: string, privatePub: boolean) => Promise<void>;
+        searchTopics: (keyword: string) => Promise<TopicSuggest[]>;
+        getTopicHead: (topicId: number) => Promise<TopicHead>;
+        favoriteTopic: (topicId: number, favorite: boolean) => Promise<void>;
+        repostDynamic: (id: string, text?: string) => Promise<CreatedDynamic>;
+        getHotSearch: () => Promise<HotSearchItem[]>;
+        getTopicDynamics: (topicId: number, offset?: string) => Promise<SpaceDynamicPage>;
+        getArticle: (id: number) => Promise<ArticleDetail>;
+        likeArticle: (id: number, like: boolean) => Promise<void>;
+        coinArticle: (id: number, upMid: number, multiply?: 1 | 2) => Promise<void>;
+        favoriteArticle: (id: number, favorite: boolean) => Promise<void>;
+        getTargetComments: (oid: string, type: number, page?: number, sort?: 0 | 1 | 2, offset?: string, seekRpid?: number) => Promise<CommentPage>;
+        getTargetCommentReplies: (oid: string, type: number, root: number, page?: number) => Promise<CommentPage>;
+        addTargetComment: (oid: string, type: number, message: string, root?: number, parent?: number, images?: BinaryImageFile[]) => Promise<CommentItem | null>;
+        likeTargetComment: (oid: string, type: number, rpid: number, like: boolean) => Promise<void>;
+        getWatchHistory: (type?: HistoryFeedType, cursor?: HistoryCursor, filters?: HistoryFilters) => Promise<HistoryPage>;
+        deleteWatchHistory: (item: {
+            business: string;
+            oid: number;
+            kid?: number;
+        }) => Promise<void>;
+        clearWatchHistory: () => Promise<void>;
+        getHistoryShadow: () => Promise<boolean>;
+        setHistoryShadow: (record: boolean) => Promise<void>;
+        getUserCollections: (mid: number, page?: number) => Promise<UserCollectionsPage>;
+        getSeasonArchives: (mid: number, seasonId: number, page?: number) => Promise<UpVideosPage>;
+        getSeriesArchives: (seriesId: number, page?: number) => Promise<UpVideosPage>;
+        getBangumiFollowList: (mid: number, type?: 1 | 2, page?: number) => Promise<BangumiFollowPage>;
+        getSubscribedCollections: (page?: number) => Promise<UserCollectionsPage>;
+        getLocalCollections: () => Promise<UserCollectionItem[]>;
+        getCollectionGroups: () => Promise<CollectionGroupMap>;
+        classifyCollections: (mode: CollectionClassifyMode) => Promise<CollectionClassifyResult>;
+        setCollectionGroup: (key: string, group: {
+            l1: string;
+            l2: string;
+        } | null) => Promise<CollectionGroupMap>;
+        renameCollectionGroup: (l1: string, l2: string | null, name: string) => Promise<CollectionGroupMap>;
+        onCollectionClassifyProgress: (callback: (progress: CollectionClassifyProgress) => void) => () => void;
+        getUgcSeasonSubscribed: (seasonId: number) => Promise<boolean>;
+        setUgcSeasonSubscribe: (seasonId: number, subscribe: boolean) => Promise<boolean>;
+        getFavVideoMedias: (page?: number) => Promise<FavMediasPage>;
+        getOpusFavorites: (page?: number) => Promise<OpusFavPage>;
+        getCheeseFollowList: (page?: number, mid?: number) => Promise<CheeseCoursePage>;
+        getUpowerPaidList: () => Promise<ChargeRecordResult>;
+        getMessageUnread: () => Promise<MessageUnread>;
+        getNewFans: (page?: number) => Promise<NewFansPage>;
+        getMessageSessions: (filter?: MessageSessionFilter, endTs?: number) => Promise<MessageSessionPage>;
+        getChatMessages: (talkerId: string, sessionType: number, endSeqno?: string) => Promise<ChatPage>;
+        sendChatMessage: (talkerId: string, sessionType: number, text: string) => Promise<void>;
+        sendChatImage: (talkerId: string, sessionType: number, file: {
+            name: string;
+            mime: string;
+            data: Uint8Array;
+        }) => Promise<void>;
+        sendChatShare: (talkerId: string, sessionType: number, card: ChatShareCard) => Promise<void>;
+        markChatRead: (talkerId: string, sessionType: number, ackSeqno?: string) => Promise<void>;
+        setChatPinned: (talkerId: string, sessionType: number, pinned: boolean) => Promise<void>;
+        setChatMuted: (talkerId: string, sessionType: number, muted: boolean) => Promise<void>;
+        removeChatSession: (talkerId: string, sessionType: number) => Promise<void>;
+        recallChatMessage: (talkerId: string, sessionType: number, msgKey: string) => Promise<void>;
+        getMessageFeed: (kind: MessageFeedKind, cursorId?: number, cursorTime?: number) => Promise<MessageFeedPage>;
+        deleteMessageFeed: (kind: MessageFeedKind, id: string) => Promise<void>;
+        getMyReplies: (cursorId?: number, cursorTime?: number, keyword?: string) => Promise<MessageFeedPage>;
+        getSystemNotices: (cursor?: string) => Promise<SystemNoticePage>;
+        getMessageSettings: () => Promise<MessageSettings>;
+        setMessageSettings: (patch: Partial<Pick<MessageSettings, "msgNotify" | "showUnfollowed" | "foldUnfollowed" | "foldGroup">>) => Promise<MessageSettings>;
+        addMessageBlockWord: (word: string) => Promise<string[]>;
+        removeMessageBlockWord: (word: string) => Promise<string[]>;
+        listFootprint: (query: FootprintListQuery) => Promise<FootprintListResult>;
+        syncFootprint: (kinds?: FootprintSyncKinds, options?: {
+            reset?: boolean;
+        }) => Promise<FootprintSyncProgress>;
+        abortFootprintSync: () => Promise<void>;
+        getFootprintSyncStatus: () => Promise<FootprintSyncProgress>;
+        onFootprintProgress: (callback: (progress: FootprintSyncProgress) => void) => () => void;
+    };
+    taxonomy: {
+        getTree: () => Promise<CategoryTreeNode[]>;
+        createL1: (name: string, icon?: string) => Promise<CategoryL1>;
+        createL2: (categoryL1Id: number, name: string) => Promise<CategoryL2>;
+        createL3: (categoryL2Id: number, name: string) => Promise<CategoryL3>;
+        updateCategoryName: (level: "l1" | "l2" | "l3", id: number, name: string) => Promise<void>;
+        getFavoriteAssignments: () => Promise<FavoriteItemAssignment[]>;
+        classifyAllFavorites: () => Promise<{
+            taskId: number;
+        }>;
+        getFavClassifyResume: () => Promise<FavClassifyResumeInfo>;
+        classifyFolderFavorites: (mediaId: number) => Promise<{
+            taskId: number;
+        }>;
+        organizeBiliFavorites: (overrides?: Record<string, string>) => Promise<{
+            taskId: number;
+        }>;
+        mergeDumpFavIntoDefault: () => Promise<{
+            taskId: number;
+        }>;
+        mergeDuplicateTopicFolders: () => Promise<{
+            taskId: number;
+        }>;
+        getFavTaskStatus: (taskId: number) => Promise<ClassificationTask | null>;
+        enrichFavoriteCovers: () => Promise<{
+            updated: number;
+            remaining: number;
+        }>;
+        getUpGroups: () => Promise<UpGroup[]>;
+        getUpGroupTree: () => Promise<UpGroupTreeNode[]>;
+        createUpGroup: (name: string, color?: string) => Promise<UpGroup>;
+        getUpGroupMemberMids: (selection: UpGroupSelection) => Promise<number[]>;
+        getUpAssignmentPaths: () => Promise<UpAssignmentPath[]>;
+        getUpPortraitGraph: () => Promise<UpPortraitGraph>;
+        rebuildUpPortraits: () => Promise<UpPortraitGraph>;
+        onUpPortraitProgress: (callback: (progress: UpPortraitProgress) => void) => () => void;
+        renameUpGroup: (id: number, name: string) => Promise<void>;
+        reorderUpGroups: (ids: number[]) => Promise<void>;
+    };
+    ai: {
+        getConfig: () => Promise<AiConfig>;
+        setConfig: (config: Partial<AiConfig>) => Promise<AiConfig>;
+        testConnection: () => Promise<{
+            ok: true;
+            reply: string;
+        } | {
+            ok: false;
+            message: string;
+        }>;
+        runUpClassification: (mode?: UpClassifyMode) => Promise<{
+            taskId: number;
+        }>;
+        getUpClassifyInfo: () => Promise<UpClassifyInfo>;
+        getTaskStatus: (taskId: number) => Promise<ClassificationTask | null>;
+    };
+    app: {
+        getTheme: () => Promise<Theme>;
+        setTheme: (theme: Theme) => Promise<Theme>;
+        setThemePreset: (preset: string) => Promise<string>;
+        /** 开启/关闭系统 Acrylic，透出桌面壁纸磨砂 */
+        setWindowGlass: (enabled: boolean) => Promise<boolean>;
+        setFullscreen: (on: boolean) => Promise<boolean>;
+        isFullscreen: () => Promise<boolean>;
+        onFullscreenChange: (callback: (on: boolean) => void) => () => void;
+        /** Windows 下系统标题栏被隐藏，由页面自己画最小化 / 最大化 / 关闭 */
+        customTitleBar: boolean;
+        minimizeWindow: () => Promise<void>;
+        toggleMaximizeWindow: () => Promise<WindowState>;
+        closeWindow: () => Promise<void>;
+        getWindowState: () => Promise<WindowState>;
+        onWindowStateChange: (callback: (state: WindowState) => void) => () => void;
+        onNavigate: (callback: (path: string) => void) => () => void;
+        openExternal: (url: string) => Promise<void>;
+        resolveBiliUrl: (url: string) => Promise<string>;
+        probeShortcut: (accelerator: string) => Promise<{
+            taken: boolean;
+            reason?: string;
+        }>;
+    };
+}
+declare global {
+    interface Window {
+        biliDesk: BiliDeskApi;
+    }
+}
+export {};

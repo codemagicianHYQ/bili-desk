@@ -1,0 +1,195 @@
+import { app } from "electron";
+import fs from "node:fs";
+import path from "node:path";
+const FLUSH_DELAY_MS = 800;
+const cache = new Map();
+const dirty = new Set();
+let flushTimer = null;
+function dirPath() {
+    return path.join(app.getPath("userData"), "footprint");
+}
+function filePath(uid) {
+    return path.join(dirPath(), `${uid}.json`);
+}
+function emptyFile(uid) {
+    return {
+        uid,
+        items: [],
+        removedCommentIds: [],
+        syncedAt: null,
+        replyPn: 1,
+        replyDone: false,
+        dmPn: 1,
+        dmDone: false,
+    };
+}
+function ensureDir() {
+    const dir = dirPath();
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+}
+function readFromDisk(uid) {
+    try {
+        const raw = fs.readFileSync(filePath(uid), "utf8");
+        const parsed = JSON.parse(raw);
+        const base = emptyFile(uid);
+        return {
+            ...base,
+            ...parsed,
+            uid,
+            items: Array.isArray(parsed.items) ? parsed.items : [],
+            removedCommentIds: Array.isArray(parsed.removedCommentIds)
+                ? parsed.removedCommentIds.map((id) => String(id))
+                : [],
+            syncedAt: typeof parsed.syncedAt === "number" ? parsed.syncedAt : null,
+            replyPn: Math.max(1, Number(parsed.replyPn) || 1),
+            replyDone: Boolean(parsed.replyDone),
+            dmPn: Math.max(1, Number(parsed.dmPn) || 1),
+            dmDone: Boolean(parsed.dmDone),
+        };
+    }
+    catch {
+        return emptyFile(uid);
+    }
+}
+function writeToDisk(uid, data) {
+    ensureDir();
+    const tmp = `${filePath(uid)}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data), "utf8");
+    fs.renameSync(tmp, filePath(uid));
+}
+function scheduleFlush() {
+    if (flushTimer)
+        return;
+    flushTimer = setTimeout(() => {
+        flushTimer = null;
+        flushFootprintStore();
+    }, FLUSH_DELAY_MS);
+}
+export function flushFootprintStore() {
+    if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+    }
+    for (const uid of [...dirty]) {
+        const data = cache.get(uid);
+        if (!data) {
+            dirty.delete(uid);
+            continue;
+        }
+        try {
+            writeToDisk(uid, data);
+            dirty.delete(uid);
+        }
+        catch (error) {
+            console.error("[footprint] flush failed", error);
+        }
+    }
+}
+export function loadFootprint(uid) {
+    const hit = cache.get(uid);
+    if (hit)
+        return hit;
+    const data = readFromDisk(uid);
+    cache.set(uid, data);
+    return data;
+}
+function markDirty(uid) {
+    dirty.add(uid);
+    scheduleFlush();
+}
+export function upsertFootprintItems(uid, incoming) {
+    if (incoming.length === 0)
+        return 0;
+    const data = loadFootprint(uid);
+    const removed = new Set(data.removedCommentIds);
+    const map = new Map(data.items.map((item) => [item.id, item]));
+    let added = 0;
+    for (const item of incoming) {
+        if (item.kind === "comment" &&
+            item.rpid &&
+            removed.has(String(item.rpid))) {
+            continue;
+        }
+        const prev = map.get(item.id);
+        if (!prev) {
+            map.set(item.id, item);
+            added += 1;
+            continue;
+        }
+        // 本地即时记录优先保留 bvid；AICU 补全其它字段
+        map.set(item.id, {
+            ...prev,
+            ...item,
+            bvid: item.bvid || prev.bvid,
+            source: prev.source === "local" ? "local" : item.source,
+            text: item.text || prev.text,
+        });
+    }
+    data.items = [...map.values()].sort((a, b) => b.time - a.time);
+    markDirty(uid);
+    return added;
+}
+/** 评论在 B 站删除成功后，从本地足迹去掉，并记住 rpid，避免历史同步又加回来 */
+export function removeFootprintComments(uid, rpids) {
+    const ids = [
+        ...new Set(rpids.map((id) => String(id).trim()).filter(Boolean)),
+    ];
+    if (uid <= 0 || ids.length === 0)
+        return 0;
+    const data = loadFootprint(uid);
+    const drop = new Set(ids);
+    const before = data.items.length;
+    data.items = data.items.filter((item) => !(item.kind === "comment" && item.rpid && drop.has(String(item.rpid))));
+    const removed = new Set(data.removedCommentIds);
+    for (const id of ids)
+        removed.add(id);
+    data.removedCommentIds = [...removed];
+    markDirty(uid);
+    flushFootprintStore();
+    return before - data.items.length;
+}
+export function setFootprintSyncCursor(uid, patch) {
+    const data = loadFootprint(uid);
+    Object.assign(data, patch);
+    markDirty(uid);
+}
+export function resetFootprintSyncCursors(uid) {
+    setFootprintSyncCursor(uid, {
+        replyPn: 1,
+        replyDone: false,
+        dmPn: 1,
+        dmDone: false,
+    });
+}
+export function listFootprint(uid, query) {
+    const data = loadFootprint(uid);
+    const keyword = (query.keyword ?? "").trim().toLowerCase();
+    const fromTs = query.fromTs ?? 0;
+    const toTs = query.toTs ?? Number.MAX_SAFE_INTEGER;
+    const offset = Math.max(0, query.offset ?? 0);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 40));
+    const filtered = data.items.filter((item) => {
+        if (item.kind !== query.kind)
+            return false;
+        if (item.time < fromTs || item.time > toTs)
+            return false;
+        if (keyword && !item.text.toLowerCase().includes(keyword))
+            return false;
+        return true;
+    });
+    return {
+        items: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        syncedAt: data.syncedAt,
+        hasMore: offset + limit < filtered.length,
+        replyDone: data.replyDone,
+        danmakuDone: data.dmDone,
+    };
+}
+export function countFootprintByKind(uid, kind) {
+    return loadFootprint(uid).items.filter((item) => item.kind === kind).length;
+}
+app.on("will-quit", flushFootprintStore);
+process.on("exit", flushFootprintStore);

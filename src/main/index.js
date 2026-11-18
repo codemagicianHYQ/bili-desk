@@ -1,0 +1,94 @@
+import { app, BrowserWindow, session } from "electron";
+import { createMainWindow } from "./window";
+import { registerAllIpc } from "./ipc";
+import { initDb } from "./db";
+import { attachMediaProtocol, registerMediaScheme, startMediaProxy, } from "./services/media-proxy";
+import { biliApi } from "./services/bili-api";
+const LOGIN_KEEPALIVE_MS = 6 * 60 * 60 * 1000;
+for (const stream of [process.stdout, process.stderr]) {
+    stream.on("error", (error) => {
+        if (error?.code === "EPIPE")
+            return;
+    });
+}
+registerMediaScheme();
+// 降低 Electron 被 Cloudflare Turnstile 识别为自动化的概率（AICU 验证窗）
+app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled");
+// Chromium 在视频解码器初始化/探测时可能输出无害的 ffmpeg_common 日志（播放正常时可忽略）
+if (!app.isPackaged) {
+    app.commandLine.appendSwitch("log-level", "3");
+}
+// Windows 透明窗 + Acrylic 需要，否则客户端区域常变成死灰实色
+if (process.platform === "win32") {
+    app.commandLine.appendSwitch("enable-transparent-visuals");
+}
+let mainWindow = null;
+app.whenReady().then(async () => {
+    const mediaUrls = [
+        "*://*.bilibili.com/*",
+        "*://*.hdslb.com/*",
+        "*://*.bilivideo.com/*",
+        "*://*.bilivideo.cn/*",
+        "*://*.mcdn.bilivideo.cn/*",
+        "*://*.akamaized.net/*",
+    ];
+    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: mediaUrls }, (details, callback) => {
+        const isLiveMedia = /live-bvc|\/live[_/-]/i.test(details.url) ||
+            details.url.includes("live.bilivideo");
+        const referer = isLiveMedia
+            ? "https://live.bilibili.com/"
+            : "https://www.bilibili.com/";
+        details.requestHeaders.Referer = referer;
+        // bilivideo CDN 对 Origin 敏感，强行带 Origin 易 403 导致一直缓冲
+        if (details.url.includes("bilivideo.com") ||
+            details.url.includes("bilivideo.cn") ||
+            details.url.includes("akamaized.net")) {
+            delete details.requestHeaders.Origin;
+        }
+        else {
+            details.requestHeaders.Origin = isLiveMedia
+                ? "https://live.bilibili.com"
+                : "https://www.bilibili.com";
+        }
+        if (!details.requestHeaders["User-Agent"]) {
+            details.requestHeaders["User-Agent"] =
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+        }
+        callback({ requestHeaders: details.requestHeaders });
+    });
+    session.defaultSession.webRequest.onHeadersReceived({ urls: mediaUrls }, (details, callback) => {
+        const headers = { ...(details.responseHeaders ?? {}) };
+        const isCdn = details.url.includes("bilivideo.com") ||
+            details.url.includes("bilivideo.cn") ||
+            details.url.includes("akamaized.net");
+        if (isCdn) {
+            for (const key of Object.keys(headers)) {
+                if (key.toLowerCase().startsWith("access-control-")) {
+                    delete headers[key];
+                }
+            }
+            headers["Access-Control-Allow-Origin"] = ["*"];
+            headers["Access-Control-Allow-Headers"] = ["Range"];
+            headers["Access-Control-Allow-Methods"] = ["GET, HEAD, OPTIONS"];
+            headers["Access-Control-Expose-Headers"] = [
+                "Content-Length, Content-Range, Accept-Ranges, Content-Type",
+            ];
+        }
+        callback({ responseHeaders: headers });
+    });
+    initDb();
+    await startMediaProxy();
+    attachMediaProtocol();
+    registerAllIpc();
+    mainWindow = createMainWindow();
+    setInterval(() => void biliApi.keepLoginFresh(), LOGIN_KEEPALIVE_MS);
+    app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+            mainWindow = createMainWindow();
+        }
+    });
+});
+app.on("window-all-closed", () => {
+    if (process.platform !== "darwin")
+        app.quit();
+});

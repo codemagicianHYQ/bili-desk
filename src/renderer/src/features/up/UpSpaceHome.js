@@ -1,0 +1,18 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { OpusAppLink } from "@/components/opus/OpusAppLink";
+import { BiliImage } from "@/components/ui/bili-image";
+import { VideoCard } from "@/components/video/VideoCard";
+import { cn } from "@/lib/utils";
+import { ChevronRight, FileText, Folder } from "lucide-react";
+function SectionHead({ title, count, onMore, }) {
+    return (_jsxs("div", { className: "mb-3 flex items-center justify-between", children: [_jsxs("h3", { className: "text-base font-medium", children: [title, count != null && count > 0 && (_jsx("span", { className: "ml-1.5 text-sm font-normal text-muted-foreground", children: count }))] }), onMore && (_jsxs("button", { type: "button", onClick: onMore, className: "inline-flex items-center text-xs text-muted-foreground transition-colors hover:text-primary", children: ["\u66F4\u591A", _jsx(ChevronRight, { className: "h-3.5 w-3.5" })] }))] }));
+}
+export function UpSpaceHome({ videos, videoCount, opus, opusCount, collections, collectionCount, gridClass, onOpenTab, }) {
+    const hasVideo = videos.length > 0;
+    const hasOpus = opus.length > 0;
+    const hasCollection = collections.length > 0;
+    if (!hasVideo && !hasOpus && !hasCollection) {
+        return (_jsx("p", { className: "text-sm text-muted-foreground", children: "\u8BE5 UP \u6682\u65E0\u516C\u5F00\u7684\u4E3B\u9875\u5185\u5BB9" }));
+    }
+    return (_jsxs("div", { className: "space-y-8", children: [hasVideo && (_jsxs("section", { children: [_jsx(SectionHead, { title: "\u89C6\u9891", count: videoCount || videos.length, onMore: () => onOpenTab("videos") }), _jsx("div", { className: cn("grid gap-4", gridClass), children: videos.slice(0, 6).map((video) => (_jsx(VideoCard, { video: video }, video.bvid))) })] })), hasOpus && (_jsxs("section", { children: [_jsx(SectionHead, { title: "\u56FE\u6587", count: opusCount || opus.length, onMore: () => onOpenTab("opus") }), _jsx("div", { className: "grid gap-3 sm:grid-cols-3", children: opus.slice(0, 3).map((item) => (_jsxs(OpusAppLink, { item: item, className: "overflow-hidden rounded-xl border border-border bg-card transition-colors hover:bg-secondary/40", children: [item.cover ? (_jsx(BiliImage, { src: item.cover, alt: "", className: "aspect-[4/3] w-full object-cover" })) : (_jsx("div", { className: "flex aspect-[4/3] items-center justify-center bg-muted", children: _jsx(FileText, { className: "h-6 w-6 text-muted-foreground" }) })), _jsx("p", { className: "line-clamp-2 p-2.5 text-sm", children: item.title })] }, item.id))) })] })), hasCollection && (_jsxs("section", { children: [_jsx(SectionHead, { title: "\u5408\u96C6\u548C\u7CFB\u5217", count: collectionCount || collections.length, onMore: () => onOpenTab("collections") }), _jsx("div", { className: "grid grid-cols-2 gap-3 md:grid-cols-4", children: collections.slice(0, 4).map((item) => (_jsxs("button", { type: "button", onClick: () => onOpenTab("collections"), className: "overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:bg-secondary/40", children: [item.cover ? (_jsx(BiliImage, { src: item.cover, alt: "", className: "aspect-video w-full object-cover" })) : (_jsx("div", { className: "flex aspect-video items-center justify-center bg-muted", children: _jsx(Folder, { className: "h-6 w-6 text-muted-foreground" }) })), _jsxs("div", { className: "p-2.5", children: [_jsx("p", { className: "line-clamp-2 text-sm font-medium", children: item.title }), _jsxs("p", { className: "mt-1 text-xs text-muted-foreground", children: [item.total, " \u4E2A\u5185\u5BB9"] })] })] }, `${item.kind}-${item.id}`))) })] }))] }));
+}

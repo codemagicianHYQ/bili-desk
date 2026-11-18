@@ -1,14 +1,7 @@
 import axios from "axios";
-import { createHash } from "crypto";
 import { session } from "electron";
+import { extractWbiKey, signWbiParams } from "@shared/wbi-sign";
 import { appStore, getCookieString, setCookies } from "../store/app-store";
-
-const MIXIN_KEY_ENC_TAB = [
-  46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
-  33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
-  26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36,
-  20, 34, 44, 52,
-];
 
 let cachedKeys: { imgKey: string; subKey: string; expires: number } | null =
   null;
@@ -22,11 +15,6 @@ interface NavResponse {
       sub_url?: string;
     };
   };
-}
-
-function extractWbiKey(url: string): string {
-  const filename = url.slice(url.lastIndexOf("/") + 1);
-  return filename.replace(/\.(jpg|jpeg|png|webp).*$/i, "").split("@")[0];
 }
 
 async function ensureBuvid3ForWbi(): Promise<void> {
@@ -114,25 +102,6 @@ async function getWbiKeys(): Promise<{ imgKey: string; subKey: string }> {
   return { imgKey, subKey };
 }
 
-function encWbi(
-  params: Record<string, string | number>,
-  imgKey: string,
-  subKey: string,
-): string {
-  const mixinKey = MIXIN_KEY_ENC_TAB.map((n) => (imgKey + subKey)[n])
-    .join("")
-    .slice(0, 32);
-  const sorted = Object.keys(params).sort();
-  const pairs = sorted.map((key) => {
-    const value = String(params[key]).replace(/[!'()*]/g, "");
-    return `${encodeURIComponent(key)}=${encodeURIComponent(value).replace(/%20/g, "%20")}`;
-  });
-  const query = pairs.join("&");
-  return createHash("md5")
-    .update(query + mixinKey)
-    .digest("hex");
-}
-
 export function defaultHeaders(): Record<string, string> {
   return {
     "User-Agent":
@@ -150,10 +119,7 @@ export async function signParams(
   params: Record<string, string | number>,
 ): Promise<Record<string, string | number>> {
   const { imgKey, subKey } = await getWbiKeys();
-  const wts = Math.floor(Date.now() / 1000);
-  const signed = { ...params, wts };
-  const w_rid = encWbi(signed, imgKey, subKey);
-  return { ...signed, w_rid };
+  return signWbiParams(params, imgKey, subKey);
 }
 
 export function getCsrf(): string {

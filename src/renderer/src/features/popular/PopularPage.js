@@ -1,0 +1,509 @@
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatDisplayedError } from "@/lib/ipc-error";
+import { Link } from "react-router-dom";
+import { BarChart3, ChevronDown, ChevronUp, Flame, Loader2, Music2, Star, Trophy, UserCheck, } from "lucide-react";
+import { RANKING_PARTITIONS } from "@shared/types";
+import { PopularVideoCard } from "@/components/video/PopularVideoCard";
+import { ChargeCoverBadge, useCoverChargeBadge, } from "@/components/video/charge-badge";
+import { BiliImage } from "@/components/ui/bili-image";
+import { Button } from "@/components/ui/button";
+import { PaginationBar } from "@/components/ui/pagination-bar";
+import { useAppStore } from "@/stores/app-store";
+import { useFollowingStore } from "@/stores/following-store";
+import { notifyRefreshDone } from "@/lib/page-refresh";
+import { cn, formatCount, formatDuration } from "@/lib/utils";
+const TABS = [
+    {
+        id: "popular",
+        label: "综合热门",
+        hint: "各个领域中新奇好玩的优质内容都在这里~",
+        icon: Flame,
+        iconClass: "bg-red-500/15 text-red-500",
+    },
+    {
+        id: "weekly",
+        label: "每周必看",
+        hint: "每周精选高质量内容，不容错过",
+        icon: Trophy,
+        iconClass: "bg-amber-400/15 text-amber-400",
+    },
+    {
+        id: "precious",
+        label: "入站必刷",
+        hint: "我不允许还有人没看过这些宝藏视频",
+        icon: Star,
+        iconClass: "bg-orange-500/15 text-orange-400",
+    },
+    {
+        id: "ranking",
+        label: "排行榜",
+        hint: "根据稿件内容质量、近期数据综合展示",
+        icon: BarChart3,
+        iconClass: "bg-pink-500/15 text-pink-400",
+    },
+    {
+        id: "music",
+        label: "全站音乐榜",
+        hint: "全站音乐热度周榜，发现当红作品",
+        icon: Music2,
+        iconClass: "bg-sky-500/15 text-sky-400",
+    },
+];
+const POPULAR_PAGE_SIZE = 40;
+const FILTERS_COLLAPSED_KEY = "bilidesk:popular-filters-collapsed";
+const OTHER_PARTITION = "其他";
+function formatError(err, fallback) {
+    return formatDisplayedError(err, undefined, fallback);
+}
+function formatMusicPeriod(period) {
+    const label = period.period > 0 ? `第 ${period.period} 期` : `榜单 ${period.listId}`;
+    if (!period.publishTime)
+        return label;
+    const date = new Date(period.publishTime * 1000);
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${label} · ${date.getFullYear()}-${m}-${d}`;
+}
+function rankTone(rank) {
+    if (rank === 1)
+        return "text-amber-400";
+    if (rank === 2)
+        return "text-zinc-300";
+    if (rank === 3)
+        return "text-orange-400";
+    return "text-muted-foreground";
+}
+function MusicRankCard({ item }) {
+    const chargeBadge = useCoverChargeBadge(item.bvid);
+    const inner = (_jsxs("div", { className: "group flex gap-3 rounded-xl p-2 transition-colors hover:bg-secondary/60", children: [_jsx("div", { className: cn("flex w-7 shrink-0 items-start justify-center pt-1 text-lg font-bold tabular-nums", rankTone(item.rank)), children: item.rank }), _jsxs("div", { className: "relative w-[148px] shrink-0 overflow-hidden rounded-lg bg-muted", children: [_jsx("div", { className: "aspect-video", children: _jsx(BiliImage, { src: item.cover, alt: item.title, variant: "cover", className: "h-full w-full object-cover" }) }), _jsx(ChargeCoverBadge, { label: chargeBadge, className: "right-1.5 top-1.5" }), item.duration > 0 ? (_jsx("span", { className: "absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[11px] text-white", children: formatDuration(item.duration) })) : null] }), _jsxs("div", { className: "flex min-w-0 flex-1 flex-col py-0.5", children: [_jsx("h3", { className: "line-clamp-2 text-sm font-semibold leading-snug", children: item.title }), _jsx("p", { className: "mt-1 truncate text-xs text-muted-foreground", children: item.singer || item.upName || "未知艺人" }), item.reason ? (_jsx("span", { className: "mt-2 w-fit rounded bg-orange-500/15 px-1.5 py-0.5 text-[11px] font-medium text-orange-400", children: item.reason })) : null, _jsxs("div", { className: "mt-auto flex items-center gap-3 pt-2 text-xs text-muted-foreground", children: [_jsxs("span", { children: ["\u70ED\u5EA6 ", formatCount(item.heat)] }), item.play > 0 ? _jsxs("span", { children: [formatCount(item.play), " \u64AD\u653E"] }) : null] })] })] }));
+    if (!item.bvid)
+        return inner;
+    return _jsx(Link, { to: `/video/${item.bvid}`, children: inner });
+}
+export function PopularPage() {
+    const scrollRef = useRef(null);
+    const [tab, setTab] = useState("popular");
+    const isLogin = useAppStore((state) => Boolean(state.user?.isLogin));
+    const allFollowings = useFollowingStore((state) => state.allFollowings);
+    const ensureAllFollowings = useFollowingStore((state) => state.ensureAllFollowings);
+    const [popularVideos, setPopularVideos] = useState([]);
+    const [popularLoading, setPopularLoading] = useState(false);
+    const [popularError, setPopularError] = useState("");
+    const [popularPage, setPopularPage] = useState(1);
+    const [partition, setPartition] = useState(null);
+    const [subPartition, setSubPartition] = useState(null);
+    const [followOnly, setFollowOnly] = useState(false);
+    const [followLoading, setFollowLoading] = useState(false);
+    const [filtersCollapsed, setFiltersCollapsed] = useState(() => localStorage.getItem(FILTERS_COLLAPSED_KEY) === "1");
+    const toggleFiltersCollapsed = useCallback(() => {
+        setFiltersCollapsed((prev) => {
+            localStorage.setItem(FILTERS_COLLAPSED_KEY, prev ? "0" : "1");
+            return !prev;
+        });
+    }, []);
+    const popularBusyRef = useRef(false);
+    const popularStartedRef = useRef(false);
+    const preciousLoadedRef = useRef(false);
+    const [weeklyList, setWeeklyList] = useState([]);
+    const [weeklyNumber, setWeeklyNumber] = useState(0);
+    const [weeklyVideos, setWeeklyVideos] = useState([]);
+    const [weeklyHint, setWeeklyHint] = useState("");
+    const [weeklyLoading, setWeeklyLoading] = useState(false);
+    const [weeklyError, setWeeklyError] = useState("");
+    const weeklyCacheRef = useRef(new Map());
+    const [preciousVideos, setPreciousVideos] = useState([]);
+    const [preciousHint, setPreciousHint] = useState("");
+    const [preciousLoading, setPreciousLoading] = useState(false);
+    const [preciousError, setPreciousError] = useState("");
+    const [rankingRid, setRankingRid] = useState(0);
+    const [rankingVideos, setRankingVideos] = useState([]);
+    const [rankingLoading, setRankingLoading] = useState(false);
+    const [rankingError, setRankingError] = useState("");
+    const rankingCacheRef = useRef(new Map());
+    const [musicPeriods, setMusicPeriods] = useState([]);
+    const [musicListId, setMusicListId] = useState(0);
+    const [musicItems, setMusicItems] = useState([]);
+    const [musicLoading, setMusicLoading] = useState(false);
+    const [musicError, setMusicError] = useState("");
+    const activeTab = TABS.find((item) => item.id === tab) ?? TABS[0];
+    const weeklyByYear = useMemo(() => {
+        const groups = new Map();
+        for (const item of weeklyList) {
+            const year = item.name.match(/^(\d{4})/)?.[1];
+            const label = year ? `${year} 年` : "更早";
+            groups.set(label, [...(groups.get(label) ?? []), item]);
+        }
+        return [...groups];
+    }, [weeklyList]);
+    const loadPopular = useCallback(async () => {
+        if (popularBusyRef.current)
+            return;
+        popularBusyRef.current = true;
+        setPopularLoading(true);
+        setPopularError("");
+        try {
+            const videos = await window.biliDesk.bili.getAllPopularVideos();
+            setPopularVideos(videos);
+            setPopularPage(1);
+        }
+        catch (err) {
+            setPopularError(formatError(err, "热门列表加载失败"));
+        }
+        finally {
+            popularBusyRef.current = false;
+            setPopularLoading(false);
+        }
+    }, []);
+    const followedMids = useMemo(() => new Set((allFollowings ?? []).map((up) => up.mid)), [allFollowings]);
+    const toggleFollowOnly = () => {
+        if (followOnly) {
+            setFollowOnly(false);
+            return;
+        }
+        setFollowOnly(true);
+        if (allFollowings)
+            return;
+        setFollowLoading(true);
+        void ensureAllFollowings()
+            .catch(() => undefined)
+            .finally(() => setFollowLoading(false));
+    };
+    /** 关注筛选先生效，分区计数跟着变，选中的分区始终能看到当前条件下有几条 */
+    const followScoped = useMemo(() => followOnly
+        ? popularVideos.filter((video) => followedMids.has(video.owner.mid))
+        : popularVideos, [followOnly, popularVideos, followedMids]);
+    const partitionCounts = useMemo(() => {
+        const counts = new Map();
+        for (const video of followScoped) {
+            const name = video.partition || OTHER_PARTITION;
+            counts.set(name, (counts.get(name) ?? 0) + 1);
+        }
+        return [...counts].sort((a, b) => {
+            if (a[0] === OTHER_PARTITION)
+                return 1;
+            if (b[0] === OTHER_PARTITION)
+                return -1;
+            return b[1] - a[1];
+        });
+    }, [followScoped]);
+    const partitionScoped = useMemo(() => partition
+        ? followScoped.filter((video) => (video.partition || OTHER_PARTITION) === partition)
+        : followScoped, [followScoped, partition]);
+    const subPartitionCounts = useMemo(() => {
+        if (!partition)
+            return [];
+        const counts = new Map();
+        for (const video of partitionScoped) {
+            const name = video.subPartition || OTHER_PARTITION;
+            counts.set(name, (counts.get(name) ?? 0) + 1);
+        }
+        return [...counts].sort((a, b) => b[1] - a[1]);
+    }, [partition, partitionScoped]);
+    const filteredPopular = useMemo(() => subPartition
+        ? partitionScoped.filter((video) => (video.subPartition || OTHER_PARTITION) === subPartition)
+        : partitionScoped, [partitionScoped, subPartition]);
+    const popularTotalPages = Math.max(1, Math.ceil(filteredPopular.length / POPULAR_PAGE_SIZE));
+    const popularPageVideos = useMemo(() => {
+        const start = (popularPage - 1) * POPULAR_PAGE_SIZE;
+        return filteredPopular.slice(start, start + POPULAR_PAGE_SIZE);
+    }, [filteredPopular, popularPage]);
+    useEffect(() => {
+        setPopularPage(1);
+        if (scrollRef.current)
+            scrollRef.current.scrollTop = 0;
+    }, [partition, subPartition, followOnly]);
+    useEffect(() => {
+        if (partition && !partitionCounts.some(([name]) => name === partition)) {
+            setPartition(null);
+        }
+    }, [partition, partitionCounts]);
+    useEffect(() => {
+        if (subPartition &&
+            !subPartitionCounts.some(([name]) => name === subPartition)) {
+            setSubPartition(null);
+        }
+    }, [subPartition, subPartitionCounts]);
+    useEffect(() => {
+        if (!isLogin)
+            setFollowOnly(false);
+    }, [isLogin]);
+    const loadWeeklyList = useCallback(async () => {
+        setWeeklyLoading(true);
+        setWeeklyError("");
+        try {
+            const list = await window.biliDesk.bili.getWeeklySeriesList();
+            setWeeklyList(list);
+            const latest = list[0]?.number ?? 0;
+            if (latest)
+                setWeeklyNumber((prev) => prev || latest);
+        }
+        catch (err) {
+            setWeeklyError(formatError(err, "每周必看加载失败"));
+        }
+        finally {
+            setWeeklyLoading(false);
+        }
+    }, []);
+    const loadWeeklySeries = useCallback(async (number, force = false) => {
+        if (!number)
+            return;
+        const cached = force ? undefined : weeklyCacheRef.current.get(number);
+        if (cached) {
+            setWeeklyVideos(cached.videos);
+            setWeeklyHint(cached.hint);
+            return;
+        }
+        setWeeklyLoading(true);
+        setWeeklyError("");
+        try {
+            const detail = await window.biliDesk.bili.getWeeklySeries(number);
+            const hint = detail.subject || detail.reminder || "";
+            weeklyCacheRef.current.set(number, { videos: detail.videos, hint });
+            setWeeklyVideos(detail.videos);
+            setWeeklyHint(hint);
+        }
+        catch (err) {
+            setWeeklyError(formatError(err, "每周必看加载失败"));
+        }
+        finally {
+            setWeeklyLoading(false);
+        }
+    }, []);
+    const loadPrecious = useCallback(async (force = false) => {
+        if (!force && preciousLoadedRef.current)
+            return;
+        setPreciousLoading(true);
+        setPreciousError("");
+        try {
+            const result = await window.biliDesk.bili.getPreciousVideos();
+            preciousLoadedRef.current = true;
+            setPreciousVideos(result.videos);
+            setPreciousHint(result.explain || result.title);
+        }
+        catch (err) {
+            setPreciousError(formatError(err, "入站必刷加载失败"));
+        }
+        finally {
+            setPreciousLoading(false);
+        }
+    }, []);
+    const loadRanking = useCallback(async (rid) => {
+        const cached = rankingCacheRef.current.get(rid);
+        if (cached) {
+            setRankingVideos(cached);
+            return;
+        }
+        setRankingLoading(true);
+        setRankingError("");
+        try {
+            const videos = await window.biliDesk.bili.getRankingVideos(rid);
+            rankingCacheRef.current.set(rid, videos);
+            setRankingVideos(videos);
+        }
+        catch (err) {
+            setRankingError(formatError(err, "排行榜加载失败"));
+        }
+        finally {
+            setRankingLoading(false);
+        }
+    }, []);
+    const loadMusicPeriods = useCallback(async () => {
+        if (musicPeriods.length > 0)
+            return;
+        setMusicLoading(true);
+        setMusicError("");
+        try {
+            const periods = await window.biliDesk.bili.getMusicRankPeriods();
+            setMusicPeriods(periods);
+            const latest = periods[0]?.listId ?? 0;
+            if (latest)
+                setMusicListId((prev) => prev || latest);
+        }
+        catch (err) {
+            setMusicError(formatError(err, "音乐榜加载失败"));
+        }
+        finally {
+            setMusicLoading(false);
+        }
+    }, [musicPeriods.length]);
+    const loadMusicList = useCallback(async (listId) => {
+        if (!listId)
+            return;
+        setMusicLoading(true);
+        setMusicError("");
+        try {
+            const items = await window.biliDesk.bili.getMusicRankList(listId);
+            setMusicItems(items);
+        }
+        catch (err) {
+            setMusicError(formatError(err, "音乐榜加载失败"));
+        }
+        finally {
+            setMusicLoading(false);
+        }
+    }, []);
+    useEffect(() => {
+        if (tab !== "popular" || popularStartedRef.current)
+            return;
+        popularStartedRef.current = true;
+        void loadPopular();
+    }, [tab, loadPopular]);
+    useEffect(() => {
+        if (tab === "weekly" && weeklyList.length === 0 && !weeklyLoading) {
+            void loadWeeklyList();
+        }
+    }, [tab, weeklyList.length, weeklyLoading, loadWeeklyList]);
+    useEffect(() => {
+        if (tab === "weekly" && weeklyNumber > 0) {
+            void loadWeeklySeries(weeklyNumber);
+        }
+    }, [tab, weeklyNumber, loadWeeklySeries]);
+    useEffect(() => {
+        if (tab === "precious")
+            void loadPrecious();
+    }, [tab, loadPrecious]);
+    useEffect(() => {
+        if (tab === "ranking")
+            void loadRanking(rankingRid);
+    }, [tab, rankingRid, loadRanking]);
+    useEffect(() => {
+        if (tab === "music")
+            void loadMusicPeriods();
+    }, [tab, loadMusicPeriods]);
+    useEffect(() => {
+        if (tab === "music" && musicListId > 0)
+            void loadMusicList(musicListId);
+    }, [tab, musicListId, loadMusicList]);
+    useEffect(() => {
+        const onRefresh = () => {
+            const jobs = [];
+            if (tab === "popular")
+                jobs.push(loadPopular());
+            else if (tab === "weekly") {
+                jobs.push(loadWeeklyList());
+                if (weeklyNumber > 0)
+                    jobs.push(loadWeeklySeries(weeklyNumber, true));
+            }
+            else if (tab === "precious")
+                jobs.push(loadPrecious(true));
+            else if (tab === "ranking") {
+                rankingCacheRef.current.delete(rankingRid);
+                jobs.push(loadRanking(rankingRid));
+            }
+            else if (tab === "music" && musicListId > 0) {
+                jobs.push(loadMusicList(musicListId));
+            }
+            void Promise.allSettled(jobs).then(notifyRefreshDone);
+        };
+        window.addEventListener("bilidesk:refresh-popular", onRefresh);
+        return () => window.removeEventListener("bilidesk:refresh-popular", onRefresh);
+    }, [
+        tab,
+        weeklyNumber,
+        rankingRid,
+        musicListId,
+        loadPopular,
+        loadWeeklyList,
+        loadWeeklySeries,
+        loadPrecious,
+        loadRanking,
+        loadMusicList,
+    ]);
+    const displayVideos = useMemo(() => {
+        if (tab === "popular")
+            return popularPageVideos;
+        if (tab === "weekly")
+            return weeklyVideos;
+        if (tab === "precious")
+            return preciousVideos;
+        if (tab === "ranking")
+            return rankingVideos;
+        return [];
+    }, [tab, popularPageVideos, weeklyVideos, preciousVideos, rankingVideos]);
+    const loading = (tab === "popular" && popularLoading && popularVideos.length === 0) ||
+        (tab === "weekly" && weeklyLoading && weeklyVideos.length === 0) ||
+        (tab === "precious" && preciousLoading) ||
+        (tab === "ranking" && rankingLoading) ||
+        (tab === "music" && musicLoading && musicItems.length === 0);
+    const error = tab === "popular"
+        ? popularError
+        : tab === "weekly"
+            ? weeklyError
+            : tab === "precious"
+                ? preciousError
+                : tab === "ranking"
+                    ? rankingError
+                    : musicError;
+    const retry = () => {
+        if (tab === "popular")
+            void loadPopular();
+        else if (tab === "weekly") {
+            if (weeklyNumber)
+                void loadWeeklySeries(weeklyNumber);
+            else
+                void loadWeeklyList();
+        }
+        else if (tab === "precious") {
+            preciousLoadedRef.current = false;
+            void loadPrecious(true);
+        }
+        else if (tab === "ranking") {
+            rankingCacheRef.current.delete(rankingRid);
+            void loadRanking(rankingRid);
+        }
+        else if (musicListId)
+            void loadMusicList(musicListId);
+        else
+            void loadMusicPeriods();
+    };
+    return (_jsxs("div", { className: "flex h-full flex-col", children: [_jsxs("div", { className: "border-b border-border px-6 pt-4", children: [_jsx("div", { className: "flex flex-wrap gap-1", children: TABS.map((item) => {
+                            const Icon = item.icon;
+                            const active = tab === item.id;
+                            return (_jsxs("button", { type: "button", onClick: () => {
+                                    setTab(item.id);
+                                    if (scrollRef.current)
+                                        scrollRef.current.scrollTop = 0;
+                                }, className: cn("flex items-center gap-2 rounded-t-lg px-3 py-2 text-sm transition-colors", active
+                                    ? "border-b-2 border-primary text-foreground"
+                                    : "text-muted-foreground hover:text-foreground"), children: [_jsx("span", { className: cn("flex h-7 w-7 items-center justify-center rounded-full", item.iconClass), children: _jsx(Icon, { className: "h-3.5 w-3.5" }) }), item.label] }, item.id));
+                        }) }), _jsxs("div", { className: "flex flex-wrap items-center justify-between gap-3 py-3", children: [_jsxs("p", { className: "text-xs text-muted-foreground", children: [tab === "weekly" && weeklyHint ? weeklyHint : activeTab.hint, tab === "precious" && preciousHint ? ` · ${preciousHint}` : ""] }), tab === "weekly" && weeklyList.length > 0 ? (_jsx("select", { className: "h-8 rounded-md border border-border bg-background px-2 text-xs", value: weeklyNumber, onChange: (event) => setWeeklyNumber(Number(event.target.value)), children: weeklyByYear.map(([year, items]) => (_jsx("optgroup", { label: year, children: items.map((item) => (_jsxs("option", { value: item.number, children: [item.name || `第 ${item.number} 期`, item.subject ? ` · ${item.subject}` : ""] }, item.number))) }, year))) })) : null, tab === "music" && musicPeriods.length > 0 ? (_jsx("select", { className: "h-8 rounded-md border border-border bg-background px-2 text-xs", value: musicListId, onChange: (event) => setMusicListId(Number(event.target.value)), children: musicPeriods.map((item) => (_jsx("option", { value: item.listId, children: formatMusicPeriod(item) }, item.listId))) })) : null] }), tab === "ranking" ? (_jsx("div", { className: "flex flex-wrap gap-1.5 pb-3", children: RANKING_PARTITIONS.map((item) => (_jsx("button", { type: "button", onClick: () => setRankingRid(item.rid), className: cn("rounded-full px-2.5 py-1 text-xs transition-colors", rankingRid === item.rid
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-secondary text-muted-foreground hover:text-foreground"), children: item.label }, item.rid))) })) : null, tab === "popular" && popularVideos.length > 0 ? (_jsxs("div", { className: "space-y-2 pb-3", children: [_jsxs("div", { className: "flex items-start gap-1.5", children: [_jsxs("div", { className: cn("flex min-w-0 flex-1 flex-wrap items-center gap-1.5", filtersCollapsed && "max-h-6 overflow-hidden"), children: [_jsxs("button", { type: "button", onClick: () => {
+                                                    setPartition(null);
+                                                    setSubPartition(null);
+                                                }, className: cn("rounded-full px-2.5 py-1 text-xs transition-colors", partition === null
+                                                    ? "bg-primary text-primary-foreground"
+                                                    : "bg-secondary text-muted-foreground hover:text-foreground"), children: ["\u5168\u90E8 ", followScoped.length] }), (filtersCollapsed && partition
+                                                ? [
+                                                    ...partitionCounts.filter(([name]) => name === partition),
+                                                    ...partitionCounts.filter(([name]) => name !== partition),
+                                                ]
+                                                : partitionCounts).map(([name, count]) => (_jsxs("button", { type: "button", onClick: () => {
+                                                    setPartition(name);
+                                                    setSubPartition(null);
+                                                }, className: cn("rounded-full px-2.5 py-1 text-xs transition-colors", partition === name
+                                                    ? "bg-primary text-primary-foreground"
+                                                    : "bg-secondary text-muted-foreground hover:text-foreground"), children: [name, " ", count] }, name)))] }), _jsxs("div", { className: "flex shrink-0 items-center gap-1.5", children: [isLogin ? (_jsxs("button", { type: "button", onClick: toggleFollowOnly, title: "\u53EA\u770B\u70ED\u95E8\u91CC\u6211\u5173\u6CE8\u7684 UP \u4E3B\u7684\u89C6\u9891", className: cn("flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors", followOnly
+                                                    ? "bg-primary text-primary-foreground"
+                                                    : "bg-secondary text-muted-foreground hover:text-foreground"), children: [followLoading ? (_jsx(Loader2, { className: "h-3 w-3 animate-spin" })) : (_jsx(UserCheck, { className: "h-3 w-3" })), "\u53EA\u770B\u6211\u5173\u6CE8\u7684", followOnly && !followLoading
+                                                        ? ` ${followScoped.length}`
+                                                        : ""] })) : null, _jsxs("button", { type: "button", onClick: toggleFiltersCollapsed, title: filtersCollapsed ? "展开全部分区" : "收起分区筛选", className: "flex items-center gap-0.5 rounded-full bg-secondary px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground", children: [filtersCollapsed ? (_jsx(ChevronDown, { className: "h-3 w-3" })) : (_jsx(ChevronUp, { className: "h-3 w-3" })), filtersCollapsed ? "展开" : "收起"] })] })] }), !filtersCollapsed && partition && subPartitionCounts.length > 1 ? (_jsxs("div", { className: "flex flex-wrap gap-1.5 border-l-2 border-primary/40 pl-2", children: [_jsxs("button", { type: "button", onClick: () => setSubPartition(null), className: cn("rounded-full px-2 py-0.5 text-[11px] transition-colors", subPartition === null
+                                            ? "bg-primary/20 text-primary"
+                                            : "text-muted-foreground hover:text-foreground"), children: ["\u5168\u90E8", partition] }), subPartitionCounts.map(([name, count]) => (_jsxs("button", { type: "button", onClick: () => setSubPartition(name), className: cn("rounded-full px-2 py-0.5 text-[11px] transition-colors", subPartition === name
+                                            ? "bg-primary/20 text-primary"
+                                            : "text-muted-foreground hover:text-foreground"), children: [name, " ", count] }, name)))] })) : null] })) : null] }), _jsx("div", { ref: scrollRef, className: "scrollbar-overlay flex-1 overflow-y-auto", children: loading ? (_jsxs("div", { className: "flex items-center justify-center py-20 text-sm text-muted-foreground", children: [_jsx(Loader2, { className: "mr-2 h-4 w-4 animate-spin" }), "\u52A0\u8F7D\u4E2D..."] })) : error &&
+                    ((tab === "music" && musicItems.length === 0) ||
+                        (tab !== "music" && displayVideos.length === 0)) ? (_jsxs("div", { className: "flex flex-col items-center gap-3 py-20 text-sm text-muted-foreground", children: [_jsx("p", { children: error }), _jsx(Button, { size: "sm", variant: "outline", onClick: retry, children: "\u91CD\u8BD5" })] })) : tab === "music" ? (_jsx("div", { className: "grid grid-cols-1 gap-1 p-4 xl:grid-cols-2", children: musicItems.map((item) => (_jsx(MusicRankCard, { item: item }, `${item.musicId}-${item.rank}`))) })) : (_jsxs(_Fragment, { children: [_jsx("div", { className: "grid grid-cols-1 gap-1 p-4 xl:grid-cols-2", children: displayVideos.map((video, index) => (_jsx(PopularVideoCard, { video: tab === "ranking" || !video.rank
+                                    ? { ...video, rank: video.rank ?? index + 1 }
+                                    : video, showRank: tab === "ranking" ||
+                                    (tab === "popular" && (partition !== null || followOnly)) }, video.bvid))) }), displayVideos.length === 0 ? (_jsx("p", { className: "py-16 text-center text-sm text-muted-foreground", children: tab === "popular" && followOnly && followLoading
+                                ? "正在读取关注列表..."
+                                : tab === "popular" && followOnly
+                                    ? "当前热门里没有你关注的 UP 主的视频"
+                                    : "暂无内容" })) : (_jsx("div", { className: "h-8" }))] })) }), tab === "popular" && filteredPopular.length > POPULAR_PAGE_SIZE ? (_jsx(PaginationBar, { className: "shrink-0 bg-background", page: popularPage, totalPages: popularTotalPages, onPageChange: (next) => {
+                    setPopularPage(next);
+                    if (scrollRef.current)
+                        scrollRef.current.scrollTop = 0;
+                }, info: _jsxs(_Fragment, { children: ["\u5171 ", filteredPopular.length, " \u6761 \u00B7 \u7B2C ", popularPage, " /", " ", popularTotalPages, " \u9875"] }) })) : null] }));
+}

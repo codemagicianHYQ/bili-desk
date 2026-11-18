@@ -1,0 +1,175 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Eye, EyeOff, RefreshCw, UserCircle2 } from "lucide-react";
+import { REFRESH_DONE_EVENT } from "@/lib/page-refresh";
+import { Button } from "@/components/ui/button";
+import { BiliImage } from "@/components/ui/bili-image";
+import { HomeGridLayoutPicker } from "@/components/layout/HomeGridLayoutPicker";
+import { ThemeCustomizer } from "@/components/layout/ThemeCustomizer";
+import { useAppStore } from "@/stores/app-store";
+import { useFavoritesStore } from "@/stores/favorites-store";
+import { useFollowingStore } from "@/stores/following-store";
+import { useHomeFeedStore } from "@/stores/home-feed-store";
+import { useHomeLiveStore } from "@/stores/home-live-store";
+import { useHomeSearchStore } from "@/stores/home-search-store";
+import { useHomeTabStore } from "@/stores/home-tab-store";
+import { useWatchLaterStore } from "@/stores/watch-later-store";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
+export function TopBar({ title, subtitle }) {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const user = useAppStore((state) => state.user);
+    const incognitoMode = useAppStore((state) => state.incognitoMode);
+    const setIncognitoMode = useAppStore((state) => state.setIncognitoMode);
+    const homeRefresh = useHomeFeedStore((state) => state.refresh);
+    const homeRefreshing = useHomeFeedStore((state) => state.refreshing);
+    const homeLiveRefresh = useHomeLiveStore((state) => state.refresh);
+    const homeLiveRefreshing = useHomeLiveStore((state) => state.refreshing);
+    const homeTab = useHomeTabStore((state) => state.tab);
+    const setHomeTab = useHomeTabStore((state) => state.setTab);
+    const searchQuery = useHomeSearchStore((state) => state.query);
+    const searchOrder = useHomeSearchStore((state) => state.order);
+    const followingRefresh = useFollowingStore((state) => state.refresh);
+    const followingRefreshing = useFollowingStore((state) => state.refreshing);
+    const favoritesRefresh = useFavoritesStore((state) => state.refresh);
+    const favoritesRefreshing = useFavoritesStore((state) => state.refreshing);
+    const watchLaterRefresh = useWatchLaterStore((state) => state.refresh);
+    const watchLaterRefreshing = useWatchLaterStore((state) => state.refreshing);
+    const [eventRefreshPath, setEventRefreshPath] = useState(null);
+    const isHome = location.pathname === "/";
+    const isHomeLive = isHome && homeTab === "live";
+    const isSearching = isHome && homeTab === "video" && searchQuery.length > 0;
+    const isFollowing = location.pathname === "/following";
+    const isFavorites = location.pathname === "/favorites";
+    const isWatchLater = location.pathname === "/watch-later";
+    const isDynamics = location.pathname === "/dynamics";
+    const isHistory = location.pathname === "/history";
+    const isPopular = location.pathname === "/popular";
+    const isCollections = location.pathname === "/collections";
+    const isMessages = location.pathname === "/messages";
+    const isUpSpace = location.pathname.startsWith("/up/");
+    const isVideo = location.pathname.startsWith("/video/");
+    const isLive = location.pathname.startsWith("/live/");
+    const showBack = isVideo || isLive;
+    const showRefresh = isHome ||
+        isFollowing ||
+        isFavorites ||
+        isWatchLater ||
+        isDynamics ||
+        isHistory ||
+        isPopular ||
+        isCollections ||
+        isMessages ||
+        isVideo ||
+        isLive;
+    const showGridPicker = isHome || isWatchLater || isUpSpace;
+    const homeTabs = [
+        { id: "video", label: "视频" },
+        { id: "live", label: "直播" },
+    ];
+    const refreshing = isHome
+        ? isHomeLive
+            ? homeLiveRefreshing
+            : homeRefreshing
+        : isFollowing
+            ? followingRefreshing
+            : isFavorites
+                ? favoritesRefreshing
+                : isWatchLater
+                    ? watchLaterRefreshing
+                    : eventRefreshPath === location.pathname;
+    useEffect(() => {
+        if (!eventRefreshPath)
+            return;
+        const done = () => setEventRefreshPath(null);
+        const timer = window.setTimeout(done, 30_000);
+        window.addEventListener(REFRESH_DONE_EVENT, done);
+        return () => {
+            window.clearTimeout(timer);
+            window.removeEventListener(REFRESH_DONE_EVENT, done);
+        };
+    }, [eventRefreshPath]);
+    const dispatchPageRefresh = (name) => {
+        setEventRefreshPath(location.pathname);
+        window.dispatchEvent(new CustomEvent(name));
+    };
+    const handleRefresh = () => {
+        if (isSearching) {
+            window.dispatchEvent(new CustomEvent("bilidesk:refresh-search", {
+                detail: { query: searchQuery, order: searchOrder },
+            }));
+            return;
+        }
+        if (isHomeLive)
+            void homeLiveRefresh();
+        else if (isHome)
+            void homeRefresh();
+        else if (isFollowing)
+            void followingRefresh();
+        else if (isFavorites)
+            void favoritesRefresh();
+        else if (isWatchLater)
+            void watchLaterRefresh();
+        else if (isDynamics) {
+            window.dispatchEvent(new CustomEvent("bilidesk:refresh-dynamics"));
+        }
+        else if (isHistory) {
+            window.dispatchEvent(new CustomEvent("bilidesk:refresh-history"));
+        }
+        else if (isPopular) {
+            dispatchPageRefresh("bilidesk:refresh-popular");
+        }
+        else if (isCollections) {
+            dispatchPageRefresh("bilidesk:refresh-collections");
+        }
+        else if (isMessages) {
+            dispatchPageRefresh("bilidesk:refresh-messages");
+        }
+        else if (isVideo) {
+            window.dispatchEvent(new CustomEvent("bilidesk:refresh-video"));
+        }
+        else if (isLive) {
+            window.dispatchEvent(new CustomEvent("bilidesk:refresh-live"));
+        }
+    };
+    const handleBack = () => {
+        if (window.history.length > 1) {
+            navigate(-1);
+            return;
+        }
+        navigate("/");
+    };
+    const refreshLabel = isSearching
+        ? "刷新搜索结果"
+        : isHomeLive
+            ? "刷新直播"
+            : isHome
+                ? "刷新推荐"
+                : isFollowing
+                    ? "刷新关注"
+                    : isFavorites
+                        ? "刷新收藏"
+                        : isDynamics
+                            ? "刷新动态"
+                            : isHistory
+                                ? "刷新历史"
+                                : isPopular
+                                    ? "刷新热门"
+                                    : isCollections
+                                        ? "刷新合集"
+                                        : isMessages
+                                            ? "刷新消息"
+                                            : isVideo
+                                                ? "刷新播放器"
+                                                : isLive
+                                                    ? "刷新直播"
+                                                    : "刷新稍后再看";
+    return (_jsxs("header", { "data-app-chrome": true, "data-app-topbar": true, className: "bili-glass flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-6", children: [_jsxs("div", { className: "flex min-w-0 items-center gap-3", children: [showBack && (_jsxs(Button, { variant: "ghost", size: "sm", className: "shrink-0 gap-1.5", onClick: handleBack, children: [_jsx(ArrowLeft, { className: "h-4 w-4" }), "\u8FD4\u56DE"] })), _jsxs("div", { className: "flex min-w-0 items-center gap-2", children: [_jsxs("div", { className: "min-w-0", children: [_jsx("h2", { className: "text-base font-semibold", children: title }), subtitle && (_jsx("p", { className: "text-xs text-muted-foreground", children: subtitle }))] }), showRefresh && (_jsx(Button, { variant: "ghost", size: "icon", className: "shrink-0", disabled: refreshing, onClick: handleRefresh, "aria-label": refreshLabel, title: refreshLabel, children: _jsx(RefreshCw, { className: `h-4 w-4 ${refreshing ? "animate-spin" : ""}` }) }))] }), isHome && (_jsx("div", { className: "flex shrink-0 items-center gap-0.5 rounded-lg bg-secondary/50 p-0.5", children: homeTabs.map((tab) => (_jsx("button", { type: "button", onClick: () => setHomeTab(tab.id), className: cn("rounded-md px-3 py-1 text-sm font-medium transition-colors", homeTab === tab.id
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"), children: tab.label }, tab.id))) }))] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: cn("gap-1.5", incognitoMode
+                            ? "text-primary hover:text-primary"
+                            : "text-muted-foreground"), onClick: () => setIncognitoMode(!incognitoMode), "aria-label": incognitoMode ? "关闭无痕模式" : "开启无痕模式", title: incognitoMode
+                            ? "无痕模式开启中：观看不会写入 B 站历史"
+                            : "开启无痕模式：本机观看不同步到 B 站历史", children: [incognitoMode ? (_jsx(EyeOff, { className: "h-4 w-4" })) : (_jsx(Eye, { className: "h-4 w-4" })), _jsx("span", { className: "hidden sm:inline", children: incognitoMode ? "无痕中" : "无痕" })] }), showGridPicker && _jsx(HomeGridLayoutPicker, {}), isFavorites && _jsx(HomeGridLayoutPicker, { target: "favorites" }), _jsx(ThemeCustomizer, {}), user?.isLogin ? (_jsx(Link, { to: "/me", children: _jsxs(Button, { variant: "ghost", size: "sm", className: "gap-2", children: [user.face ? (_jsx(BiliImage, { src: user.face, alt: "", className: "h-6 w-6 rounded-full object-cover" })) : (_jsx(UserCircle2, { className: "h-5 w-5" })), _jsx("span", { className: "max-w-24 truncate", children: user.name })] }) })) : (_jsx(Link, { to: "/login", children: _jsxs(Button, { variant: "ghost", size: "sm", className: "gap-2", children: [_jsx(UserCircle2, { className: "h-5 w-5" }), _jsx("span", { children: "\u672A\u767B\u5F55" })] }) }))] })] }));
+}
